@@ -1,0 +1,97 @@
+{
+  "name": "mnemora",
+  "version": "1.0.0",
+  "description": "Local-first, evidence-first memory runtime for persistent OpenClaw agents.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && npm run build:inspector",
+    "build:inspector": "node scripts/build-inspector.mjs",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "plugin:build": "npm run build",
+    "plugin:validate": "npm run plugin:build && node scripts/validate-plugin.mjs && npm run smoke",
+    "plugin:official:build": "openclaw plugins build --entry ./dist/plugin.js --root .",
+    "plugin:official:validate": "openclaw plugins validate --entry ./dist/plugin.js --root .",
+    "plugin:official:compat": "npm run build && node scripts/official-plugin-gate.mjs",
+    "smoke": "node scripts/smoke-test.mjs",
+    "release:validate": "node scripts/validate-release-version.mjs",
+    "cli": "node dist/cli.js",
+    "test:unit": "npm run build && node scripts/run-unit-tests.mjs",
+    "test": "npm run test:unit",
+    "benchmark:hybrid": "npm run build && node scripts/benchmark-hybrid-recall.mjs",
+    "benchmark:quality": "npm run build && node scripts/benchmark-quality-ranking.mjs",
+    "benchmark:insights": "npm run build && node scripts/benchmark-insights.mjs",
+    "benchmark:query": "npm run build && node scripts/benchmark-query.mjs",
+    "benchmark:inspector": "npm run build && node scripts/benchmark-inspector.mjs",
+    "benchmark:lifecycle": "npm run build && node scripts/benchmark-memory-lifecycle.mjs",
+    "benchmark:ingestion": "npm run build && node scripts/benchmark-ingestion.mjs",
+    "benchmark:harness": "npm run build && node scripts/benchmark-personal-memory-harness.mjs",
+    "benchmark:recall-quality": "npm run build && node scripts/benchmark-recall-quality.mjs",
+    "benchmark:cognition": "npm run build && node scripts/benchmark-cognition-graduation.mjs",
+    "benchmark:reasoning": "npm run build && node scripts/benchmark-reasoning-runtime.mjs",
+    "benchmark:graduation": "npm run build && node scripts/benchmark-single-memory-harness-graduation.mjs",
+    "verify": "npm run check && npm test && npm run benchmark:hybrid && npm run benchmark:quality && npm run benchmark:insights && npm run benchmark:query && npm run benchmark:inspector && npm run benchmark:lifecycle && npm run benchmark:ingestion && npm run benchmark:harness && npm run benchmark:recall-quality && npm run benchmark:cognition && npm run benchmark:reasoning && npm run benchmark:graduation && npm run plugin:validate && npm run plugin:official:compat && npm run release:validate"
+  },
+  "keywords": [
+    "openclaw",
+    "agent-memory",
+    "personal-memory",
+    "knowledge-graph",
+    "sqlite",
+    "memory"
+  ],
+  "author": "Rick",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rrriiiccckkk/mnemora.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rrriiiccckkk/mnemora/issues"
+  },
+  "homepage": "https://github.com/rrriiiccckkk/mnemora#readme",
+  "dependencies": {
+    "@photostructure/sqlite": "^1.2.1",
+    "graphology": "^0.26.0",
+    "htmlparser2": "^12.0.0",
+    "sigma": "^3.0.3",
+    "typebox": "1.1.39"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.6.11"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "esbuild": "^0.28.1",
+    "openclaw": "2026.6.11",
+    "playwright": "^1.61.1",
+    "typescript": "^5.5.0"
+  },
+  "bin": { "mnemora": "dist/cli.js" },
+  "files": [
+    "dist/",
+    "openclaw.plugin.json",
+    "README.md",
+    "README.zh-CN.md",
+    "skills/",
+    "LICENSE"
+  ],
+  "openclaw": {
+    "extensions": [
+      "./dist/plugin.js"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.6.11",
+      "minGatewayVersion": "2026.6.11",
+      "tested": [
+        "2026.6.11"
+      ]
+    }
+  }
+}

@@ -1,0 +1,21 @@
+import assert from "node:assert/strict";
+import { performance } from "node:perf_hooks";
+import { executeQueryPlan } from "../dist/query/executor.js";
+
+const NOW = Date.parse("2026-07-15T00:00:00.000Z");
+const nodes = Array.from({ length: 10000 }, (_, i) => ({ id: `company:${String(i).padStart(5, "0")}`, name: i === 0 ? "Benchmark Seed" : `Company ${i}`, type: "company", aliases: [], createdAt: i, updatedAt: i }));
+const edges = Array.from({ length: 50000 }, (_, i) => ({ id: `edge:${String(i).padStart(5, "0")}`, source: nodes[i % nodes.length].id, target: nodes[(i * 17 + 1) % nodes.length].id, type: "supplies", confidence: .7 + (i % 30) / 100, evidenceCount: 2 + i % 4, sourceCount: 1 + i % 3, firstSeenAt: NOW - 1000, lastSeenAt: NOW, validFrom: NOW - 10000, validTo: NOW + 10000 }));
+assert.equal(nodes.length, 10000);
+assert.equal(edges.length, 50000);
+const store = { queryGraphProjection: ({ maxNodes, maxEdges }) => ({ graphRevision: 1, nodes: nodes.slice(0, maxNodes), edges: edges.slice(0, maxEdges), truncated: maxNodes < nodes.length || maxEdges < edges.length }) };
+const plan = { version: 1, steps: [{ op: "lookup", query: "Benchmark Seed", mode: "lexical" }, { op: "traverse", from: ["$previous"], edge_types: ["supplies"], direction: "out", depth: 4 }, { op: "filter", confidence_min: .7, valid_from: NOW - 5000, valid_to: NOW + 5000 }], order_by: "confidence", limit: 50 };
+const options = { now: NOW, limits: { maxSteps: 8, maxDepth: 4, maxResults: 50, maxNodes: 10000, maxEdges: 50000, timeoutMs: 10000, maxResponseBytes: 1048576 } };
+const run = () => { const start = performance.now(); const result = executeQueryPlan(store, plan, options); return { result, elapsed: performance.now() - start }; };
+const first = run();
+const second = run();
+assert.deepEqual(second.result, first.result);
+assert.ok(Number.isFinite(first.elapsed) && Number.isFinite(second.elapsed));
+assert.ok(first.result.entities.length <= 50 && first.result.relationships.length <= 50);
+assert.ok(Buffer.byteLength(JSON.stringify(first.result)) <= 1048576);
+assert.ok(first.elapsed < 10000 && second.elapsed < 10000);
+console.log(JSON.stringify({ nodes: nodes.length, edges: edges.length, first_ms: Number(first.elapsed.toFixed(2)), second_ms: Number(second.elapsed.toFixed(2)), entities: first.result.entities.length, relationships: first.result.relationships.length, bytes: Buffer.byteLength(JSON.stringify(first.result)) }));

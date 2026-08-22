@@ -1,0 +1,16 @@
+{
+  "nodes": [
+    { "name": "Silicon Wafer", "type": "concept", "description": "wafer substrate material", "vector": [1, 0, 0] },
+    { "name": "Advanced Packaging", "type": "technology", "description": "chiplet packaging process", "vector": [0.98, 0.05, 0] },
+    { "name": "HBM", "type": "product", "description": "high bandwidth memory", "vector": [0.92, 0.08, 0.1] },
+    { "name": "NVIDIA", "type": "company", "description": "accelerator designer", "vector": [0, 1, 0] },
+    { "name": "TSMC", "type": "company", "description": "semiconductor foundry", "vector": [0.05, 0.98, 0] },
+    { "name": "Murata", "type": "company", "description": "electronic components maker", "vector": [0, 0, 1] },
+    { "name": "Unrelated", "type": "concept", "description": "unrelated control", "vector": [-1, 0, 0] }
+  ],
+  "queries": [
+    { "query": "半导体上游", "relevant": ["concept:silicon-wafer", "technology:advanced-packaging", "product:hbm"], "queryVector": [1, 0, 0] },
+    { "query": "AI chip supply chain", "relevant": ["company:nvidia", "company:tsmc", "product:hbm"], "queryVector": [0, 1, 0] },
+    { "query": "Murata", "relevant": ["company:murata"], "queryVector": [0, 0, 1], "exactName": true }
+  ]
+}

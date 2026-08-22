@@ -1,0 +1,630 @@
+{
+  "id": "mnemora",
+  "name": "Mnemora",
+  "description": "Evidence-first personal memory harness for persistent OpenClaw agents.",
+  "version": "1.0.0",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "dbPath": {
+        "type": "string",
+        "description": "SQLite database path for Mnemora."
+      },
+      "mode": {
+        "anyOf": [{ "const": "companion", "type": "string" }, { "const": "standalone", "type": "string" }],
+        "description": "Standalone is the only runtime lifecycle. companion is accepted as a deprecated configuration alias and never enables hooks."
+      },
+      "consolidation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean", "default": false, "description": "Enable bounded local proposal-only consolidation; it never modifies recall, graph facts, or profiles." },
+          "maxJobsPerRun": { "type": "integer", "default": 4, "minimum": 1, "maximum": 20 },
+          "leaseMs": { "type": "integer", "default": 45000, "minimum": 5000, "maximum": 300000 },
+          "proposalTtlDays": { "type": "integer", "default": 14, "minimum": 1, "maximum": 90 },
+          "staleAfterDays": { "type": "integer", "default": 90, "minimum": 1, "maximum": 3650 }
+        }
+      },
+      "cognition": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "formationShadow": { "type": "boolean", "default": true, "description": "Record local candidate, authority, shape, and admission audits without changing facts, profiles, beliefs, or recall. Set false to opt out." },
+          "admission": { "type": "object", "additionalProperties": false, "properties": { "mode": { "anyOf": [{ "const": "shadow", "type": "string" }, { "const": "enforce", "type": "string" }], "default": "shadow", "description": "Shadow records only; enforce records deterministic accept/reject outcomes without creating beliefs or changing recall." }, "preAdmission": { "type": "object", "additionalProperties": false, "properties": { "mode": { "anyOf": [{ "const": "off", "type": "string" }, { "const": "shadow", "type": "string" }, { "const": "enforce", "type": "string" }], "default": "off", "description": "Deterministic source/shape gate. Shadow audits only; enforce can skip low-information or repeated automatic evidence before graph persistence." } } } } },
+          "beliefs": { "type": "object", "additionalProperties": false, "properties": { "enabled": { "type": "boolean", "default": false, "description": "Allow Formation to create low-risk beliefs only from explicit user preference or correction candidates accepted by the deterministic policy." }, "autoCorroborate": { "type": "boolean", "default": false, "description": "Allow distinct explicit supporting candidates to increase support for an existing same-value belief." } } },
+          "contextCompiler": { "type": "object", "additionalProperties": false, "properties": { "enabled": { "type": "boolean", "default": false, "description": "Enable the bounded Personal Context Compiler for explicit local CLI/API use; it never appends a prompt message or relies on an undocumented ContextEngine sidecar." }, "tokenBudget": { "type": "integer", "default": 600, "minimum": 64, "maximum": 1600 }, "maxItems": { "type": "integer", "default": 8, "minimum": 1, "maximum": 20 } } },
+          "reflection": { "type": "object", "additionalProperties": false, "properties": { "enabled": { "type": "boolean", "default": false, "description": "Run bounded local reflection after completed turns; it creates review candidates only and never writes beliefs or facts." }, "maxJobsPerRun": { "type": "integer", "default": 4, "minimum": 1, "maximum": 20 }, "staleAfterDays": { "type": "integer", "default": 90, "minimum": 1, "maximum": 3650 } } },
+          "graduation": { "type": "object", "additionalProperties": false, "properties": { "enabled": { "type": "boolean", "default": false, "description": "Enable only local C8 graduation readiness reporting. It never enables memory writes, recall injection, or ContextEngine behavior." } } },
+          "reasoningRuntime": {
+            "type": "object", "additionalProperties": false,
+            "description": "Opt-in, per-scope ReasoningMemory shadow evaluation. It stores aggregate telemetry only and never attaches reasoning context to prompts.",
+            "properties": {
+              "shadowMode": { "type": "boolean", "default": false },
+              "scopes": { "type": "array", "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 80 }, "default": [] },
+              "tokenBudget": { "type": "integer", "default": 800, "minimum": 64, "maximum": 1600 },
+              "maxItems": { "type": "integer", "default": 6, "minimum": 1, "maximum": 12 },
+              "minConfidence": { "type": "number", "default": 0.6, "minimum": 0, "maximum": 1 },
+              "highRiskMinConfidence": { "type": "number", "default": 0.8, "minimum": 0, "maximum": 1 },
+              "minEvidenceQuality": { "type": "number", "default": 0.5, "minimum": 0, "maximum": 1 },
+              "highRiskMinEvidenceQuality": { "type": "number", "default": 0.75, "minimum": 0, "maximum": 1 },
+              "maxStalenessDays": { "type": "integer", "default": 365, "minimum": 1, "maximum": 3650 },
+              "excludeConflicted": { "type": "boolean", "default": true },
+              "retentionDays": { "type": "integer", "default": 30, "minimum": 1, "maximum": 365 },
+              "readiness": { "type": "object", "additionalProperties": false, "properties": { "minimumRuns": { "type": "integer", "default": 25, "minimum": 1, "maximum": 5000 }, "maxErrorRate": { "type": "number", "default": 0.05, "minimum": 0, "maximum": 1 }, "maxEmptyRate": { "type": "number", "default": 0.8, "minimum": 0, "maximum": 1 }, "maxP95Ms": { "type": "integer", "default": 100, "minimum": 1, "maximum": 30000 } } },
+              "delivery": { "type": "object", "additionalProperties": false, "description": "Governed ReasoningMemory delivery. Requires a fresh calibration and an explicitly activated exact-scope canary.", "properties": { "enabled": { "type": "boolean", "default": false }, "scopes": { "type": "array", "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 80 }, "default": [] }, "adapter": { "const": "openclaw", "type": "string", "default": "openclaw" }, "calibrationMaxAgeHours": { "type": "integer", "default": 168, "minimum": 1, "maximum": 720 }, "maxConsecutiveDeliveries": { "type": "integer", "default": 2, "minimum": 1, "maximum": 10 } } }
+            }
+          }
+        }
+      },
+      "toolSurface": {
+        "anyOf": [{ "const": "core", "type": "string" }, { "const": "research", "type": "string" }, { "const": "full", "type": "string" }],
+        "description": "OpenClaw tool surface: core for everyday work, research for analysis, or full for every supported tool."
+      },
+      "llm": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "OpenAI-compatible extraction API key."
+          },
+          "baseURL": {
+            "type": "string",
+            "description": "OpenAI-compatible extraction API base URL."
+          },
+          "model": {
+            "type": "string",
+            "description": "Extraction model name."
+          }
+        }
+      },
+      "extraction": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Enable LLM-backed extraction for kg_ingest."
+          },
+          "autoExtract": {
+            "type": "boolean",
+            "description": "Run bounded automatic extraction only from a selected ContextEngine afterTurn lifecycle."
+          },
+          "minConfidenceToStore": {
+            "type": "number",
+            "description": "Minimum relation confidence stored during ingest."
+          },
+          "timeoutMs": {
+            "type": "number",
+            "description": "Maximum extraction request time in milliseconds."
+          },
+          "maxInputChars": {
+            "type": "number",
+            "description": "Maximum conversation characters considered for extraction."
+          },
+          "autoInputQuality": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Disabled by default. Shadow records bounded input-quality diagnostics only; enforce drops exact boilerplate/refusal segments and selects high-signal user segments within the existing input budget without calling another model.",
+            "properties": {
+              "mode": {
+                "anyOf": [{ "const": "off", "type": "string" }, { "const": "shadow", "type": "string" }, { "const": "enforce", "type": "string" }],
+                "default": "off"
+              },
+              "maxSegments": {
+                "type": "integer",
+                "default": 16,
+                "minimum": 1,
+                "maximum": 32
+              }
+            }
+          }
+        }
+      },
+      "recall": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "autoRecall": {
+            "type": "boolean",
+            "description": "Deprecated compatibility key. It is accepted but never registers a prompt hook; enable unifiedRetrieval with ContextEngine instead."
+          },
+          "injection": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "mode": { "anyOf": [{ "const": "off", "type": "string" }, { "const": "shadow", "type": "string" }, { "const": "inject", "type": "string" }] },
+              "maxMemoryTokens": { "type": "integer", "minimum": 0, "maximum": 1500 },
+              "maxMemoryItems": { "type": "integer", "minimum": 0, "maximum": 8 },
+              "minRelevanceScore": { "type": "number", "minimum": 0, "maximum": 1 },
+              "maxInjectionsPerMemory": { "type": "integer", "minimum": 1, "maximum": 10 },
+              "maxConsecutiveInjections": { "type": "integer", "minimum": 1, "maximum": 10 }
+            }
+          },
+          "maxNodes": {
+            "type": "number",
+            "description": "Default maximum nodes for kg_context."
+          },
+          "maxDepth": {
+            "type": "number",
+            "description": "Default graph depth for kg_context."
+          },
+          "confidenceThreshold": {
+            "type": "number",
+            "description": "Default confidence threshold for kg_context."
+          },
+          "tokenBudget": {
+            "type": "number",
+            "description": "Default token budget for kg_context."
+          },
+          "mode": {
+            "anyOf": [{ "const": "lexical", "type": "string" }, { "const": "semantic", "type": "string" }, { "const": "hybrid", "type": "string" }]
+          },
+          "semanticMinScore": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "hybridWeights": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "semantic": { "type": "number", "minimum": 0, "maximum": 1 },
+              "lexical": { "type": "number", "minimum": 0, "maximum": 1 },
+              "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+              "freshness": { "type": "number", "minimum": 0, "maximum": 1 }
+            },
+            "required": ["semantic", "lexical", "confidence", "freshness"]
+          },
+          "queryRouting": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Optional deterministic query routing. Disabled by default; it never calls a model.",
+            "properties": {
+              "enabled": { "type": "boolean", "default": false },
+              "tagPrefix": { "type": "boolean", "default": true },
+              "queryExpansion": { "type": "boolean", "default": true },
+              "intentRouting": { "type": "boolean", "default": true },
+              "identifierHints": { "type": "boolean", "default": true, "description": "Adds bounded non-secret ALL_CAPS identifiers as lexical retrieval alternates." }
+            }
+          },
+          "excludedAgentIds": {
+            "type": "array",
+            "maxItems": 40,
+            "items": { "type": "string", "minLength": 1, "maxLength": 80 },
+            "description": "Host-exposed agent IDs excluded from automatic ContextEngine-derived work when the public lifecycle provides an identity."
+          }
+        }
+      },
+      "scope": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "default": { "type": "string", "minLength": 1, "maxLength": 80, "description": "Default isolated project or collection scope." }
+        }
+      },
+      "memory": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "captureOnAutoExtract": { "type": "boolean", "default": false, "description": "Also save a normalized local conversation document when autoExtract runs." },
+          "maxDocumentChars": { "type": "integer", "default": 12000, "minimum": 256, "maximum": 100000 },
+          "maxResults": { "type": "integer", "default": 3, "minimum": 1, "maximum": 10 },
+          "retrieval": {
+            "type": "object", "additionalProperties": false,
+            "description": "Bounded local memory retrieval-quality controls. The default expands a local candidate pool before final ranking; set candidateMultiplier to 1 to retain the former shallow pool.",
+            "properties": {
+              "candidateMultiplier": { "type": "integer", "default": 3, "minimum": 1, "maximum": 10 },
+              "minScore": { "type": "number", "default": 0, "minimum": 0, "maximum": 1 },
+              "mmrLambda": { "type": "number", "default": 1, "minimum": 0, "maximum": 1 },
+              "aging": { "type": "object", "additionalProperties": false, "properties": { "enabled": { "type": "boolean", "default": false }, "shape": { "type": "number", "default": 1.5, "minimum": 0.25, "maximum": 5 }, "scaleDays": { "type": "integer", "default": 180, "minimum": 1, "maximum": 3650 }, "minimumFreshness": { "type": "number", "default": 0.1, "minimum": 0, "maximum": 1 } } },
+              "reranker": { "type": "object", "additionalProperties": false, "description": "Optional bounded scope-local /rerank endpoint; failures preserve local ranking.", "properties": { "enabled": { "type": "boolean", "default": false }, "endpoint": { "type": "string", "maxLength": 2048 }, "apiKey": { "type": "string", "maxLength": 4096 }, "model": { "type": "string", "maxLength": 120 }, "timeoutMs": { "type": "integer", "default": 5000, "minimum": 1000, "maximum": 30000 }, "maxCandidates": { "type": "integer", "default": 12, "minimum": 1, "maximum": 20 }, "maxQueryChars": { "type": "integer", "default": 512, "minimum": 32, "maximum": 4096 }, "maxDocumentChars": { "type": "integer", "default": 4000, "minimum": 128, "maximum": 16000 } } }
+            }
+          },
+          "lifecycle": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Disabled by default. Local-only memory selection overlay; it never deletes, archives, or rewrites a memory document.",
+            "properties": {
+              "enabled": { "type": "boolean", "default": false },
+              "accessReinforcement": { "type": "boolean", "default": true },
+              "corePromotionAccesses": { "type": "integer", "default": 12, "minimum": 2, "maximum": 1000 },
+              "temporalInference": { "type": "boolean", "default": false }
+            }
+          }
+        }
+      },
+      "conversationJournal": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean", "default": false },
+          "maxInlineChars": { "type": "integer", "default": 16000, "minimum": 256, "maximum": 16000 },
+          "maxEventBytes": { "type": "integer", "default": 262144, "minimum": 1024, "maximum": 262144 },
+          "retentionDays": { "type": "integer", "default": 0, "minimum": 0, "maximum": 3650 },
+          "sensitiveContentPolicy": {
+            "anyOf": [
+              { "const": "redact", "type": "string" },
+              { "const": "hash_only", "type": "string" },
+              { "const": "metadata_only", "type": "string" },
+              { "const": "drop", "type": "string" }
+            ]
+          },
+          "ignoreSessionPatterns": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 160 }, "description": "Glob patterns for sessions that must never create persistent Mnemora records." },
+          "statelessSessionPatterns": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 160 }, "description": "Glob patterns for sessions that may read context but must not write new Mnemora records." },
+          "replayFloodThresholdExternal": { "type": "integer", "default": 24, "minimum": 1, "maximum": 512, "description": "Repeated host copies permitted for one exact turn before replay suppression." },
+          "replayFloodThresholdInternal": { "type": "integer", "default": 8, "minimum": 1, "maximum": 512, "description": "Repeated locally originated copies permitted for one exact turn before replay suppression." }
+        }
+      },
+      "contextEngine": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean", "default": false, "description": "Explicitly register Mnemora as OpenClaw's ContextEngine." },
+          "maxContextTokens": { "type": "integer", "default": 8000, "minimum": 256, "maximum": 64000 },
+          "maxSummaryChars": { "type": "integer", "default": 8000, "minimum": 256, "maximum": 32000 },
+          "protectedRecentEvents": { "type": "integer", "default": 6, "minimum": 2, "maximum": 50 },
+          "compaction": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": { "type": "boolean", "default": false, "description": "Explicitly let Mnemora run bounded, source-linked model compaction." },
+              "minEvents": { "type": "integer", "default": 4, "minimum": 2, "maximum": 50 },
+              "maxInputChars": { "type": "integer", "default": 12000, "minimum": 1024, "maximum": 100000 },
+              "maxOutputChars": { "type": "integer", "default": 4000, "minimum": 256, "maximum": 16000 },
+              "timeoutMs": { "type": "integer", "default": 15000, "minimum": 1000, "maximum": 120000 },
+              "maxRunsPerHour": { "type": "integer", "default": 4, "minimum": 1, "maximum": 24 },
+              "maxDailyTokens": { "type": "integer", "default": 32000, "minimum": 1000, "maximum": 1000000 },
+              "circuitCooldownMs": { "type": "integer", "default": 3600000, "minimum": 60000, "maximum": 86400000, "description": "Wait before retrying local compaction after its failure circuit opens." },
+              "summaryMaxCallsPerWindow": { "type": "integer", "default": 24, "minimum": 1, "maximum": 100 },
+              "summaryCallWindowMs": { "type": "integer", "default": 600000, "minimum": 60000, "maximum": 86400000 },
+              "summarySpendBackoffMs": { "type": "integer", "default": 1800000, "minimum": 60000, "maximum": 86400000 },
+              "contextThreshold": { "type": "number", "default": 0.75, "minimum": 0.5, "maximum": 0.95, "description": "Proactively compact only after active context reaches this fraction of the runtime budget." },
+              "freshTailCount": { "type": "integer", "default": 8, "minimum": 2, "maximum": 50, "description": "Ordinary conversation events retained verbatim beside an active summary projection." },
+              "leafChunkTokens": { "type": "integer", "default": 3000, "minimum": 256, "maximum": 24000, "description": "Conservative token cap for one bounded source-linked summary request." },
+              "maxChunksPerRun": { "type": "integer", "default": 4, "minimum": 1, "maximum": 12, "description": "Maximum source chunks compacted atomically by one maintenance attempt." },
+              "condensedMinFanout": { "type": "integer", "default": 4, "minimum": 2, "maximum": 12, "description": "Leaf-summary fanout that labels a deterministic parent projection as consolidated." },
+              "deadlineMs": { "type": "integer", "default": 45000, "minimum": 1000, "maximum": 300000, "description": "Total deadline for one chunked local compaction attempt." }
+            }
+          }
+        }
+      },
+      "artifacts": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean", "default": false },
+          "inlineThresholdChars": { "type": "integer", "default": 12000, "minimum": 1024, "maximum": 100000 },
+          "maxArtifactBytes": { "type": "integer", "default": 262144, "minimum": 1024, "maximum": 2097152 },
+          "toolPayloads": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": { "type": "boolean", "default": false, "description": "Archive qualifying public string tool results and replace only verified later copies with an opaque local artifact reference." }
+            }
+          }
+        }
+      },
+      "corpus": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Disabled by default. Explicit local citation cache; it never writes graph facts or injects prompts.",
+        "properties": {
+          "enabled": { "type": "boolean", "default": false },
+          "workspaceRoot": { "type": "string", "maxLength": 4096, "description": "Explicit local workspace root. It is never persisted or returned by corpus APIs." },
+          "syncOnSearch": { "type": "boolean", "default": true },
+          "syncIntervalMs": { "type": "integer", "default": 60000, "minimum": 60000, "maximum": 86400000 },
+          "maxFileBytes": { "type": "integer", "default": 1048576, "minimum": 1024, "maximum": 1048576 },
+          "maxFiles": { "type": "integer", "default": 500, "minimum": 1, "maximum": 1000 },
+          "maxSessionFilesPerAgent": { "type": "integer", "default": 25, "minimum": 1, "maximum": 25 },
+          "maxChunkChars": { "type": "integer", "default": 4000, "minimum": 256, "maximum": 8000 },
+          "maxChunkLines": { "type": "integer", "default": 80, "minimum": 1, "maximum": 200 },
+          "includeSessions": { "type": "boolean", "default": false, "description": "Opt in to configured workspace sessions/**/*.jsonl only." },
+          "includeDreamingArtifacts": { "type": "boolean", "default": false, "description": "Opt in to configured workspace dreaming artifacts only." }
+        }
+      },
+      "workspaceBoundary": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": { "userMdExclusive": { "type": "object", "additionalProperties": false, "properties": { "enabled": { "type": "boolean", "default": false, "description": "Keep USER.md externally managed: never ingest it as a graph source or corpus document." } } } }
+      },
+      "episodicMemory": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean", "default": false },
+          "autoExtract": { "type": "boolean", "default": false },
+          "maxEpisodesPerTurn": { "type": "integer", "default": 3, "minimum": 1, "maximum": 3 },
+          "minImportance": { "type": "number", "default": 0.5, "minimum": 0, "maximum": 1 },
+          "extractionMode": { "anyOf": [{ "const": "basic", "type": "string" }, { "const": "signal", "type": "string" }], "default": "basic", "description": "Basic preserves historical interaction capture; signal classifies explicit task events locally." },
+          "smartExtraction": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Disabled by default. Uses only the selected public ContextEngine runtime to emit bounded source-linked episode projections; it never directly admits facts, beliefs, profiles, or prompt context.",
+            "properties": {
+              "enabled": { "type": "boolean", "default": false },
+              "maxInputChars": { "type": "integer", "default": 12000, "minimum": 1000, "maximum": 32000 },
+              "maxOutputChars": { "type": "integer", "default": 6000, "minimum": 512, "maximum": 16000 },
+              "maxEpisodesPerTurn": { "type": "integer", "default": 3, "minimum": 1, "maximum": 3 },
+              "timeoutMs": { "type": "integer", "default": 15000, "minimum": 1000, "maximum": 120000 },
+              "minImportance": { "type": "number", "default": 0.5, "minimum": 0, "maximum": 1 }
+            }
+          }
+        }
+      },
+      "unifiedRetrieval": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean", "default": false },
+          "shadowMode": { "type": "boolean", "default": false },
+          "tokenBudget": { "type": "integer", "default": 800, "minimum": 64, "maximum": 8000 },
+          "maxItems": { "type": "integer", "default": 8, "minimum": 1, "maximum": 20 },
+          "minConfidence": { "type": "number", "default": 0.6, "minimum": 0, "maximum": 1 },
+          "maxStalenessDays": { "type": "integer", "default": 36500, "minimum": 1, "maximum": 36500 }
+        }
+      },
+      "embeddings": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean", "default": false },
+          "provider": { "type": "string", "const": "ollama", "default": "ollama" },
+          "baseURL": { "type": "string", "default": "http://127.0.0.1:11434" },
+          "model": { "type": "string", "default": "qwen3-embedding:4b" },
+          "timeoutMs": { "type": "number", "default": 10000, "minimum": 1000, "maximum": 120000 },
+          "batchSize": { "type": "number", "default": 16, "minimum": 1, "maximum": 128 },
+          "maxInputChars": { "type": "number", "default": 16000, "minimum": 256, "maximum": 100000 },
+          "queryCacheSize": { "type": "number", "default": 256, "minimum": 0, "maximum": 4096 },
+          "maxVectorScanNodes": { "type": "number", "default": 10000, "minimum": 100, "maximum": 100000 }
+        }
+      },
+      "insights": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "maxNodes": { "type": "number", "default": 10000, "minimum": 1, "maximum": 10000 },
+          "maxEdges": { "type": "number", "default": 50000, "minimum": 1, "maximum": 50000 },
+          "confidenceFloor": { "type": "number", "default": 0.6, "minimum": 0, "maximum": 1 },
+          "recentWindowDays": { "type": "number", "default": 7, "minimum": 1, "maximum": 3650 },
+          "baselineWindowDays": { "type": "number", "default": 28, "minimum": 1, "maximum": 3650 },
+          "minEmergingEntities": { "type": "number", "default": 3, "minimum": 1, "maximum": 9007199254740991 },
+          "minEmergingGrowth": { "type": "number", "default": 2, "minimum": 5e-324, "maximum": 9007199254740991 },
+          "maxPathLength": { "type": "number", "default": 4, "minimum": 2, "maximum": 4 },
+          "maxResults": { "type": "number", "default": 20, "minimum": 1, "maximum": 20 },
+          "explanationTimeoutMs": { "type": "number", "default": 10000, "minimum": 1000, "maximum": 60000 },
+          "maxExplanationCandidates": { "type": "number", "default": 5, "minimum": 0, "maximum": 5 }
+        }
+      },
+      "quality": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "edgeMinConfidence": { "type": "number", "default": 0, "minimum": 0, "maximum": 1 },
+          "relatedToMinConfidence": { "type": "number", "default": 0.8, "minimum": 0, "maximum": 1 },
+          "edgeTypeMinConfidence": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": { "type": "number", "minimum": 0, "maximum": 1 }
+          },
+          "singleValuedEdgeTypes": {
+            "type": "array",
+            "default": [],
+            "items": { "anyOf": [
+              { "const": "works_at", "type": "string" }, { "const": "invested_in", "type": "string" }, { "const": "supplies", "type": "string" },
+              { "const": "supplies_product", "type": "string" }, { "const": "supplied_to", "type": "string" }, { "const": "competes_with", "type": "string" },
+              { "const": "uses", "type": "string" }, { "const": "develops", "type": "string" }, { "const": "owns", "type": "string" },
+              { "const": "partners_with", "type": "string" }, { "const": "in_portfolio", "type": "string" }, { "const": "related_to", "type": "string" }
+            ] }
+          },
+          "recencyHalfLifeDays": { "type": "number", "default": 90, "minimum": 1, "maximum": 3650 },
+          "conflictPenaltyFactor": { "type": "number", "default": 0.75, "minimum": 0, "maximum": 1 },
+          "hubPenaltyFloor": { "type": "number", "default": 0.6, "minimum": 0, "maximum": 1 },
+          "rankingWeights": {
+            "type": "object", "additionalProperties": false,
+            "properties": {
+              "semantic": { "type": "number", "minimum": 0 }, "lexical": { "type": "number", "minimum": 0 },
+              "confidence": { "type": "number", "minimum": 0 }, "recency": { "type": "number", "minimum": 0 },
+              "sourceDiversity": { "type": "number", "minimum": 0 }, "ppr": { "type": "number", "minimum": 0 }
+            },
+            "required": ["semantic", "lexical", "confidence", "recency", "sourceDiversity", "ppr"]
+          },
+          "pprDamping": { "type": "number", "default": 0.85, "minimum": 0, "maximum": 1 },
+          "pprMaxIterations": { "type": "number", "default": 20, "minimum": 1, "maximum": 100 },
+          "pprTolerance": { "type": "number", "default": 0.000001, "minimum": 1e-12, "maximum": 0.1 },
+          "pprMaxNodes": { "type": "number", "default": 10000, "minimum": 1, "maximum": 10000 },
+          "pprMaxArcs": { "type": "number", "default": 50000, "minimum": 1, "maximum": 50000 }
+        }
+      },
+      "ingestion": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "maxPayloadBytes": { "type": "number", "default": 2097152, "minimum": 1, "maximum": 10485760 },
+          "maxBatchItems": { "type": "number", "default": 50, "minimum": 1, "maximum": 50 },
+          "allowedFileExtensions": { "type": "array", "items": { "anyOf": [{ "const": ".txt", "type": "string" }, { "const": ".md", "type": "string" }] }, "default": [".txt", ".md"] },
+          "urlMaxPayloadBytes": { "type": "number", "default": 2097152, "minimum": 1, "maximum": 10485760 },
+          "urlTimeoutMs": { "type": "number", "default": 15000, "minimum": 1000, "maximum": 15000 },
+          "urlMaxRedirects": { "type": "number", "default": 5, "minimum": 0, "maximum": 5 }
+        }
+      },
+      "query": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "maxSteps": { "type": "integer", "default": 8, "minimum": 1, "maximum": 8 },
+          "maxDepth": { "type": "integer", "default": 4, "minimum": 0, "maximum": 4 },
+          "maxResults": { "type": "integer", "default": 50, "minimum": 1, "maximum": 50 },
+          "maxNodes": { "type": "integer", "default": 10000, "minimum": 1, "maximum": 10000 },
+          "maxEdges": { "type": "integer", "default": 50000, "minimum": 1, "maximum": 50000 },
+          "timeoutMs": { "type": "integer", "default": 10000, "minimum": 1, "maximum": 10000 },
+          "maxResponseBytes": { "type": "integer", "default": 1048576, "minimum": 1, "maximum": 1048576 },
+          "auditRetentionDays": { "type": "integer", "default": 30, "minimum": 1, "maximum": 3650 },
+          "maxWatches": { "type": "integer", "default": 100, "minimum": 1, "maximum": 100 },
+          "maxDigestWatches": { "type": "integer", "default": 25, "minimum": 1, "maximum": 25 },
+          "maxImportBytes": { "type": "integer", "default": 10485760, "minimum": 1, "maximum": 10485760 },
+          "maxImportRecords": { "type": "integer", "default": 1000, "minimum": 1, "maximum": 1000 }
+        }
+      },
+      "trustLayer": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean", "default": false, "description": "Opt in to bounded local source anchoring. Existing recall behavior is unchanged." },
+          "snapshotMaxBytes": { "type": "integer", "default": 8192, "minimum": 256, "maximum": 32768, "description": "Maximum UTF-8 bytes retained per evidence snapshot." },
+          "verification": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": { "type": "boolean", "default": false, "description": "Apply strict verified-only gating to automatic Mnemora recall. Manual graph queries are unchanged." },
+              "defaultPendingPolicy": { "const": "exclude", "type": "string", "default": "exclude" },
+              "automatic": {
+                "type": "object", "additionalProperties": false,
+                "properties": {
+                  "enabled": { "type": "boolean", "default": false },
+                  "maxConcurrent": { "type": "integer", "default": 1, "minimum": 1, "maximum": 4 },
+                  "maxJobsPerRun": { "type": "integer", "default": 5, "minimum": 1, "maximum": 20 },
+                  "timeoutMs": { "type": "integer", "default": 15000, "minimum": 1000, "maximum": 60000 },
+                  "leaseMs": { "type": "integer", "default": 45000, "minimum": 5000, "maximum": 300000 },
+                  "maxInputChars": { "type": "integer", "default": 8000, "minimum": 256, "maximum": 16000 },
+                  "maxOutputBytes": { "type": "integer", "default": 16384, "minimum": 1024, "maximum": 65536 },
+                  "workerIsolation": { "type": "boolean", "default": true, "description": "Run built-in automatic verifier requests in a killable, memory-bounded child process. Custom verifier adapters remain in the host process." }
+                }
+              },
+              "retrospectiveAudit": {
+                "type": "object", "additionalProperties": false,
+                "properties": {
+                  "enabled": { "type": "boolean", "default": false },
+                  "maxJobsPerRun": { "type": "integer", "default": 5, "minimum": 1, "maximum": 20 },
+                  "minimumAgeDays": { "type": "integer", "default": 30, "minimum": 1, "maximum": 3650 },
+                  "minimumRecallCount": { "type": "integer", "default": 3, "minimum": 1, "maximum": 10000 }
+                }
+              }
+            }
+          },
+          "recall": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+            "shadowMode": { "type": "boolean", "default": true, "description": "Record local adaptive recall metrics without changing selected or injected context. Set false to opt out." },
+              "absoluteFloor": { "type": "number", "default": 0, "minimum": 0, "maximum": 1 },
+              "relativeCutoffRatio": { "type": "number", "default": 0.6, "minimum": 0, "maximum": 1 },
+              "confidenceGate": { "type": "number", "default": 0.6, "minimum": 0, "maximum": 1 },
+              "minKeep": { "type": "integer", "default": 1, "minimum": 0, "maximum": 10 },
+              "candidateMultiplier": { "type": "integer", "default": 5, "minimum": 1, "maximum": 10 },
+              "canary": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": { "type": "boolean", "default": false, "description": "Permit calibrated adaptive recall only after an explicit per-scope canary activation." },
+                  "modelId": { "type": "string", "default": "default", "minLength": 1, "maxLength": 120 },
+                  "scopes": { "type": "array", "default": [], "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 80 } }
+                }
+              }
+            }
+          },
+          "governance": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": { "type": "boolean", "default": false, "description": "Enable host-bound scoped authority and approval checks for manual trust transitions." },
+              "approvalTtlMs": { "type": "integer", "default": 900000, "minimum": 60000, "maximum": 86400000 },
+              "requireApprovalFor": { "type": "array", "maxItems": 3, "items": { "anyOf": [
+                { "const": "verification.transition", "type": "string" }, { "const": "conflict.resolve", "type": "string" }, { "const": "profile.selection", "type": "string" }
+              ] } }
+            }
+          }
+        }
+      },
+      "integrations": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "lossless": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": { "type": "boolean", "default": false, "description": "Allow the public lcm CLI adapter for Lossless Claw. No provider database is read directly." },
+              "timeoutMs": { "type": "integer", "default": 5000, "minimum": 1000, "maximum": 30000 },
+              "maxOutputBytes": { "type": "integer", "default": 65536, "minimum": 1024, "maximum": 262144 }
+            }
+          },
+          "memoryLanceDbPro": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": { "type": "boolean", "default": false, "description": "Allow read-only public openclaw memory-pro CLI calls. No LanceDB directory or provider table is read directly." },
+              "timeoutMs": { "type": "integer", "default": 5000, "minimum": 1000, "maximum": 30000 },
+              "maxOutputBytes": { "type": "integer", "default": 65536, "minimum": 1024, "maximum": 262144 }
+            }
+          }
+        }
+      },
+      "standalone": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "activePluginIds": {
+            "type": "array",
+            "maxItems": 20,
+            "items": { "type": "string", "minLength": 1, "maxLength": 80 },
+            "description": "Optional public deployment metadata used only for duplicate-memory readiness diagnostics."
+          }
+        }
+      },
+      "inspector": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "maxGraphNodes": { "type": "integer", "default": 5000, "minimum": 1, "maximum": 5000 },
+          "maxGraphEdges": { "type": "integer", "default": 20000, "minimum": 1, "maximum": 20000 },
+          "maxGraphResponseBytes": { "type": "integer", "default": 4194304, "minimum": 128, "maximum": 4194304 },
+          "graphDeadlineMs": { "type": "integer", "default": 5000, "minimum": 1, "maximum": 5000 }
+        }
+      }
+    }
+  },
+  "activation": {
+    "onStartup": true,
+    "onCommands": ["mnemora"]
+  },
+  "commandAliases": [{ "name": "mnemora", "kind": "runtime-slash", "cliCommand": "mnemora" }],
+  "skills": ["skills/mnemora"],
+  "contracts": {
+    "tools": [
+      "kg_ingest",
+      "kg_ingest_batch",
+      "kg_ingest_file",
+      "kg_ingest_url",
+      "kg_insights",
+      "kg_search",
+      "kg_related",
+      "kg_stats",
+      "kg_profile",
+      "kg_profile_lock",
+      "kg_scopes",
+      "kg_context",
+      "kg_sources",
+      "kg_forget",
+      "kg_embed_backfill",
+      "kg_review",
+      "kg_merge",
+      "kg_merge_undo",
+      "kg_query",
+      "kg_verify",
+      "kg_recall_metrics",
+      "kg_recall_explain",
+      "kg_recall_canary",
+      "kg_timeline",
+      "kg_compare",
+      "kg_watch",
+      "kg_digest",
+      "kg_export",
+      "kg_import",
+      "kg_query_history",
+      "kg_memory",
+      "kg_integrations"
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.tools/
+*.tsbuildinfo
+*.db
+*.db-shm
+*.db-wal
+.env
+.DS_Store
+
+.tmp/
+.worktrees/
+.superpowers/
+docs/superpowers/
+*-review.patch

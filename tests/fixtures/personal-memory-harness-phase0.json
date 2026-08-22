@@ -1,0 +1,33 @@
+{
+  "fixture_version": 1,
+  "dataset_id": "personal-memory-harness.phase0.synthetic.v1",
+  "seed": 20260806,
+  "scope": "benchmark:harness",
+  "foreign_scope": "benchmark:foreign",
+  "entities": [
+    { "name": "SK Hynix", "type": "company", "description": "HBM memory supplier", "confidence": 0.98, "evidence_span": "SK Hynix supplies HBM memory" },
+    { "name": "TSMC", "type": "company", "description": "CoWoS advanced packaging provider", "confidence": 0.98, "evidence_span": "TSMC provides CoWoS packaging capacity" },
+    { "name": "HBM Packaging", "type": "product", "description": "Advanced packaging for high bandwidth memory", "confidence": 0.95, "evidence_span": "HBM packaging links memory and foundry suppliers" },
+    { "name": "NVIDIA", "type": "company", "description": "AI accelerator designer", "confidence": 0.95, "evidence_span": "NVIDIA uses HBM packaging" }
+  ],
+  "relations": [
+    { "source": "SK Hynix", "target": "HBM Packaging", "type": "supplies_product", "confidence": 0.96, "evidence_span": "SK Hynix supplies HBM for advanced packaging" },
+    { "source": "TSMC", "target": "HBM Packaging", "type": "develops", "confidence": 0.94, "evidence_span": "TSMC develops CoWoS packaging" },
+    { "source": "NVIDIA", "target": "HBM Packaging", "type": "uses", "confidence": 0.93, "evidence_span": "NVIDIA uses HBM packaging" }
+  ],
+  "memory": {
+    "title": "Long-session operating preference",
+    "content": "The durable review cadence is Friday afternoon, after the weekly research digest.",
+    "source": "fixture:synthetic-session"
+  },
+  "distractor_memories": 250,
+  "foreign_entity": { "name": "SecretMoonProject", "type": "concept", "description": "foreign-scope-only marker", "confidence": 1, "evidence_span": "private foreign scope marker" },
+  "cases": [
+    { "id": "simple-find", "kind": "simple_find", "query": "SK Hynix", "expected": [{ "domain": "node", "name": "SK Hynix" }] },
+    { "id": "complex-search", "kind": "complex_search", "query": "HBM Packaging", "expected": [{ "domain": "node", "name": "HBM Packaging" }] },
+    { "id": "source-recovery", "kind": "source_recovery", "query": "CoWoS advanced packaging provider", "expected": [{ "domain": "node", "name": "TSMC" }] },
+    { "id": "long-session", "kind": "long_session_recall", "query": "Friday review cadence", "expected": [{ "domain": "memory", "name": "Long-session operating preference" }] },
+    { "id": "empty-recall", "kind": "empty_recall", "query": "quasar marmalade nonexistence token", "expected": [] },
+    { "id": "scope-isolation", "kind": "scope_isolation", "query": "SecretMoonProject", "expected": [], "forbidden": [{ "domain": "node", "name": "SecretMoonProject", "scope": "benchmark:foreign" }] }
+  ]
+}
