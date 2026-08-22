@@ -131,7 +131,7 @@ test("standalone is ContextEngine-only and never registers legacy hooks", () => 
 });
 
 test("standalone activation reads enabled legacy plugins from the public host configuration", () => {
-  assert.deepEqual(activePluginIdsFromHostConfig({ plugins: { entries: { "lossless-claw": { enabled: true }, "memory-lancedb-pro": { enabled: false }, "mnemora": { enabled: true } } } }), ["mnemora", "lossless-claw"]);
+  assert.deepEqual(activePluginIdsFromHostConfig({ plugins: { entries: { "lossless-claw": { enabled: true }, "memory-lancedb-pro": { enabled: false }, "mnemora": { enabled: true } } } }), ["lossless-claw", "mnemora"]);
   assert.deepEqual(activePluginIdsFromHostConfig({ plugins: { allow: ["mnemora", "memory-lancedb-pro"], entries: { "memory-lancedb-pro": { enabled: false } } } }), ["mnemora"]);
   const result = harness({ mode: "standalone", conversationJournal: { enabled: true }, contextEngine: { enabled: true }, episodicMemory: { enabled: true } });
   assert.throws(() => result.contextEngines[0].factory({ config: { plugins: { slots: { contextEngine: "mnemora" }, entries: { "lossless-claw": { enabled: true }, "memory-lancedb-pro": { enabled: false } } } } }), /standalone_context_engine_activation_blocked/);
