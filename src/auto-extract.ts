@@ -27,7 +27,20 @@ export type AutoExtractOutcome =
 
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 
-type FailureCategory = "timeout" | "aborted" | "http" | "invalid_response" | "sqlite" | "shutdown" | "unknown";
+type FailureCategory = "timeout" | "aborted" | "http" | "invalid_response" | "ingestion" | "sqlite" | "shutdown" | "unknown";
+
+/** A bounded internal signal: ingestion failed after extraction completed. */
+class AutomaticIngestionError extends Error {
+  readonly failureCode: string;
+
+  constructor(category?: string) {
+    super("automatic ingestion failed");
+    this.name = "AutomaticIngestionError";
+    this.failureCode = category && /^(invalid_input|unsupported_file|file_too_large|workspace_boundary|extraction_disabled|extraction_failed|persistence_failed|invalid_url|blocked_url|redirect_limit|content_too_large|fetch_failed)$/.test(category)
+      ? `ingestion_${category}`
+      : "automatic_ingestion_failed";
+  }
+}
 
 function classifyFailure(error: unknown): FailureCategory {
   if (!(error instanceof Error)) return "unknown";
@@ -36,9 +49,15 @@ function classifyFailure(error: unknown): FailureCategory {
   if (error.name === "AbortError") return "aborted";
   if (/^LLM extraction failed:\s*\d{3}\b/.test(error.message)) return "http";
   if (/^LLM extraction (returned no content|returned invalid JSON|response was invalid)/i.test(error.message)) return "invalid_response";
+  if (error instanceof AutomaticIngestionError) return "ingestion";
   if (code.startsWith("SQLITE_") || /sqlite/i.test(error.name)) return "sqlite";
   if (error.name === "RuntimeStoppedError" || /runtime stopped/i.test(error.message)) return "shutdown";
   return "unknown";
+}
+
+/** Never expose an arbitrary Error message: hook inputs and provider bodies are sensitive. */
+function failureCode(error: unknown): string | undefined {
+  return error instanceof AutomaticIngestionError ? error.failureCode : undefined;
 }
 
 function safeLog(logger: SafeLogger, level: "debug" | "warn", message: string, fields: Record<string, unknown>): void {
@@ -174,7 +193,7 @@ export class AutoExtractService {
       try {
         if (count > 0) {
           const committed = await resultGraph.ingestAutomaticExtraction({ text: formatted.text, source, scope: this.deps.config.scope?.default, extraction });
-          if (committed.status === "failed") throw new Error("automatic ingestion failed");
+          if (committed.status === "failed") throw new AutomaticIngestionError(committed.error?.category);
         }
         resultGraph.store.finishAutoRun(turnKey, attempt, "succeeded", this.now());
         try { resultGraph.store.recordAutoMetric?.("extract", "succeeded", this.now()); } catch { /* telemetry must fail open */ }
@@ -185,18 +204,19 @@ export class AutoExtractService {
       return { status: "succeeded", extracted: count };
     } catch (error) {
       const errorCategory = classifyFailure(error);
+      const errorCode = failureCode(error);
       if (attempt !== undefined) {
         try {
           const graph = (this.deps.openGraphForAdmitted ?? this.deps.openGraph)();
           try {
-            graph.store.finishAutoRun(turnKey, attempt, "failed", this.now(), errorCategory);
+            graph.store.finishAutoRun(turnKey, attempt, "failed", this.now(), errorCode ?? errorCategory);
             try { graph.store.recordAutoMetric?.("extract", "failed", this.now()); } catch { /* telemetry must fail open */ }
           } finally {
             graph.close();
           }
         } catch { /* fail open */ }
       }
-      safeLog(this.deps.logger, "warn", "automatic extraction failed", { turnHash, inputChars: formatted.text.length, errorCategory });
+      safeLog(this.deps.logger, "warn", "automatic extraction failed", { turnHash, inputChars: formatted.text.length, errorCategory, errorCode });
       return { status: "failed" };
     }
   }

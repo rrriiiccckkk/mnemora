@@ -16,7 +16,7 @@ test("automatic graph evidence contains only user-authored content", () => {
   assert.deepEqual(formatUserExtractionInput({ ...turn, userText: "u".repeat(20) }, 5), { text: "uuuu…", truncated: true });
 });
 
-function harness(claim = { status: "claimed", attempt: 1 }, extract = async () => ({ entities: [], relations: [] }), loggerOverride) {
+function harness(claim = { status: "claimed", attempt: 1 }, extract = async () => ({ entities: [], relations: [] }), loggerOverride, ingest = () => ({ status: "succeeded" })) {
   const calls = { extract: [], ingest: [], memory: [], finish: [], close: 0, logs: [] };
   const openGraph = () => ({
     store: {
@@ -25,7 +25,7 @@ function harness(claim = { status: "claimed", attempt: 1 }, extract = async () =
       finishAutoRun: (...args) => (calls.finish.push(args), true)
     },
     extract: (...args) => (calls.extract.push(args), extract(...args)),
-    ingestAutomaticExtraction: (...args) => (calls.ingest.push(args), { status: "succeeded" }),
+    ingestAutomaticExtraction: (...args) => (calls.ingest.push(args), ingest(...args)),
     close: () => calls.close++
   });
   const config = { dbPath: "unused", extraction: { timeoutMs: 20, maxInputChars: 1000, minConfidenceToStore: 0 } };
@@ -53,6 +53,21 @@ test("extraction uses the canonical ingestion path with a stable user source", a
   assert.equal(calls.ingest[0][0].source, "session:s1:turn:r1");
   assert.equal(calls.ingest[0][0].text, "user secret");
   assert.equal(calls.finish[0][1], 3);
+});
+
+test("automatic ingestion failures persist a bounded ingestion category and diagnostic code", async () => {
+  const extraction = { entities: [{ name: "X", type: "company", confidence: 1, evidence_span: "X" }], relations: [] };
+  const { calls, service } = harness(
+    undefined,
+    async () => extraction,
+    undefined,
+    () => ({ status: "failed", error: { category: "persistence_failed", summary: "private database detail" } })
+  );
+  assert.deepEqual(await service.handle(turn), { status: "failed" });
+  assert.equal(calls.finish[0][4], "ingestion_persistence_failed");
+  assert.equal(calls.logs.at(-1)[1].errorCategory, "ingestion");
+  assert.equal(calls.logs.at(-1)[1].errorCode, "ingestion_persistence_failed");
+  assert.doesNotMatch(JSON.stringify(calls.logs), /private database detail|user secret|assistant secret/);
 });
 
 test("automatic extraction never sends standalone credentials to local memory or an extraction provider", async () => {

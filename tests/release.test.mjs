@@ -14,7 +14,7 @@ const readmeZh = readFileSync(new URL("README.zh-CN.md", root), "utf8");
 
 test("v1 release metadata is independent and consistently versioned", () => {
   assert.equal(pkg.name, "mnemora");
-  assert.equal(pkg.version, "1.0.0");
+  assert.match(pkg.version, /^1\.\d+\.\d+$/);
   assert.equal(manifest.id, "mnemora");
   assert.equal(manifest.name, "Mnemora");
   assert.equal(manifest.version, pkg.version);
@@ -24,10 +24,10 @@ test("v1 release metadata is independent and consistently versioned", () => {
   assert.deepEqual(pkg.bin, { mnemora: "dist/cli.js" });
   assert.equal("legacyPluginIds" in manifest, false);
   assert.match(pkg.repository.url, /rrriiiccckkk\/mnemora\.git$/);
-  assert.equal(existsSync(new URL("docs/releases/v1.0.0.md", root)), true);
-  assert.match(readFileSync(new URL("src/version.ts", root), "utf8"), /mnemoraVersion = "1\.0\.0"/);
+  assert.equal(existsSync(new URL(`docs/releases/v${pkg.version}.md`, root)), true);
+  assert.match(readFileSync(new URL("src/version.ts", root), "utf8"), new RegExp(`mnemoraVersion = "${pkg.version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
   execFileSync(process.execPath, ["scripts/validate-release-version.mjs"], {
-    cwd: fileURLToPath(root), env: { ...process.env, RELEASE_TAG: "v1.0.0" }, stdio: "pipe"
+    cwd: fileURLToPath(root), env: { ...process.env, RELEASE_TAG: `v${pkg.version}` }, stdio: "pipe"
   });
 });
 
