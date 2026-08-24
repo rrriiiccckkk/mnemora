@@ -16,7 +16,7 @@ import { artifactSchemaSql } from "./artifacts/schema.js";
 import { episodeSchemaSql } from "./episodes/schema.js";
 import { providerMigrationSchemaSql } from "./integrations/migration-schema.js";
 import { consolidationOptionalRestoreTables, consolidationSchemaSql } from "./consolidation/schema.js";
-import { cognitionBeliefSchemaSql, cognitionDecisionReviewSchemaSql, cognitionDecisionSchemaSql, cognitionEnforcementSchemaSql, cognitionIntegritySchemaSql, cognitionOptionalRestoreTables, cognitionOutcomeSchemaSql, cognitionPreAdmissionSchemaSql, cognitionReasoningDeliveryFeedbackSchemaSql, cognitionReasoningGovernanceSchemaSql, cognitionReasoningReflectionSchemaSql, cognitionReasoningRuntimeGovernanceSchemaSql, cognitionReasoningRuntimeTelemetrySchemaSql, cognitionReasoningSchemaSql, cognitionReflectionSchemaSql, cognitionSchemaSql } from "./cognition/schema.js";
+import { cognitionBeliefSchemaSql, cognitionDecisionReviewSchemaSql, cognitionDecisionSchemaSql, cognitionEnforcementSchemaSql, cognitionIntegritySchemaSql, cognitionOptionalRestoreTables, cognitionOutcomeSchemaSql, cognitionPreAdmissionSchemaSql, cognitionReasoningDeliveryFeedbackSchemaSql, cognitionReasoningGovernanceSchemaSql, cognitionReasoningReflectionSchemaSql, cognitionReasoningRuntimeGovernanceSchemaSql, cognitionReasoningRuntimeTelemetrySchemaSql, cognitionReasoningSchemaSql, cognitionReasoningSemanticSchemaSql, cognitionReflectionSchemaSql, cognitionSchemaSql } from "./cognition/schema.js";
 import { identityHash, legacyNormalizeSlug, normalizeSlug } from "./slug.js";
 import { cosineSimilarity, decodeEmbedding, encodeEmbedding, type EmbeddingIdentity } from "./embeddings.js";
 import { duplicatePairKey, entityFingerprint, scoreDuplicatePair } from "./resolution.js";
@@ -362,6 +362,7 @@ export class GraphologyStore {
     if (version < 60) this.migrateCanonicalCorpusV60();
     if (version < 61) this.migrateMemoryLifecycleV61();
     if (version < 62) this.migrateReasoningDeliveryFeedbackV62();
+    if (version < 63) this.migrateReasoningSemanticV63();
     this.db.exec(`PRAGMA user_version=${SUPPORTED_SCHEMA_VERSION}`);
   }
 
@@ -378,6 +379,17 @@ export class GraphologyStore {
   /** Schema v62 adds delivery provenance and suppression controls without
    * modifying strategy records, personal memory, graph evidence, or outcomes. */
   private migrateReasoningDeliveryFeedbackV62(): void { this.db.exec(cognitionReasoningDeliveryFeedbackSchemaSql); }
+
+  /** Schema v63 is additive: it adds only aggregate shadow diagnostics and a
+   * separate local semantic index. Existing strategy, evidence, and outcome
+   * rows are intentionally left untouched. */
+  private migrateReasoningSemanticV63(): void {
+    const columns = new Set((this.db.prepare("PRAGMA table_info(mnemora_reasoning_runtime_shadow_runs)").all() as Array<{ name: string }>).map(row => row.name));
+    for (const [name, type] of [["semantic_candidates", "INTEGER NOT NULL DEFAULT 0"], ["unmatched", "INTEGER NOT NULL DEFAULT 0"], ["task_type_excluded", "INTEGER NOT NULL DEFAULT 0"]] as const) {
+      if (!columns.has(name)) this.db.exec(`ALTER TABLE mnemora_reasoning_runtime_shadow_runs ADD COLUMN ${name} ${type}`);
+    }
+    this.db.exec(cognitionReasoningSemanticSchemaSql);
+  }
 
   /** Schema v58 only adds durable receipts for explicitly confirmed consolidation
    * lifecycle actions. Existing evidence, episodes, and proposals are not

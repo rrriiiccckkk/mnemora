@@ -27,6 +27,8 @@ import { ReasoningRuntimeTelemetryRepository } from "./cognition/reasoning-runti
 import { ReasoningRuntimeGovernanceRepository, type ReasoningRuntimeGovernanceConfig } from "./cognition/reasoning-runtime-governance.js";
 import { ReasoningDeliveryFeedbackRepository } from "./cognition/reasoning-delivery-feedback.js";
 import { ReasoningDeliveryEffectivenessEvaluationService, validateReasoningDeliveryEffectivenessDataset } from "./cognition/reasoning-delivery-evaluation.js";
+import { ReasoningMemoryEmbeddingRepository } from "./cognition/reasoning-semantic-embeddings.js";
+import { createEmbedder } from "./embeddings.js";
 import { RecallFeedbackRepository, ReflectionService, type RecallFeedbackKind } from "./cognition/reflection.js";
 import { CognitionGraduationService } from "./cognition/graduation.js";
 import { EvaluationRunner, serializeEvaluationReport, validateEvaluationDataset } from "./evaluation/index.js";
@@ -78,7 +80,7 @@ async function main(): Promise<void> {
     }
     else if (command === "memory") printOperator(`memory.${args[0] ?? "help"}`, memoryCommand(graph, args));
     else if (command === "consolidation") printOperator(`consolidation.${args[0] ?? "help"}`, consolidationCommand(graph, args));
-    else if (command === "cognition") printOperator(`cognition.${args[0] ?? "help"}`, cognitionCommand(graph, args));
+    else if (command === "cognition") printOperator(`cognition.${args[0] ?? "help"}`, await cognitionCommand(graph, args));
     else if (command === "trust" || command === "profile" || command === "recall" || command === "governance") printOperator(`${command}.${args[0] ?? "help"}`, await operator(graph, command, args));
     else { console.error(usage()); process.exitCode = 1; }
   } catch (error) { fail(`${command ?? "help"}.${args[0] ?? ""}`.replace(/\.$/, ""), error); }
@@ -178,7 +180,7 @@ function consolidationCommand(graph: Mnemora, raw: string[]): unknown {
   throw new CliError("invalid_arguments");
 }
 
-function cognitionCommand(graph: Mnemora, raw: string[]): unknown {
+async function cognitionCommand(graph: Mnemora, raw: string[]): Promise<unknown> {
   if (raw.length === 1 && raw[0] === "status") return new FormationService(graph.store.db).status(process.env.SCOPE ?? "default");
   const { positional, options } = parseOptions(raw), family = positional.shift();
   if (family === "context") {
@@ -234,6 +236,14 @@ function cognitionCommand(graph: Mnemora, raw: string[]): unknown {
     if (operation === "retrieve") { const query = positional.join(" ").trim(); if (!query) throw new CliError("invalid_arguments"); return new ReasoningRetrievalService(graph.store.db).find(reasoningRetrievalInput(scope, query, limit)); }
     if (operation === "compile") { const query = positional.join(" ").trim(); if (!query) throw new CliError("invalid_arguments"); const context = new ReasoningContextCompiler(graph.store.db).compile({ ...reasoningRetrievalInput(scope, query, limit), tokenBudget: boundedRange(option(options, "token-budget"), 64, 1600), maxItems: boundedRange(option(options, "max-items"), 1, 12) }); const adapters = new ReasoningAgentAdapterRegistry(); return adapters.render(option(options, "adapter") ?? "generic", context); }
     if (operation === "runtime") { const query = positional.join(" ").trim(); if (!query) throw new CliError("invalid_arguments"); return new ReasoningRuntimeService(graph.store.db).prepare({ ...reasoningRetrievalInput(scope, query, limit), tokenBudget: boundedRange(option(options, "token-budget"), 64, 1600), maxItems: boundedRange(option(options, "max-items"), 1, 12), failureSignal: process.env.MNEMORA_REASONING_FAILURE_SIGNAL === "1" }); }
+    if (operation === "semantic-status") { requireNone(positional); const embeddings = normalizeConfig({ dbPath: ":memory:", embeddings: { ...graph.config.embeddings, enabled: process.env.MNEMORA_REASONING_SEMANTIC_EMBEDDINGS === "1" } }).embeddings!; return { configured: embeddings.enabled, index: new ReasoningMemoryEmbeddingRepository(graph.store.db).status(scope) }; }
+    if (operation === "semantic-backfill") {
+      requireNone(positional);
+      const embeddings = normalizeConfig({ dbPath: ":memory:", embeddings: { ...graph.config.embeddings, enabled: process.env.MNEMORA_REASONING_SEMANTIC_EMBEDDINGS === "1" } }).embeddings!;
+      if (!embeddings.enabled) return { status: "embedding_disabled", required_environment: "MNEMORA_REASONING_SEMANTIC_EMBEDDINGS=1" };
+      if (options.confirm !== true) return { status: "confirm_required", operation: "cognition.reasoning.semantic-backfill" };
+      return await new ReasoningMemoryEmbeddingRepository(graph.store.db).backfill({ scope, embedder: createEmbedder(embeddings as import("./index.js").EmbeddingConfig), maxInputChars: embeddings.maxInputChars!, batchSize: embeddings.batchSize!, limit, identity: { provider: embeddings.provider!, model: embeddings.model! }, signal: AbortSignal.timeout(embeddings.timeoutMs!) });
+    }
     if (operation === "runtime-metrics") { requireNone(positional); return new ReasoningRuntimeTelemetryRepository(graph.store.db).metrics(scope, limit); }
     if (operation === "runtime-readiness") { requireNone(positional); const value = graph.config.cognition!.reasoningRuntime!.readiness!; return new ReasoningRuntimeTelemetryRepository(graph.store.db).readiness(scope, { minimumRuns: value.minimumRuns!, maxErrorRate: value.maxErrorRate!, maxEmptyRate: value.maxEmptyRate!, maxP95Ms: value.maxP95Ms! }); }
     if (operation === "runtime-calibrate") { requireNone(positional); const config = reasoningGovernanceConfig(graph), governance = new ReasoningRuntimeGovernanceRepository(graph.store.db), preview = governance.previewCalibration(scope, config); if (options.confirm !== true) return preview; return governance.confirmCalibration(scope, config, option(options, "preview-hash") ?? ""); }
@@ -379,7 +389,7 @@ function reasoningRetrievalInput(scope: string, query: string, limit: number) {
 
 function reasoningGovernanceConfig(graph: Mnemora): ReasoningRuntimeGovernanceConfig {
   const value = graph.config.cognition!.reasoningRuntime!, requestedScopes = (process.env.MNEMORA_REASONING_DELIVERY_SCOPES ?? "").split(",").map(item => item.trim()).filter(Boolean), normalized = normalizeConfig({ dbPath: ":memory:", cognition: { reasoningRuntime: { ...value, delivery: { ...value.delivery, enabled: process.env.MNEMORA_REASONING_DELIVERY_ENABLED === "1", scopes: requestedScopes } } } }).cognition!.reasoningRuntime!;
-  return { tokenBudget: normalized.tokenBudget!, maxItems: normalized.maxItems!, minConfidence: normalized.minConfidence!, highRiskMinConfidence: normalized.highRiskMinConfidence!, minEvidenceQuality: normalized.minEvidenceQuality!, highRiskMinEvidenceQuality: normalized.highRiskMinEvidenceQuality!, maxStalenessDays: normalized.maxStalenessDays!, excludeConflicted: normalized.excludeConflicted!, retentionDays: normalized.retentionDays!, readiness: { minimumRuns: normalized.readiness!.minimumRuns!, maxErrorRate: normalized.readiness!.maxErrorRate!, maxEmptyRate: normalized.readiness!.maxEmptyRate!, maxP95Ms: normalized.readiness!.maxP95Ms! }, delivery: { enabled: normalized.delivery!.enabled!, scopes: normalized.delivery!.scopes!, adapter: "openclaw", calibrationMaxAgeHours: normalized.delivery!.calibrationMaxAgeHours!, maxConsecutiveDeliveries: normalized.delivery!.maxConsecutiveDeliveries!, itemRetentionDays: normalized.delivery!.itemRetentionDays! } };
+  return { tokenBudget: normalized.tokenBudget!, maxItems: normalized.maxItems!, minConfidence: normalized.minConfidence!, highRiskMinConfidence: normalized.highRiskMinConfidence!, minEvidenceQuality: normalized.minEvidenceQuality!, highRiskMinEvidenceQuality: normalized.highRiskMinEvidenceQuality!, maxStalenessDays: normalized.maxStalenessDays!, excludeConflicted: normalized.excludeConflicted!, retentionDays: normalized.retentionDays!, readiness: { minimumRuns: normalized.readiness!.minimumRuns!, maxErrorRate: normalized.readiness!.maxErrorRate!, maxEmptyRate: normalized.readiness!.maxEmptyRate!, maxP95Ms: normalized.readiness!.maxP95Ms! }, delivery: { enabled: normalized.delivery!.enabled!, scopes: normalized.delivery!.scopes!, adapter: "openclaw", calibrationMaxAgeHours: normalized.delivery!.calibrationMaxAgeHours!, maxConsecutiveDeliveries: normalized.delivery!.maxConsecutiveDeliveries!, itemRetentionDays: normalized.delivery!.itemRetentionDays! }, semantic: { enabled: normalized.semantic!.enabled!, timeoutMs: normalized.semantic!.timeoutMs!, minScore: normalized.semantic!.minScore!, maxCandidates: normalized.semantic!.maxCandidates! } };
 }
 
 async function operator(graph: Mnemora, family: "trust" | "profile" | "recall" | "governance", raw: string[]): Promise<unknown> {

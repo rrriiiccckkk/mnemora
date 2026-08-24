@@ -19,7 +19,7 @@ test("ContextEngine uses one CJK and astral-aware estimator for messages and add
   const engine = new MnemoraContextEngine(config, () => {
     const store = new GraphologyStore(":memory:");
     return { store, close() { store.close(); } };
-  }, undefined, { onAssemble: () => addition });
+  }, undefined, { onAssemble: async () => addition });
   const assembled = await engine.assemble({ sessionId: "s", prompt: "当前任务", messages: [{ role: "user", content: "当前任务" }], tokenBudget: 256 });
   assert.equal(assembled.systemPromptAddition, addition);
   assert.equal(assembled.estimatedTokens, estimateTextTokens("当前任务") + estimateTextTokens(addition));

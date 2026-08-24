@@ -83,6 +83,7 @@ mnemora standalone guide
 - `contextEngine.compaction.enabled`：带来源的模型压缩，默认关闭。
 - `cognition.admission.mode: "enforce"`：确定性候选策略；Belief 和 enforcement 仍需各自显式开启。
 - `cognition.reasoningRuntime.shadowMode`：只记录安全的策略检索聚合遥测；ReasoningMemory 投递仍默认关闭，必须由 operator 校准并为精确 scope 显式开启 canary。
+- `cognition.reasoningRuntime.semantic.enabled`：只有同时开启 `embeddings.enabled` 时，才启用独立的本地 ReasoningMemory 语义索引。默认关闭；Provider 失败时自动退回确定性词法检索。
 
 所有模型或网络调用都有输入/输出上限、超时和取消处理。默认安装不会开启额外自动写入、严格验证、模型压缩或外部 Provider。
 
@@ -113,6 +114,32 @@ mnemora cognition reasoning runtime-memory-circuit <reasoning-memory-id> --scope
 ```
 
 若要衡量投递是否真的改善任务结果，使用 `mnemora cognition reasoning runtime-effectiveness <file>` 运行去标识化 A/B 数据集。只有随机对照且每一组至少有 20 条已判定 outcome 时，才会给出成功率差值；shadow 遥测、采用率或合成 benchmark 都不能当作效果结论。
+
+### 可选的多语言 ReasoningMemory 检索
+
+策略文本与运行时任务可以使用不同语言。要让中文策略能够被英文 `debug` 任务命中（反之亦然），需要同时显式开启现有本地 Ollama embedding Provider 与独立的 ReasoningMemory 语义路径：
+
+```json5
+embeddings: { enabled: true, provider: "ollama", model: "qwen3-embedding:4b" },
+cognition: {
+  reasoningRuntime: {
+    shadowMode: true,
+    scopes: ["project:alpha"],
+    semantic: { enabled: true, timeoutMs: 1500, minScore: 0.35, maxCandidates: 50 }
+  }
+}
+```
+
+建索引是显式的本地操作：不会在策略准入或普通 prompt 组装时自动执行。`semantic-backfill` 必须确认，只保存向量字节、模型身份、输入哈希和 scope，不保存策略正文或证据。独立 CLI 也要求明确启用本地 embedding：
+
+```bash
+MNEMORA_REASONING_SEMANTIC_EMBEDDINGS=1 mnemora cognition reasoning semantic-status --scope project:alpha
+MNEMORA_REASONING_SEMANTIC_EMBEDDINGS=1 mnemora cognition reasoning semantic-backfill --scope project:alpha --confirm
+```
+
+如果修改了 embedding 模型配置，请再次执行已确认的 backfill；它会识别模型身份变化并刷新本地策略索引。
+
+shadow 报告提供聚合的 `semanticCandidates`、`unmatched` 和 `taskTypeExcluded` 计数，不会持久化 prompt、策略、memory ID 或来源内容。
 
 ## 安全模型
 

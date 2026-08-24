@@ -28,7 +28,7 @@ type RuntimeMessage = IngestParams["message"];
 type ContextTurnLifecycle = {
   derivedTaskKinds?(): readonly JournalDerivedTaskKind[];
   onCompletedTurn?(turn: CompletedTurn, receipt: JournalTurnReceipt): Promise<void> | void;
-  onAssemble?(input: ContextAssemblyInput): string | undefined;
+  onAssemble?(input: ContextAssemblyInput): string | undefined | Promise<string | undefined>;
   /** Bounded, content-free observability for fail-open host capture errors. */
   onCaptureFailure?(event: { source: string; category: "invalid_input" | "persistence_failed"; messageCount: number }): void;
 };
@@ -206,7 +206,7 @@ export class MnemoraContextEngine implements ContextEngine {
     // cannot fit is withheld rather than truncated into an invalid envelope.
     if (!automaticWorkExcluded && remaining >= 64 && typeof params.prompt === "string" && params.prompt.trim()) {
       try {
-        const reasoning = this.lifecycle.onAssemble?.({ sessionId: params.sessionId, query: params.prompt.trim(), tokenBudget: remaining, ...(agentId ? { agentId } : {}) });
+        const reasoning = await this.lifecycle.onAssemble?.({ sessionId: params.sessionId, query: params.prompt.trim(), tokenBudget: remaining, ...(agentId ? { agentId } : {}) });
         if (reasoning && estimateTextTokens(additions.length ? `${additions.join("\n\n")}\n\n${reasoning}` : reasoning) <= budget - estimatedTokens) additions.push(reasoning);
       } catch { /* optional governed reasoning must remain fail-open */ }
     }

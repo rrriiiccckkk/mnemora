@@ -6,9 +6,10 @@ import { ReasoningAgentAdapterRegistry, type CompiledReasoningContext } from "./
 import { ReasoningDeliveryFeedbackRepository } from "./reasoning-delivery-feedback.js";
 import type { ReasoningRuntimeTaskContext } from "./reasoning-runtime.js";
 import { ReasoningRuntimeShadowService, ReasoningRuntimeTelemetryRepository, type ReasoningRuntimeTelemetryConfig } from "./reasoning-runtime-telemetry.js";
+import type { ReasoningSemanticProvider } from "./reasoning-semantic.js";
 
 export interface ReasoningDeliveryConfig { enabled: boolean; scopes: string[]; adapter: "openclaw"; calibrationMaxAgeHours: number; maxConsecutiveDeliveries: number; itemRetentionDays: number; }
-export interface ReasoningRuntimeGovernanceConfig extends ReasoningRuntimeTelemetryConfig { delivery: ReasoningDeliveryConfig; }
+export interface ReasoningRuntimeGovernanceConfig extends ReasoningRuntimeTelemetryConfig { delivery: ReasoningDeliveryConfig; semantic?: { enabled: boolean; timeoutMs: number; minScore: number; maxCandidates: number; }; }
 export interface ReasoningRuntimeCalibration { id: string; scope: string; policyHash: string; status: "ready" | "rejected"; createdAt: number; expiresAt: number; metrics: { runs: number; triggered: number; selected: number; emptyRate: number; errorRate: number; p95Ms: number; }; }
 export interface ReasoningRuntimeCanaryStatus { version: "reasoning-runtime-canary-v1"; scope: string; configured: boolean; active: boolean; circuitOpen: boolean; reason: string; calibration?: ReasoningRuntimeCalibration; recentDeliveries: number; harmfulFeedback: number; }
 export interface ReasoningDeliveryResult { appendSystemContext: string; deliveryRunId: string; deliveryItemRefs: string[]; }
@@ -89,7 +90,15 @@ export class ReasoningGovernedDeliveryService {
   private readonly shadow: ReasoningRuntimeShadowService; private readonly governance: ReasoningRuntimeGovernanceRepository; private readonly feedback: ReasoningDeliveryFeedbackRepository;
   constructor(db: DatabaseSyncInstance, private readonly config: ReasoningRuntimeGovernanceConfig, now: () => number = Date.now) { this.shadow = new ReasoningRuntimeShadowService(db, config, now); this.governance = new ReasoningRuntimeGovernanceRepository(db, now); this.feedback = new ReasoningDeliveryFeedbackRepository(db, now); }
   handle(input: ReasoningRuntimeTaskContext, options: { deliveryAllowed?: boolean } = {}): ReasoningDeliveryResult | undefined {
-    const started = Date.now(), result = this.shadow.evaluate(input), authorization = this.governance.authorize(input.scope, this.config); if (!authorization.allowed) return undefined;
+    const started = Date.now();
+    return this.deliver(input, options, this.shadow.evaluate(input), started);
+  }
+  async handleWithSemantic(input: ReasoningRuntimeTaskContext, provider: ReasoningSemanticProvider, timeoutMs: number, maxCandidates: number, options: { deliveryAllowed?: boolean } = {}): Promise<ReasoningDeliveryResult | undefined> {
+    const started = Date.now(), result = await this.shadow.evaluateWithSemantic(input, provider, timeoutMs, maxCandidates);
+    return this.deliver(input, options, result, started);
+  }
+  private deliver(input: ReasoningRuntimeTaskContext, options: { deliveryAllowed?: boolean }, result: ReturnType<ReasoningRuntimeShadowService["evaluate"]>, started: number): ReasoningDeliveryResult | undefined {
+    const authorization = this.governance.authorize(input.scope, this.config); if (!authorization.allowed) return undefined;
     if (!result) { this.governance.recordDelivery({ scope: input.scope, calibrationId: authorization.calibration.id, status: "failed", selectedCount: 0, estimatedTokens: 0, durationMs: Date.now() - started, reasonCode: "operation_failed" }); return undefined; }
     if (!result.decision.shouldRetrieve) { this.governance.recordDelivery({ scope: input.scope, calibrationId: authorization.calibration.id, status: "withheld", selectedCount: 0, estimatedTokens: 0, durationMs: Date.now() - started, reasonCode: "no_trigger" }); return undefined; }
     if (!result.context?.items.length) { this.governance.recordDelivery({ scope: input.scope, calibrationId: authorization.calibration.id, status: "withheld", selectedCount: 0, estimatedTokens: 0, durationMs: Date.now() - started, reasonCode: "empty" }); return undefined; }
@@ -103,7 +112,7 @@ export class ReasoningGovernedDeliveryService {
   }
 }
 
-export function reasoningRuntimePolicyHash(config: ReasoningRuntimeGovernanceConfig): string { return digest({ version: "reasoning-runtime-policy-v1", tokenBudget: config.tokenBudget, maxItems: config.maxItems, minConfidence: config.minConfidence, highRiskMinConfidence: config.highRiskMinConfidence, minEvidenceQuality: config.minEvidenceQuality, highRiskMinEvidenceQuality: config.highRiskMinEvidenceQuality, maxStalenessDays: config.maxStalenessDays, excludeConflicted: config.excludeConflicted, readiness: config.readiness, adapter: config.delivery.adapter, maxConsecutiveDeliveries: config.delivery.maxConsecutiveDeliveries, itemRetentionDays: config.delivery.itemRetentionDays }); }
+export function reasoningRuntimePolicyHash(config: ReasoningRuntimeGovernanceConfig): string { return digest({ version: "reasoning-runtime-policy-v1", tokenBudget: config.tokenBudget, maxItems: config.maxItems, minConfidence: config.minConfidence, highRiskMinConfidence: config.highRiskMinConfidence, minEvidenceQuality: config.minEvidenceQuality, highRiskMinEvidenceQuality: config.highRiskMinEvidenceQuality, maxStalenessDays: config.maxStalenessDays, excludeConflicted: config.excludeConflicted, readiness: config.readiness, adapter: config.delivery.adapter, maxConsecutiveDeliveries: config.delivery.maxConsecutiveDeliveries, itemRetentionDays: config.delivery.itemRetentionDays, semantic: config.semantic ?? { enabled: false } }); }
 function fitPresentation(context: CompiledReasoningContext, tokenBudget: number, adapter: "openclaw", planned: Array<{ id: string; memoryId: string }>): { content: string; tokens: number; items: number } | undefined { const registry = new ReasoningAgentAdapterRegistry(); for (let count = context.items.length; count > 0; count--) { const selected = context.items.slice(0, count).map((item, index) => ({ ...item, deliveryItemRef: planned[index] ? createMnemoraContextRef({ scope: context.scope, kind: "reasoning-delivery-item", id: planned[index].id }) : undefined })), rendered = registry.render(adapter, { ...context, items: selected, estimatedTokens: selected.reduce((sum, item) => sum + item.estimatedTokens, 0) }); if (rendered.estimatedTokens <= tokenBudget) return { content: rendered.content, tokens: rendered.estimatedTokens, items: selected.length }; } return undefined; }
 function deliveryConfigured(scope: string, config: ReasoningDeliveryConfig): boolean { return config.enabled && config.scopes.length > 0 && config.scopes.includes(scope); }
 function calibration(row: Record<string, unknown>): ReasoningRuntimeCalibration { return { id: String(row.id), scope: normalizeScope(row.scope), policyHash: String(row.policy_hash), status: row.status === "ready" ? "ready" : "rejected", createdAt: Number(row.created_at), expiresAt: Number(row.expires_at), metrics: { runs: integer(row.total_runs, 5000), triggered: integer(row.triggered_runs, 5000), selected: integer(row.selected_count, 100000), emptyRate: unit(row.empty_rate), errorRate: unit(row.error_rate), p95Ms: integer(row.p95_ms, 30000) } }; }

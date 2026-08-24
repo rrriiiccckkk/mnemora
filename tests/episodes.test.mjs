@@ -7,7 +7,7 @@ const policy = { maxInlineChars: 16000, maxEventBytes: 262144, sensitiveContentP
 test("episodes are source-idempotent, scope isolated, searchable, and lifecycle-safe", () => {
   const store = new GraphologyStore(":memory:");
   try {
-    assert.equal(SUPPORTED_SCHEMA_VERSION,62);
+    assert.equal(SUPPORTED_SCHEMA_VERSION,63);
     const events = new ConversationEventRepository(store.db, policy), repo = new EpisodeRepository(store.db);
     const first = events.append({ scope: "work", sessionId: "s", kind: "user_message", role: "user", parts: [{ type: "text", text: "plan the launch" }] });
     const episode = repo.create({ scope: "work", kind: "task", title: "Launch", summary: "Plan the product launch", sourceEventIds: [first.id], importance: .8, confidence: .9 });

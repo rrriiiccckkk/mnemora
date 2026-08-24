@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { DatabaseSyncInstance } from "@photostructure/sqlite";
 import { authorizeMnemoraContextRef, type MnemoraContextRef } from "../context/context-ref.js";
 import { normalizeScope } from "../scope.js";
+import { reasoningTaskType } from "./reasoning-task-types.js";
 
 export type ReasoningMemoryKind = "strategy" | "procedure" | "failure_guard" | "anti_pattern";
 export type ReasoningMemoryState = "proposed" | "provisional" | "admitted" | "needs_review" | "quarantined" | "disabled" | "retired";
@@ -135,7 +136,7 @@ export class ReasoningMemoryService {
   private normalize(input: ReasoningMemoryInput) {
     const scope = normalizeScope(input.scope), kind = input.kind, strategy = clean(input.strategy, 4096);
     if (!kinds.has(kind) || !strategy) throw new Error("invalid_reasoning_memory");
-    const raw = input.applicability ?? {}, applicability: ReasoningApplicability = { taskTypes: identifiers(raw.taskTypes, 20), riskLevels: identifiers(raw.riskLevels, 3).filter((value): value is "low" | "medium" | "high" => riskLevels.has(value)), environments: identifiers(raw.environments, 20), requiredTools: identifiers(raw.requiredTools, 20) };
+    const raw = input.applicability ?? {}, applicability: ReasoningApplicability = { taskTypes: [...new Set(identifiers(raw.taskTypes, 20).map(reasoningTaskType).filter((value): value is string => Boolean(value)))], riskLevels: identifiers(raw.riskLevels, 3).filter((value): value is "low" | "medium" | "high" => riskLevels.has(value)), environments: identifiers(raw.environments, 20), requiredTools: identifiers(raw.requiredTools, 20) };
     const contraindications = Array.isArray(input.contraindications) ? [...new Set(input.contraindications.flatMap(value => clean(value, 256) ?? []))].slice(0, 20) : [];
     const sourceTaskRefs = this.references(input.sourceTaskRefs, scope, "task"), outcomeRefs = this.references(input.outcomeRefs, scope, "outcome"), evidenceRefs = this.references(input.evidenceRefs, scope, "evidence");
     if (!sourceTaskRefs.length || !outcomeRefs.length || !evidenceRefs.length) throw new Error("invalid_reasoning_lineage");
@@ -162,7 +163,7 @@ export class ReasoningMemoryService {
   private read(row: Record<string, unknown>): ReasoningMemory { return { id: String(row.id), scope: String(row.scope), kind: row.kind as ReasoningMemoryKind, strategy: String(row.strategy), applicability: parseApplicability(row.applicability_json), contraindications: strings(row.contraindications_json), sourceTaskRefs: strings(row.source_task_refs_json), outcomeRefs: strings(row.outcome_refs_json), evidenceRefs: strings(row.evidence_refs_json), confidence: Number(row.confidence), utilityScore: Number(row.utility_score), successCount: Number(row.success_count), failureCount: Number(row.failure_count), degradedCount: Number(row.degraded_count), state: row.state as ReasoningMemoryState, ...(row.supersedes_id ? { supersedesId: String(row.supersedes_id) } : {}), createdAt: Number(row.created_at), updatedAt: Number(row.updated_at) }; }
 }
 function strings(value: unknown): string[] { try { const parsed = JSON.parse(String(value)); return Array.isArray(parsed) ? parsed.filter(item => typeof item === "string").slice(0, 50) : []; } catch { return []; } }
-function parseApplicability(value: unknown): ReasoningApplicability { try { const parsed = JSON.parse(String(value)); return { taskTypes: identifiers(parsed?.taskTypes, 20), riskLevels: identifiers(parsed?.riskLevels, 3).filter((item): item is "low" | "medium" | "high" => riskLevels.has(item)), environments: identifiers(parsed?.environments, 20), requiredTools: identifiers(parsed?.requiredTools, 20) }; } catch { return { taskTypes: [], riskLevels: [], environments: [], requiredTools: [] }; } }
+function parseApplicability(value: unknown): ReasoningApplicability { try { const parsed = JSON.parse(String(value)); return { taskTypes: [...new Set(identifiers(parsed?.taskTypes, 20).map(reasoningTaskType).filter((item): item is string => Boolean(item)))], riskLevels: identifiers(parsed?.riskLevels, 3).filter((item): item is "low" | "medium" | "high" => riskLevels.has(item)), environments: identifiers(parsed?.environments, 20), requiredTools: identifiers(parsed?.requiredTools, 20) }; } catch { return { taskTypes: [], riskLevels: [], environments: [], requiredTools: [] }; } }
 function bounded(value: number): number { return Math.min(100, Math.max(1, Math.trunc(value))); }
 function reason(value: unknown): string | undefined { return typeof value === "string" && /^[a-z][a-z0-9_]{1,79}$/.test(value) ? value : undefined; }
 function applicabilityOverlap(left: ReasoningApplicability, right: ReasoningApplicability): string[] { const fields: Array<[string, string[], string[]]> = [["task_type", left.taskTypes, right.taskTypes], ["risk_level", left.riskLevels, right.riskLevels], ["environment", left.environments, right.environments], ["required_tool", left.requiredTools, right.requiredTools]]; return fields.flatMap(([label, a, b]) => a.filter(value => b.includes(value)).map(value => `${label}:${value}`)).slice(0, 20); }

@@ -1,6 +1,6 @@
 import { AutoExtractService, type SafeLogger } from "./auto-extract.js";
 import { normalizeConfig } from "./config.js";
-import type { MnemoraConfig } from "./index.js";
+import type { EmbeddingConfig, MnemoraConfig } from "./index.js";
 import { Mnemora } from "./tools.js";
 import { InsightExplainer } from "./insights/explainer.js";
 import { ConversationJournalService } from "./journal/service.js";
@@ -12,6 +12,8 @@ import { ConsolidationService } from "./consolidation/service.js";
 import { ReflectionService } from "./cognition/reflection.js";
 import { ReasoningRuntimeShadowService, type ReasoningRuntimeTelemetryConfig } from "./cognition/reasoning-runtime-telemetry.js";
 import { ReasoningGovernedDeliveryService, type ReasoningRuntimeGovernanceConfig } from "./cognition/reasoning-runtime-governance.js";
+import { LocalReasoningSemanticProvider } from "./cognition/reasoning-semantic-embeddings.js";
+import { createEmbedder } from "./embeddings.js";
 import type { CompletedTurn, ContextAssemblyInput } from "./context-engine/lifecycle.js";
 import { sessionWriteDisposition } from "./journal/session-policy.js";
 
@@ -212,7 +214,7 @@ export class PluginRuntime {
     ];
   }
 
-  runReasoningRuntime(input: ContextAssemblyInput): string | undefined {
+  async runReasoningRuntime(input: ContextAssemblyInput): Promise<string | undefined> {
     if (!(this.reasoningShadowEnabled || this.reasoningDeliveryEnabled)) return undefined;
     if (this.isExcludedAgent(input.agentId)) return undefined;
     const graph = this.openGraph(), value = this.config.cognition!.reasoningRuntime!;
@@ -220,11 +222,18 @@ export class PluginRuntime {
       const config: ReasoningRuntimeGovernanceConfig = {
         tokenBudget: value.tokenBudget!, maxItems: value.maxItems!, minConfidence: value.minConfidence!, highRiskMinConfidence: value.highRiskMinConfidence!, minEvidenceQuality: value.minEvidenceQuality!, highRiskMinEvidenceQuality: value.highRiskMinEvidenceQuality!, maxStalenessDays: value.maxStalenessDays!, excludeConflicted: value.excludeConflicted!, retentionDays: value.retentionDays!,
         readiness: { minimumRuns: value.readiness!.minimumRuns!, maxErrorRate: value.readiness!.maxErrorRate!, maxEmptyRate: value.readiness!.maxEmptyRate!, maxP95Ms: value.readiness!.maxP95Ms! },
-        delivery: { enabled: value.delivery!.enabled!, scopes: value.delivery!.scopes!, adapter: "openclaw", calibrationMaxAgeHours: value.delivery!.calibrationMaxAgeHours!, maxConsecutiveDeliveries: value.delivery!.maxConsecutiveDeliveries!, itemRetentionDays: value.delivery!.itemRetentionDays! }
+        delivery: { enabled: value.delivery!.enabled!, scopes: value.delivery!.scopes!, adapter: "openclaw", calibrationMaxAgeHours: value.delivery!.calibrationMaxAgeHours!, maxConsecutiveDeliveries: value.delivery!.maxConsecutiveDeliveries!, itemRetentionDays: value.delivery!.itemRetentionDays! },
+        semantic: { enabled: value.semantic!.enabled!, timeoutMs: value.semantic!.timeoutMs!, minScore: value.semantic!.minScore!, maxCandidates: value.semantic!.maxCandidates! }
       };
       const signal = input.signal ?? this.shutdown.signal;
-      if (!this.reasoningDeliveryEnabled) { new ReasoningRuntimeShadowService(graph.store.db, config as ReasoningRuntimeTelemetryConfig).capture({ scope: this.config.scope!.default!, query: input.query, signal }); return undefined; }
-      const consecutive = this.reasoningCadence.get(input.sessionId) ?? 0, output = new ReasoningGovernedDeliveryService(graph.store.db, config).handle({ scope: this.config.scope!.default!, query: input.query, signal }, { deliveryAllowed: consecutive < config.delivery.maxConsecutiveDeliveries });
+      const embeddingConfig = this.config.embeddings as EmbeddingConfig;
+      const semantic = config.semantic?.enabled && embeddingConfig.enabled ? new LocalReasoningSemanticProvider(graph.store.db, createEmbedder(embeddingConfig), { minScore: config.semantic.minScore, maxVectorScan: embeddingConfig.maxVectorScanNodes }) : undefined;
+      if (!this.reasoningDeliveryEnabled) {
+        const shadow = new ReasoningRuntimeShadowService(graph.store.db, config as ReasoningRuntimeTelemetryConfig);
+        if (semantic) await shadow.captureWithSemantic({ scope: this.config.scope!.default!, query: input.query, signal }, semantic, config.semantic!.timeoutMs, config.semantic!.maxCandidates); else shadow.capture({ scope: this.config.scope!.default!, query: input.query, signal });
+        return undefined;
+      }
+      const consecutive = this.reasoningCadence.get(input.sessionId) ?? 0, delivery = new ReasoningGovernedDeliveryService(graph.store.db, config), output = semantic ? await delivery.handleWithSemantic({ scope: this.config.scope!.default!, query: input.query, signal }, semantic, config.semantic!.timeoutMs, config.semantic!.maxCandidates, { deliveryAllowed: consecutive < config.delivery.maxConsecutiveDeliveries }) : delivery.handle({ scope: this.config.scope!.default!, query: input.query, signal }, { deliveryAllowed: consecutive < config.delivery.maxConsecutiveDeliveries });
       if (output) this.reasoningCadence.set(input.sessionId, consecutive + 1); else this.reasoningCadence.set(input.sessionId, 0);
       if (this.reasoningCadence.size > 128) this.reasoningCadence.delete(this.reasoningCadence.keys().next().value!);
       return output?.appendSystemContext;

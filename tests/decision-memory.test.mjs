@@ -14,7 +14,7 @@ test("explicit decision memory is previewed, source-linked, idempotent, and life
   let now = 1_000;
   const store = new GraphologyStore(":memory:");
   try {
-    assert.equal(SUPPORTED_SCHEMA_VERSION, 62);
+    assert.equal(SUPPORTED_SCHEMA_VERSION, 63);
     const candidate = new FormationService(store.db, () => ++now, { mode: "enforce" }).observe({ scope: "project:alpha", origin: "memory_store", authority: "user_explicit_preference", kind: "memory_document", source: "user:decision", content: "Use SQLite for this local-first project." });
     const sourceRef = createMnemoraContextRef({ scope: "project:alpha", kind: "memory-candidate", id: candidate.id });
     const service = new DecisionMemoryService(store.db, () => ++now);
@@ -57,7 +57,7 @@ test("decision memory rejects cross-scope evidence and remains readable after la
     legacy.close(); legacy = undefined;
     const migrated = new GraphologyStore(path);
     try {
-    assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 62);
+    assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 63);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='mnemora_decisions'").get().n, 1);
     } finally { migrated.close(); }
   } finally { try { legacy?.close(); } catch {} try { rmSync(path, { force: true }); } catch {} }

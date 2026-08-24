@@ -3,6 +3,7 @@ import { normalizeScope } from "../scope.js";
 import { ReasoningContextCompiler, type CompileReasoningContextInput, type CompiledReasoningContext } from "./reasoning-adapters.js";
 import type { ReasoningQualityPolicy } from "./reasoning-quality.js";
 import { ReasoningSemanticRetrievalService, type ReasoningSemanticProvider } from "./reasoning-semantic.js";
+import { classifyReasoningTask, isHighRiskReasoningOperation, reasoningTaskType } from "./reasoning-task-types.js";
 
 export type ReasoningRuntimeTrigger = "explicit_task_type" | "task_classification" | "high_risk_operation" | "failure_recovery";
 export interface ReasoningRuntimeTaskContext extends CompileReasoningContextInput { failureSignal?: boolean; }
@@ -30,8 +31,8 @@ export class ReasoningRuntimeService {
   plan(input: ReasoningRuntimeTaskContext): ReasoningRuntimeDecision {
     abort(input.signal);
     if (input.riskLevel !== undefined && !["low", "medium", "high"].includes(input.riskLevel)) throw new Error("invalid_reasoning_runtime");
-    const scope = normalizeScope(input.scope), query = clean(input.query), explicitTaskType = identifier(input.taskType), classifiedTaskType = explicitTaskType ?? classify(query);
-    const highRisk = input.riskLevel === "high" || highRiskOperation(query), riskLevel = input.riskLevel ?? (highRisk ? "high" : classifiedTaskType ? "medium" : "low");
+    const scope = normalizeScope(input.scope), query = clean(input.query), explicitTaskType = reasoningTaskType(input.taskType), classifiedTaskType = explicitTaskType ?? classifyReasoningTask(query);
+    const highRisk = input.riskLevel === "high" || isHighRiskReasoningOperation(query), riskLevel = input.riskLevel ?? (highRisk ? "high" : classifiedTaskType ? "medium" : "low");
     const triggers: ReasoningRuntimeTrigger[] = [], reasons: string[] = [];
     if (explicitTaskType) { triggers.push("explicit_task_type"); reasons.push("task_type_declared"); }
     else if (classifiedTaskType) { triggers.push("task_classification"); reasons.push(`task_type_classified:${classifiedTaskType}`); }
@@ -50,21 +51,23 @@ export class ReasoningRuntimeService {
   }
 
   /** Optional bounded semantic hinting. Provider results never bypass scope, admission, or quality policy. */
-  async prepareWithSemantic(input: ReasoningRuntimeTaskContext, provider: ReasoningSemanticProvider, timeoutMs = 5_000): Promise<ReasoningRuntimeResult> {
+  async prepareWithSemantic(input: ReasoningRuntimeTaskContext, provider: ReasoningSemanticProvider, timeoutMs = 5_000, maxCandidates?: number): Promise<ReasoningRuntimeResult> {
     const decision = this.plan(input);
     if (!decision.shouldRetrieve) return { version: "reasoning-runtime-v1", decision };
-    const semanticScores = await new ReasoningSemanticRetrievalService(this.db, provider, timeoutMs).scores({ scope: decision.scope, query: clean(input.query), limit: Math.min(50, (input.maxItems ?? 6) * 4), signal: input.signal });
+    const limit = maxCandidates === undefined ? Math.min(50, (input.maxItems ?? 6) * 4) : Math.min(50, Math.max(1, Math.trunc(maxCandidates)));
+    const semanticScores = await new ReasoningSemanticRetrievalService(this.db, provider, timeoutMs).scores({ scope: decision.scope, query: clean(input.query), limit, signal: input.signal });
     const context = this.compiler.compile({ ...input, scope: decision.scope, query: clean(input.query), taskType: decision.taskType, riskLevel: decision.riskLevel, semanticScores, qualityPolicy: this.options.qualityPolicy, now: this.options.now });
     return { version: "reasoning-runtime-v1", decision, context };
+  }
+
+  /** Runtime-only fail-open wrapper. The explicit semantic API above retains
+   * timeout/error visibility for callers; host assembly may safely continue
+   * with the deterministic lexical path when a local provider is unavailable. */
+  async prepareWithSemanticFallback(input: ReasoningRuntimeTaskContext, provider: ReasoningSemanticProvider, timeoutMs = 5_000, maxCandidates?: number): Promise<ReasoningRuntimeResult> {
+    try { return await this.prepareWithSemantic(input, provider, timeoutMs, maxCandidates); }
+    catch (error) { if (input.signal?.aborted) throw error; return this.prepare(input); }
   }
 }
 
 function clean(value: unknown): string { return typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, 4096) : ""; }
-function identifier(value: unknown): string | undefined { return typeof value === "string" && /^[a-z0-9][a-z0-9:_-]{0,79}$/i.test(value.trim()) ? value.trim().toLowerCase() : undefined; }
 function abort(signal?: AbortSignal): void { if (signal?.aborted) throw signal.reason ?? new Error("aborted"); }
-function classify(query: string): string | undefined {
-  const lower = query.toLowerCase();
-  for (const [taskType, terms] of Object.entries({ database_migration: ["migration", "migrate", "schema", "ddl"], deployment: ["deploy", "deployment", "rollout"], destructive_operation: ["delete", "deletion", "drop table", "erase"], security_operation: ["security", "credential", "permission", "vulnerability"], financial_operation: ["payment", "transfer", "financial transaction"], software_debugging: ["debug", "bug", "regression", "stack trace"] })) if (terms.some(term => lower.includes(term))) return taskType;
-  return undefined;
-}
-function highRiskOperation(query: string): boolean { return /\b(production|deploy(?:ment)?|migration|migrate|delete|deletion|drop|security|credential|permission|payment|transfer|rollback)\b/i.test(query); }

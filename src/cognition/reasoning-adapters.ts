@@ -8,7 +8,7 @@ export const REASONING_AGENT_ADAPTER_CONTRACT_V1 = "mnemora-reasoning-agent-adap
 export type ReasoningAgentAdapterContractVersion = typeof REASONING_AGENT_ADAPTER_CONTRACT_V1;
 export interface CompileReasoningContextInput extends ReasoningRetrievalInput { tokenBudget?: number; maxItems?: number; signal?: AbortSignal; }
 export interface CompiledReasoningItem { id: string; kind: ReasoningMemoryKind; strategy: string; authority: "operator_confirmed"; confidence: number; utility: number; applicability: ReasoningApplicability; sourceRefs: string[]; reasons: string[]; estimatedTokens: number; deliveryItemRef?: string; }
-export interface CompiledReasoningContext { version: "reasoning-context-v1"; scope: string; queryApplied: boolean; tokenBudget: number; estimatedTokens: number; items: CompiledReasoningItem[]; omitted: Array<{ id: string; reason: "budget" }>; diagnostics?: { retrievalCandidates: number; qualityExcluded: number; }; }
+export interface CompiledReasoningContext { version: "reasoning-context-v1"; scope: string; queryApplied: boolean; tokenBudget: number; estimatedTokens: number; items: CompiledReasoningItem[]; omitted: Array<{ id: string; reason: "budget" }>; diagnostics?: { retrievalCandidates: number; qualityExcluded: number; semanticCandidates: number; unmatched: number; taskTypeExcluded: number; }; }
 export interface ReasoningAgentPresentation { adapterId: string; contractVersion: ReasoningAgentAdapterContractVersion; channel: "sidecar"; format: "markdown" | "json"; content: string; estimatedTokens: number; }
 /** Adapter has no store, retrieval, or mutation capability: it only formats Mnemora-owned compilation output. */
 export interface ReasoningAgentAdapter { readonly id: string; readonly contractVersion: ReasoningAgentAdapterContractVersion; render(context: CompiledReasoningContext): ReasoningAgentPresentation; }
@@ -27,7 +27,7 @@ export class ReasoningContextCompiler {
       items.push({ id: memory.id, kind: memory.kind, strategy: memory.strategy, authority: "operator_confirmed", confidence: memory.confidence, utility: memory.utilityScore, applicability: memory.applicability, sourceRefs, reasons: candidate.reasons, estimatedTokens }); used += estimatedTokens;
     }
     const qualityExcluded = result.excluded.confidence + result.excluded.evidence + result.excluded.staleness + result.excluded.conflict;
-    return { version: "reasoning-context-v1", scope, queryApplied: Boolean(input.query.trim()), tokenBudget, estimatedTokens: used, items, omitted, diagnostics: { retrievalCandidates: result.candidates.length, qualityExcluded } };
+    return { version: "reasoning-context-v1", scope, queryApplied: Boolean(input.query.trim()), tokenBudget, estimatedTokens: used, items, omitted, diagnostics: { retrievalCandidates: result.candidates.length, qualityExcluded, semanticCandidates: Object.keys(input.semanticScores ?? {}).length, unmatched: result.excluded.query, taskTypeExcluded: result.excluded.task_type } };
   }
 }
 

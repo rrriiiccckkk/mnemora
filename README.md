@@ -110,6 +110,10 @@ mnemora standalone guide
 - `cognition.reasoningRuntime.shadowMode`: aggregates safe strategy-retrieval
   telemetry only. Reasoning delivery remains disabled unless an operator also
   calibrates and enables an exact-scope canary.
+- `cognition.reasoningRuntime.semantic.enabled`: enables a separate, local
+  semantic index for admitted ReasoningMemory strategies only when
+  `embeddings.enabled` is also true. It is disabled by default and always
+  falls back to deterministic lexical retrieval on provider failure.
 
 Every model or network call has input/output bounds, timeout, and cancellation
 handling. Default installation never enables an extra automatic write path,
@@ -154,6 +158,42 @@ dataset through `mnemora cognition reasoning runtime-effectiveness <file>`.
 Only a randomized comparison with at least 20 resolved outcomes in each arm
 receives a success-rate difference. Shadow telemetry, adoption, or synthetic
 benchmarks are not efficacy claims.
+
+### Optional multilingual ReasoningMemory retrieval
+
+Reasoning strategies may be written in a different language than a runtime
+task. To make a Chinese strategy available to an English `debug` task (and the
+reverse), explicitly enable the existing local Ollama embedding provider and
+the separate ReasoningMemory semantic path:
+
+```json5
+embeddings: { enabled: true, provider: "ollama", model: "qwen3-embedding:4b" },
+cognition: {
+  reasoningRuntime: {
+    shadowMode: true,
+    scopes: ["project:alpha"],
+    semantic: { enabled: true, timeoutMs: 1500, minScore: 0.35, maxCandidates: 50 }
+  }
+}
+```
+
+Indexing is an explicit local operation; it never runs during admission or
+normal prompt assembly. `semantic-backfill` requires confirmation and stores
+only vector bytes, model identity, input hash, and scope—not strategy text or
+evidence. The standalone CLI deliberately needs an explicit local embedding
+opt-in as well:
+
+```bash
+MNEMORA_REASONING_SEMANTIC_EMBEDDINGS=1 mnemora cognition reasoning semantic-status --scope project:alpha
+MNEMORA_REASONING_SEMANTIC_EMBEDDINGS=1 mnemora cognition reasoning semantic-backfill --scope project:alpha --confirm
+```
+
+After changing the configured embedding model, rerun the confirmed backfill;
+it detects the model identity change and refreshes the local strategy index.
+
+The shadow report exposes aggregate `semanticCandidates`, `unmatched`, and
+`taskTypeExcluded` counters. It persists no prompt, strategy, memory ID, or
+source content.
 
 ## Safety model
 

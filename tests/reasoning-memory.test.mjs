@@ -34,7 +34,7 @@ function fixture(store, scope = "project:ops") {
 test("reasoning memory requires local lineage, remains proposed until admission, and never writes beliefs", () => {
   const store = new GraphologyStore(":memory:");
   try {
-    assert.equal(SUPPORTED_SCHEMA_VERSION, 62);
+    assert.equal(SUPPORTED_SCHEMA_VERSION, 63);
     const { eventRef, taskRef, outcomeRef } = fixture(store), service = new ReasoningMemoryService(store.db, () => 200);
     const input = { scope: "project:ops", kind: "failure_guard", strategy: "Validate rollback and a recovery plan before any production schema mutation.", applicability: { taskTypes: ["database_migration"], riskLevels: ["high"] }, contraindications: ["Do not delay an emergency rollback."], sourceTaskRefs: [taskRef], outcomeRefs: [outcomeRef], evidenceRefs: [eventRef], confidence: .8 };
     const preview = service.preview(input);
@@ -309,7 +309,7 @@ test("schema v44 adds reasoning reflection proposals without rebuilding governan
     legacy = new GraphologyStore(path); legacy.db.exec("DROP TABLE mnemora_reasoning_reflection_proposals; PRAGMA user_version=43"); legacy.close(); legacy = undefined;
     const migrated = new GraphologyStore(path);
     try {
-      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 62);
+      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 63);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name='mnemora_reasoning_memories'").get().value, 1);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name='mnemora_task_outcomes'").get().value, 1);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name='mnemora_reasoning_memory_governance_events'").get().value, 1);
@@ -325,7 +325,7 @@ test("schema v45 adds aggregate reasoning shadow telemetry without rebuilding v4
     legacy.db.exec("DROP TABLE mnemora_reasoning_runtime_shadow_runs; PRAGMA user_version=44"); legacy.close(); legacy = undefined;
     const migrated = new GraphologyStore(path);
     try {
-      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 62);
+      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 63);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM mnemora_reasoning_memories WHERE id=?").get(memory.id).value, 1);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name='mnemora_reasoning_runtime_shadow_runs'").get().value, 1);
     } finally { migrated.close(); }
@@ -337,7 +337,7 @@ test("schema v46 adds governed delivery controls without rebuilding v45 reasonin
   try {
     legacy = new GraphologyStore(path); const refs = fixture(legacy), service = new ReasoningMemoryService(legacy.db, () => 5_000), input = { scope: "project:ops", kind: "strategy", strategy: "Validate rollback before migration.", sourceTaskRefs: [refs.taskRef], outcomeRefs: [refs.outcomeRef], evidenceRefs: [refs.eventRef] }, proposed = service.propose(input, service.preview(input).preview_hash), memory = service.admit(proposed.id, input.scope, service.admissionPreview(proposed.id, input.scope).preview_hash);
     legacy.db.exec("DROP TABLE mnemora_reasoning_runtime_delivery_runs; DROP TABLE mnemora_reasoning_runtime_canary_events; DROP TABLE mnemora_reasoning_runtime_canaries; DROP TABLE mnemora_reasoning_runtime_calibrations; PRAGMA user_version=45"); legacy.close(); legacy = undefined;
-    const migrated = new GraphologyStore(path); try { assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 62); assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM mnemora_reasoning_memories WHERE id=?").get(memory.id).value, 1); assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name='mnemora_reasoning_runtime_delivery_runs'").get().value, 1); } finally { migrated.close(); }
+    const migrated = new GraphologyStore(path); try { assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 63); assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM mnemora_reasoning_memories WHERE id=?").get(memory.id).value, 1); assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name='mnemora_reasoning_runtime_delivery_runs'").get().value, 1); } finally { migrated.close(); }
   } finally { try { legacy?.close(); } catch {} try { rmSync(path, { force: true }); } catch {} }
 });
 
