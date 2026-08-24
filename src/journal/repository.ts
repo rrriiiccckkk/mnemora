@@ -105,7 +105,7 @@ export class ConversationEventRepository {
   }
 
   /** Retire legacy work kinds that have no runtime consumer.  This is safe to
-   * run repeatedly and makes an interrupted pre-v6.1 queue observable rather
+   * run repeatedly and makes an interrupted legacy queue observable rather
    * than leaving it permanently pending or running. */
   cancelUnsupportedDerivedTasks(scope: string, kinds: readonly string[], now = Date.now()): number {
     const safeKinds = [...new Set(kinds)].filter(kind => typeof kind === "string" && kind.length > 0 && kind.length <= 80).slice(0, 16);

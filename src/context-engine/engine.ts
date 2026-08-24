@@ -40,7 +40,7 @@ const asHostMessage = (message: RuntimeMessage): HostMessage => message as unkno
 
 /**
  * Public ContextEngine implementation. Host compaction remains the default.
- * A separately explicit v6.3 opt-in enables only bounded, source-linked model
+ * A separately explicit opt-in enables only bounded, source-linked model
  * compaction through the host's documented rewrite capability.
  */
 export class MnemoraContextEngine implements ContextEngine {
@@ -155,7 +155,7 @@ export class MnemoraContextEngine implements ContextEngine {
     const agentId = this.activeAgentId(params.messages);
     const automaticWorkExcluded = this.isExcludedAgent(agentId);
     // The public AssembleResult explicitly supports systemPromptAddition. It
-    // is the one and only injection point in standalone mode: v6.9 registers
+    // is the one and only injection point in standalone mode. Mnemora registers
     // no legacy prompt hook, so duplicate recall cannot be revived by runtime
     // ordering or an old compatibility setting.
     const additions: string[] = [];
@@ -219,7 +219,7 @@ export class MnemoraContextEngine implements ContextEngine {
     abort(params.abortSignal);
     const options = this.config.contextEngine?.compaction;
     if (!options?.enabled) return await this.delegate(params);
-    const result = await this.runLocalCompaction(params.sessionId, params.currentTokenCount, params.runtimeContext, params.abortSignal);
+    const result = await this.runLocalCompaction(params.sessionId, params.runtimeContext, params.abortSignal);
     return { ok: true, compacted: result.compacted, reason: result.reason, result: { ...(result.summary ? { summary: result.summary } : {}), ...(result.firstKeptEntryId ? { firstKeptEntryId: result.firstKeptEntryId } : {}), tokensBefore: result.tokensBefore, tokensAfter: result.tokensAfter, details: result.details } };
   }
 
@@ -227,10 +227,9 @@ export class MnemoraContextEngine implements ContextEngine {
     const options = this.config.contextEngine?.compaction;
     if (!options?.enabled) return { changed: false, bytesFreed: 0, rewrittenEntries: 0, reason: "local_compaction_disabled" };
     const input = params.runtimeContext;
-    const budget = this.runtimeBudget(input?.tokenBudget ?? input?.currentTokenCount);
-    const current = Number.isFinite(input?.currentTokenCount) ? Math.max(0, Math.floor(input!.currentTokenCount!)) : undefined;
-    if (current != null && current < Math.floor(budget * options.contextThreshold!)) return { changed: false, bytesFreed: 0, rewrittenEntries: 0, reason: "below_context_threshold" };
-    const result = await this.runLocalCompaction(params.sessionId, current, input, undefined);
+    const budget = this.runtimeBudget(input?.tokenBudget);
+    if (this.activeJournalTokenEstimate(params.sessionId) < Math.floor(budget * options.contextThreshold!)) return { changed: false, bytesFreed: 0, rewrittenEntries: 0, reason: "below_context_threshold" };
+    const result = await this.runLocalCompaction(params.sessionId, input, undefined);
     return { changed: result.compacted, bytesFreed: Number(result.details.bytesFreed ?? 0), rewrittenEntries: Number(result.details.rewrittenEntries ?? 0), reason: result.reason };
   }
 
@@ -245,7 +244,7 @@ export class MnemoraContextEngine implements ContextEngine {
     // failure/reconciliation state for the operator instead.
     try {
       if (this.activeJournalTokenEstimate(params.sessionId) < Math.floor(budget * options.contextThreshold!)) return;
-      await this.runLocalCompaction(params.sessionId, undefined, runtime);
+      await this.runLocalCompaction(params.sessionId, runtime);
     } catch { /* maintenance remains fail-open */ }
   }
 
@@ -254,14 +253,14 @@ export class MnemoraContextEngine implements ContextEngine {
     try { return activeJournalTokenEstimate(graph.store.db, this.scope(), sessionId); } finally { graph.close(); }
   }
 
-  private async runLocalCompaction(sessionId: string, currentTokenCount: number | undefined, runtimeContext: CompactParams["runtimeContext"] | undefined, signal?: AbortSignal) {
+  private async runLocalCompaction(sessionId: string, runtimeContext: CompactParams["runtimeContext"] | undefined, signal?: AbortSignal) {
     const options = this.config.contextEngine!.compaction!, graph = this.openGraph();
     try {
       const model = runtimeContext?.llm ? new RuntimeCompactionSummarizer(runtimeContext.llm, options.timeoutMs!) : new ConfiguredCompactionSummarizer(this.config, options.timeoutMs!);
-      const budget = this.runtimeBudget(currentTokenCount ?? runtimeContext?.tokenBudget ?? runtimeContext?.currentTokenCount);
+      const budget = this.runtimeBudget(runtimeContext?.tokenBudget);
       const service = new ContextCompactionService(graph.store.db, this.policy(), model);
       return await service.compact({
-        scope: this.scope(), sessionId, protectedRecentEvents: this.config.contextEngine!.protectedRecentEvents!, runtimeContext, signal, currentTokenCount,
+        scope: this.scope(), sessionId, protectedRecentEvents: this.config.contextEngine!.protectedRecentEvents!, runtimeContext, signal,
         targetTokens: Math.floor(budget * options.contextThreshold!), options: this.compactionOptions()
       });
     } finally { graph.close(); }

@@ -170,7 +170,7 @@ export interface MnemoraConfig {
     autoInputQuality?: { mode?: "off" | "shadow" | "enforce"; maxSegments?: number; };
   };
   recall?: {
-    /** Deprecated compatibility key. v6.9 never registers a recall hook. */
+    /** Deprecated compatibility key. Mnemora never registers a recall hook. */
     autoRecall?: boolean;
     /** Deprecated hook-injection compatibility policy; ContextEngine owns prompt assembly. */
     injection?: { mode?: "off" | "shadow" | "inject"; maxMemoryTokens?: number; maxMemoryItems?: number; minRelevanceScore?: number; maxInjectionsPerMemory?: number; maxConsecutiveInjections?: number; };

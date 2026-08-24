@@ -364,7 +364,7 @@ export class GraphologyStore {
     this.db.exec(`PRAGMA user_version=${SUPPORTED_SCHEMA_VERSION}`);
   }
 
-  /** v6.26 adds a non-destructive lifecycle overlay for memory documents.
+  /** Schema v61 adds a non-destructive lifecycle overlay for memory documents.
    * Existing documents are preserved byte-for-byte and begin at `working`;
    * no row is archived, promoted, or assigned an expiry during migration. */
   private migrateMemoryLifecycleV61(): void {
@@ -374,24 +374,24 @@ export class GraphologyStore {
       SELECT id,scope,'working',0,? FROM kg_memory_documents`).run(now);
   }
 
-  /** v58 only adds durable receipts for explicitly confirmed consolidation
+  /** Schema v58 only adds durable receipts for explicitly confirmed consolidation
    * lifecycle actions. Existing evidence, episodes, and proposals are not
    * rewritten during migration. */
   private migrateConsolidationAdoptionsV58(): void { this.db.exec(consolidationSchemaSql); }
 
-  /** v6.23 records only aggregate vocabulary-review candidates. Existing
+  /** Schema v59 records only aggregate vocabulary-review candidates. Existing
    * nodes, edges, observations, weights, scopes, and source evidence stay
    * byte-for-byte intact; historic semantic edges are projected at read time. */
   private migrateSemanticBoundaryV59(): void { this.db.exec(semanticSchemaSql); }
 
-  /** v60 adds an isolated, source-citable canonical corpus cache. */
+  /** Schema v60 adds an isolated, source-citable canonical corpus cache. */
   private migrateCanonicalCorpusV60(): void { this.db.exec(corpusSchemaSql); }
 
-  /** v6.21 adds aggregate-only actual-injection usage. Existing memory rows,
+  /** Schema v57 adds aggregate-only actual-injection usage. Existing memory rows,
    * content, lifecycle state, and truth confidence are intentionally untouched. */
   private migrateRecallLifecycleV57(): void { this.db.exec(recallLifecycleSchemaSql); }
 
-  /** v6.1 recomputes the derived importance projection from evidence quality,
+  /** Schema v48 recomputes the derived importance projection from evidence quality,
    * independent sources, and graph connectivity. It never alters facts. */
   private migrateNodeImportanceV48(): void {
     this.db.exec("BEGIN IMMEDIATE");
@@ -402,36 +402,36 @@ export class GraphologyStore {
     } catch (error) { try { this.db.exec("ROLLBACK"); } catch {} throw error; }
   }
 
-  /** v6.3 adds durable, source-window compaction state. It is additive: no
+  /** Schema v49 adds durable, source-window compaction state. It is additive: no
    * journal event, summary, or host transcript is rewritten by migration. */
   private migrateBoundedCompactionV49(): void { this.db.exec(contextEngineSchemaSql); }
 
-  /** v6.7 records exact-correlation replay attempts only; existing evidence,
+  /** Schema v50 records exact-correlation replay attempts only; existing evidence,
    * commits, and receipts remain immutable and are never reprocessed. */
   private migrateReplayFloodGuardsV50(): void { this.db.exec(journalSchemaSql); }
 
-  /** v6.11 bounds replay-flood metadata cleanup by its actual scope/time
+  /** Schema v51 bounds replay-flood metadata cleanup by its actual scope/time
    * access path. Existing receipt evidence and guard rows remain unchanged. */
   private migrateReplayFloodCleanupV51(): void {
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_mnemora_replay_flood_guards_scope_seen ON mnemora_replay_flood_guards(scope,last_seen_at ASC)");
   }
 
-  /** v6.13 records schema-drift proposals separately from admitted edges. It
+  /** Schema v52 records schema-drift proposals separately from admitted edges. It
    * never rewrites existing nodes, edges, observations, or source evidence. */
   private migrateSchemaDriftV52(): void { this.db.exec(schemaDriftSchemaSql); }
 
-  /** v6.14 records formation-quality fingerprints independently from the
+  /** Schema v53 records formation-quality fingerprints independently from the
    * candidate/admission ledger. Existing cognition rows are not rewritten. */
   private migratePreAdmissionV53(): void { this.db.exec(cognitionPreAdmissionSchemaSql); }
 
-  /** v6.17 adds bounded, public lifecycle metadata to a migration receipt.
+  /** Schema v54 adds bounded, public lifecycle metadata to a migration receipt.
    * It never copies a provider database path, table, or raw source payload. */
   private migratePublicMigrationMetadataV54(): void {
     const columns = new Set((this.db.prepare("PRAGMA table_info(mnemora_provider_migration_items)").all() as Array<{ name: string }>).map(row => row.name));
     if (!columns.has("metadata_json")) this.db.exec("ALTER TABLE mnemora_provider_migration_items ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'");
   }
 
-  /** v6.17 widens the controlled structural-edge vocabulary and adds a
+  /** Schema v55 widens the controlled structural-edge vocabulary and adds a
    * separate repair receipt. Existing facts are copied byte-for-byte; only a
    * later human-confirmed preview may create a new structural edge. */
   private migrateSchemaDriftRepairsV55(): void {
@@ -457,7 +457,7 @@ export class GraphologyStore {
     if (this.db.prepare("PRAGMA foreign_key_check").all().length) throw new Error("schema_migration_foreign_key_violation");
   }
 
-  /** v6.18 makes historic endpoint mismatches reviewable without admitting or
+  /** Schema v56 makes historic endpoint mismatches reviewable without admitting or
    * rewriting them. Only a later matching human confirmation may retire an
    * old invalid edge after preserving its evidence and audit receipt. */
   private migrateLegacySchemaDriftV56(): void {
@@ -2659,7 +2659,7 @@ export class GraphologyStore {
         processedEdges.add(row.id);
         const edge = mapEdge(row);
         // Vocabulary labels are evidence-bearing but never influence graph
-        // propagation. This also classifies v6.22 and older rows at read time
+        // propagation. This also classifies historic rows at read time
         // without a destructive historic-edge rewrite.
         if (!isStructuralRelationship(edge.type)) continue;
         if (!this.getNodeById(edge.source_id) || !this.getNodeById(edge.target_id)) continue;

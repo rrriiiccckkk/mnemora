@@ -41,7 +41,7 @@ export class MemoryDocumentLifecycleService {
     const rows = this.rows(items.map(item => ({ id: item.id, scope: item.scope })));
     const now = this.now();
     return items.map(item => {
-      const row = rows.get(`${item.scope}\0${item.id}`);
+      const row = rows.get(`${normalizeScope(item.scope)}\0${item.id}`);
       if (!row) return item;
       const tierFactor = row.tier === "core" ? 1.04 : row.tier === "peripheral" ? .88 : 1;
       // An inferred date is a review signal, not a destructive lifecycle
@@ -158,10 +158,11 @@ export class MemoryDocumentLifecycleService {
  * easier to review; no signal can archive or delete a document. */
 export function inferExpiry(input: string, now = Date.now()): { expiresAt: number; reason: string } | undefined {
   const text = input.slice(0, 20_000);
-  const date = text.match(/(?:expires?|valid\s*(?:until|to)|有效期至|截至|到期(?:日)?)[^\d]{0,16}(20\d{2})[-/.年](0?\d|1[0-2])[-/.月](0?\d|[12]\d|3[01])(?:日)?/iu);
+  const date = text.match(/(?:expires?|valid\s*(?:until|to)|有效期至|截至|到期(?:日)?)[^\d]{0,16}([1-9]\d{3})[-/.年](0?[1-9]|1[0-2])[-/.月](3[01]|[12]\d|0?[1-9])(?:日)?(?!\d)/iu);
   if (date) {
-    const value = Date.UTC(Number(date[1]), Number(date[2]) - 1, Number(date[3]), 23, 59, 59, 999);
-    if (Number.isFinite(value) && value >= 0) return { expiresAt: value, reason: "explicit_date" };
+    const year = Number(date[1]), month = Number(date[2]), dayOfMonth = Number(date[3]);
+    const value = Date.UTC(year, month - 1, dayOfMonth, 23, 59, 59, 999), actual = new Date(value);
+    if (Number.isFinite(value) && actual.getUTCFullYear() === year && actual.getUTCMonth() === month - 1 && actual.getUTCDate() === dayOfMonth) return { expiresAt: value, reason: "explicit_date" };
   }
   const rules: Array<[RegExp, number, string]> = [
     [/\b(?:temporary|temp|short[- ]lived|trial)\b|临时|试用|短期/u, 30, "temporary"],

@@ -278,7 +278,7 @@ const plugin: ReturnType<typeof definePluginEntry> = definePluginEntry({
         return { text: outcome.message };
       }
     });
-    // v6.9 deliberately owns no before_prompt_build or agent_end hook. The
+    // Mnemora deliberately owns no before_prompt_build or agent_end hook. The
     // public ContextEngine lifecycle is the single prompt/capture producer;
     // without an explicitly selected ContextEngine, Mnemora remains manual-only.
     api.on("gateway_stop", () => runtime.stop());

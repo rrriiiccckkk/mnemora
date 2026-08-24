@@ -59,10 +59,12 @@ export class ContextCompactionService {
     return activeJournalTokenEstimate(this.db, scope, sessionId);
   }
 
-  async compact(input: { scope: string; sessionId: string; protectedRecentEvents: number; runtimeContext?: RewriteRuntime; signal?: AbortSignal; currentTokenCount?: number; targetTokens?: number; now?: number; options: CompactionOptions }): Promise<Result> {
+  async compact(input: { scope: string; sessionId: string; protectedRecentEvents: number; runtimeContext?: RewriteRuntime; signal?: AbortSignal; targetTokens?: number; now?: number; options: CompactionOptions }): Promise<Result> {
     abort(input.signal);
     const runtime = input.runtimeContext;
-    const before = input.currentTokenCount ?? this.activeTokenEstimate(input.scope, input.sessionId);
+    // Host callbacks may report only a per-turn delta. Durable Journal volume
+    // is the sole truth source for compaction accounting and target selection.
+    const before = this.activeTokenEstimate(input.scope, input.sessionId);
     if (!runtime?.rewriteTranscriptEntries) return this.result(false, "runtime_rewrite_unavailable", before, before, {});
     const now = input.now ?? Date.now(), options = normalizeOptions(input.options);
     const deadline = new AbortController(), onAbort = () => deadline.abort(input.signal?.reason ?? new Error("aborted"));
@@ -70,7 +72,7 @@ export class ContextCompactionService {
     const timer = setTimeout(() => deadline.abort(new Error("compaction_deadline")), options.deadlineMs);
     try {
       const rows = this.rows(input.scope, input.sessionId);
-      const totalBefore = input.currentTokenCount ?? rows.filter(row => !this.runs.hasSucceededSourceEvent(input.scope, row.id)).reduce((sum, row) => sum + tokens(row.normalized_text ?? ""), 0);
+      const totalBefore = rows.filter(row => !this.runs.hasSucceededSourceEvent(input.scope, row.id)).reduce((sum, row) => sum + tokens(row.normalized_text ?? ""), 0);
       const protectedCount = Math.min(50, Math.max(2, Math.floor(input.protectedRecentEvents)));
       if (rows.length <= protectedCount) return this.result(false, "protected_recent_events", totalBefore, totalBefore, { protectedRecentEvents: protectedCount });
       const candidates = rows.slice(0, rows.length - protectedCount).filter(row => !this.runs.hasSucceededSourceEvent(input.scope, row.id));

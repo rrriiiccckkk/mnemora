@@ -5,7 +5,7 @@ import { normalizeScope } from "../scope.js";
 import type { ExtractedRelation, KgNode, SchemaDriftCandidate } from "../types.js";
 
 const idFor = (scope: string, sourceId: string, targetId: string, relationshipType: string, legacyEdgeId = "") => {
-  // Preserve v6.13-v6.17 ids for extractor proposals. Historic edge scans get
+  // Preserve historic extractor-proposal ids. Historic edge scans get
   // a distinct durable id only when they name a concrete legacy edge.
   const parts = [scope, sourceId, targetId, relationshipType];
   if (legacyEdgeId) parts.push(legacyEdgeId);

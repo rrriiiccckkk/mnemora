@@ -1,5 +1,5 @@
 /**
- * v60 keeps the optional canonical corpus outside graph, memory, evidence, and
+ * Schema v60 keeps the optional canonical corpus outside graph, memory, evidence, and
  * cognition tables.  A corpus chunk is a local citation cache, never a fact.
  */
 export const corpusSchemaSql = `

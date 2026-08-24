@@ -77,7 +77,7 @@ export function normalizeConfig(input: Partial<MnemoraConfig> = {}): MnemoraConf
     .filter((type): type is RelationshipType => type in relationshipDefinitions);
   return {
     dbPath: resolveDatabasePath(input.dbPath),
-    // v6.9 has one ContextEngine lifecycle. Preserve the legacy spelling so
+    // Mnemora has one ContextEngine lifecycle. Preserve the legacy spelling so
     // old configuration files still validate, but never revive hook behavior.
     mode: "standalone",
     toolSurface: input.toolSurface === "core" || input.toolSurface === "research" ? input.toolSurface : "full",

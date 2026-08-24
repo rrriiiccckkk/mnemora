@@ -206,6 +206,25 @@ test("v6.25.1 proactive compaction uses durable Journal volume when afterTurn ex
   } finally { try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
 
+test("explicit compact and maintain ignore host delta counts in favor of durable Journal volume", async () => {
+  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-host-delta-")), dbPath = join(directory, "memory.db");
+  const config = normalizeConfig({ dbPath, contextEngine: { enabled: true, maxContextTokens: 256, protectedRecentEvents: 2, compaction: { enabled: true, minEvents: 2, maxInputChars: 1000, maxOutputChars: 300, timeoutMs: 1000, maxRunsPerHour: 4, maxDailyTokens: 10000, contextThreshold: .75, freshTailCount: 2, leafChunkTokens: 300, maxChunksPerRun: 4, condensedMinFanout: 2, deadlineMs: 5000 } } });
+  const open = () => { const store = new GraphologyStore(dbPath); return { store, close() { store.close(); } }; };
+  const engine = new MnemoraContextEngine(config, open);
+  const messages = (prefix) => Array.from({ length: 4 }, (_value, index) => ({ id: `${prefix}-${index + 1}`, role: index % 2 ? "assistant" : "user", content: `durable event ${index + 1}: ${"x".repeat(420)}` }));
+  const runtime = { tokenBudget: 256, currentTokenCount: 1, llm: { async complete() { return { text: "durable bounded summary" }; } }, async rewriteTranscriptEntries(value) { return { changed: true, rewrittenEntries: value.replacements.length }; } };
+  try {
+    await engine.ingestBatch({ sessionId: "explicit-host-delta", messages: messages("explicit") });
+    const explicit = await engine.compact({ sessionId: "explicit-host-delta", sessionFile: "unused", currentTokenCount: 1, runtimeContext: runtime });
+    assert.equal(explicit.compacted, true, JSON.stringify(explicit));
+    assert.equal(explicit.result.tokensBefore > 192, true, "the durable Journal, not the host delta, determines compaction volume");
+
+    await engine.ingestBatch({ sessionId: "maintain-host-delta", messages: messages("maintain") });
+    const maintained = await engine.maintain({ sessionId: "maintain-host-delta", runtimeContext: runtime });
+    assert.equal(maintained.changed, true, JSON.stringify(maintained));
+  } finally { try { rmSync(directory, { recursive: true, force: true }); } catch {} }
+});
+
 test("v6.17 compaction projects individually oversized source events without exposing or repeatedly retrying them", async () => {
   const store = new GraphologyStore(":memory:"), dropped = { ...policy, sensitiveContentPolicy: "drop" }, journal = new ConversationEventRepository(store.db, dropped);
   try {

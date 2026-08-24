@@ -338,7 +338,7 @@ export interface RelatedSemanticLabelResult {
   source: KgNode;
   target: KgNode;
   evidence: EvidenceSummary[];
-  /** v6.23 projects historic semantic edges without rewriting them. */
+  /** Schema v59 projects historic semantic edges without rewriting them. */
   legacy: boolean;
   endpoint_match: boolean;
   /** Derived selection score; it never changes the source evidence confidence. */

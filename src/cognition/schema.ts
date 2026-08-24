@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS mnemora_cognition_enforcements (
 CREATE INDEX IF NOT EXISTS idx_mnemora_cognition_enforcements_scope_outcome_created ON mnemora_cognition_enforcements(scope,outcome,created_at DESC,id DESC);
 `;
 /**
- * v6.14 records deterministic formation-quality decisions separately from
+ * Schema v53 records deterministic formation-quality decisions separately from
  * admission.  The rows contain only fingerprints and bounded counters: no
  * source text, session id, or model output is persisted here.
  */
