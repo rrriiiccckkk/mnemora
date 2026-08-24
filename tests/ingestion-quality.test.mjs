@@ -79,7 +79,7 @@ test("node importance combines evidence quality and independent sources instead 
 
     store.db.exec("PRAGMA user_version=47");
     store.migrate();
-    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 61);
+    assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 62);
     assert.equal(store.search("Repeated")[0].node.importance, repeated);
   } finally { store.close(); }
 });

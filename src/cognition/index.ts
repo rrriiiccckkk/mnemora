@@ -14,6 +14,8 @@ export * from "./reasoning-quality.js";
 export * from "./reasoning-semantic.js";
 export * from "./reasoning-runtime-telemetry.js";
 export * from "./reasoning-runtime-governance.js";
+export * from "./reasoning-delivery-feedback.js";
+export * from "./reasoning-delivery-evaluation.js";
 export * from "./reference-repository.js";
 export * from "./service.js";
 export * from "./context-compiler.js";

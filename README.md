@@ -107,10 +107,53 @@ mnemora standalone guide
   (disabled by default).
 - `cognition.admission.mode: "enforce"`: deterministic candidate policy;
   beliefs and enforcement remain separately opt-in.
+- `cognition.reasoningRuntime.shadowMode`: aggregates safe strategy-retrieval
+  telemetry only. Reasoning delivery remains disabled unless an operator also
+  calibrates and enables an exact-scope canary.
 
 Every model or network call has input/output bounds, timeout, and cancellation
 handling. Default installation never enables an extra automatic write path,
 strict verification, model compaction, or external provider.
+
+### Experimental ReasoningMemory delivery
+
+ReasoningMemory records reusable procedures separately from personal facts.
+Even after a strategy is admitted, its runtime delivery is disabled by default.
+Enable shadow collection first, review readiness, then explicitly calibrate and
+enable a canary for one exact scope:
+
+```json5
+cognition: {
+  reasoningRuntime: {
+    shadowMode: true,
+    scopes: ["project:alpha"],
+    delivery: {
+      enabled: true,
+      scopes: ["project:alpha"],
+      itemRetentionDays: 30
+    }
+  }
+}
+```
+
+Each delivered strategy is wrapped as `non_authoritative_reference` and receives
+a short-lived receipt. An operator may mark a receipt helpful/neutral/harmful;
+or an operator-confirmed task outcome can cite it for deterministic feedback.
+A harmful signal suppresses only that strategy in that scope. It never changes
+the strategy into a belief, fact, or graph edge, and it does not automatically
+disable the whole canary.
+
+```bash
+mnemora cognition reasoning runtime-delivery-items --scope project:alpha
+mnemora cognition reasoning runtime-feedback-summary --scope project:alpha
+mnemora cognition reasoning runtime-memory-circuit <reasoning-memory-id> --scope project:alpha
+```
+
+To measure whether delivery improves real tasks, run a de-identified A/B
+dataset through `mnemora cognition reasoning runtime-effectiveness <file>`.
+Only a randomized comparison with at least 20 resolved outcomes in each arm
+receives a success-rate difference. Shadow telemetry, adoption, or synthetic
+benchmarks are not efficacy claims.
 
 ## Safety model
 

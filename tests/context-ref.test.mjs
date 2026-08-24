@@ -19,8 +19,8 @@ test("mnemora v1 references round-trip with canonical encoded segments", () => {
 });
 
 test("mnemora v1 kind registry additively covers cognition objects and corpus citations", () => {
-  assert.equal(MNEMORA_CONTEXT_REF_KIND_REGISTRY_REVISION, 5);
-  for (const kind of ["memory-candidate", "belief", "decision", "task-outcome", "reasoning-memory", "corpus-chunk"]) {
+  assert.equal(MNEMORA_CONTEXT_REF_KIND_REGISTRY_REVISION, 6);
+  for (const kind of ["memory-candidate", "belief", "decision", "task-outcome", "reasoning-memory", "reasoning-delivery-item", "corpus-chunk"]) {
     assert.equal(MNEMORA_CONTEXT_REF_KINDS.includes(kind), true);
     const reference = createMnemoraContextRef({ scope: "personal", kind, id: `${kind}:1` });
     assert.equal(parseMnemoraContextRef(reference).kind, kind);

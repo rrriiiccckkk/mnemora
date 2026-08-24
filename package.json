@@ -1,6 +1,6 @@
 {
   "name": "mnemora",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Local-first, evidence-first memory runtime for persistent OpenClaw agents.",
   "type": "module",
   "main": "dist/index.js",
@@ -29,7 +29,7 @@
     "benchmark:harness": "npm run build && node scripts/benchmark-personal-memory-harness.mjs",
     "benchmark:recall-quality": "npm run build && node scripts/benchmark-recall-quality.mjs",
     "benchmark:cognition": "npm run build && node scripts/benchmark-cognition-graduation.mjs",
-    "benchmark:reasoning": "npm run build && node scripts/benchmark-reasoning-runtime.mjs",
+    "benchmark:reasoning": "npm run build && node scripts/benchmark-reasoning-runtime.mjs && node scripts/benchmark-reasoning-delivery-effectiveness.mjs",
     "benchmark:graduation": "npm run build && node scripts/benchmark-single-memory-harness-graduation.mjs",
     "verify": "npm run check && npm test && npm run benchmark:hybrid && npm run benchmark:quality && npm run benchmark:insights && npm run benchmark:query && npm run benchmark:inspector && npm run benchmark:lifecycle && npm run benchmark:ingestion && npm run benchmark:harness && npm run benchmark:recall-quality && npm run benchmark:cognition && npm run benchmark:reasoning && npm run benchmark:graduation && npm run plugin:validate && npm run plugin:official:compat && npm run release:validate"
   },

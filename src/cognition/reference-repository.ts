@@ -19,6 +19,7 @@ export class CognitionReferenceRepository {
         case "decision": return this.one("SELECT 1 FROM mnemora_decisions d WHERE d.id=? AND d.scope=? AND d.status='active' AND NOT EXISTS (SELECT 1 FROM mnemora_decision_evidence_reviews r WHERE r.decision_id=d.id AND r.scope=d.scope AND r.status='needs_review')", reference);
         case "task-outcome": return this.one("SELECT 1 FROM mnemora_task_outcomes WHERE id=? AND scope=? AND status='recorded'", reference);
         case "reasoning-memory": return this.one("SELECT 1 FROM mnemora_reasoning_memories WHERE id=? AND scope=? AND state='admitted'", reference);
+        case "reasoning-delivery-item": return this.one("SELECT 1 FROM mnemora_reasoning_runtime_delivery_items WHERE id=? AND scope=?", reference);
         default: return false;
       }
     })();

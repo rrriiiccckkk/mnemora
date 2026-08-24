@@ -10,7 +10,7 @@ import { inferExpiry, MemoryDocumentLifecycleService } from "../dist/memory-life
 test("v61 lifecycle migration is additive and begins every existing document at working", () => {
   const store = new GraphologyStore(":memory:");
   try {
-    assert.equal(SUPPORTED_SCHEMA_VERSION, 61);
+    assert.equal(SUPPORTED_SCHEMA_VERSION, 62);
     const document = store.upsertMemoryDocument({ title: "Existing", content: "A preserved historical memory" });
     const row = store.db.prepare("SELECT tier,access_count,expires_at FROM mnemora_memory_document_lifecycle WHERE document_id=?").get(document.id);
     assert.deepEqual({ ...row }, { tier: "working", access_count: 0, expires_at: null });

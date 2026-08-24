@@ -7,7 +7,7 @@ import type { DatabaseSyncInstance } from "@photostructure/sqlite";
 export const REASONING_AGENT_ADAPTER_CONTRACT_V1 = "mnemora-reasoning-agent-adapter/v1" as const;
 export type ReasoningAgentAdapterContractVersion = typeof REASONING_AGENT_ADAPTER_CONTRACT_V1;
 export interface CompileReasoningContextInput extends ReasoningRetrievalInput { tokenBudget?: number; maxItems?: number; signal?: AbortSignal; }
-export interface CompiledReasoningItem { id: string; kind: ReasoningMemoryKind; strategy: string; authority: "operator_confirmed"; confidence: number; utility: number; applicability: ReasoningApplicability; sourceRefs: string[]; reasons: string[]; estimatedTokens: number; }
+export interface CompiledReasoningItem { id: string; kind: ReasoningMemoryKind; strategy: string; authority: "operator_confirmed"; confidence: number; utility: number; applicability: ReasoningApplicability; sourceRefs: string[]; reasons: string[]; estimatedTokens: number; deliveryItemRef?: string; }
 export interface CompiledReasoningContext { version: "reasoning-context-v1"; scope: string; queryApplied: boolean; tokenBudget: number; estimatedTokens: number; items: CompiledReasoningItem[]; omitted: Array<{ id: string; reason: "budget" }>; diagnostics?: { retrievalCandidates: number; qualityExcluded: number; }; }
 export interface ReasoningAgentPresentation { adapterId: string; contractVersion: ReasoningAgentAdapterContractVersion; channel: "sidecar"; format: "markdown" | "json"; content: string; estimatedTokens: number; }
 /** Adapter has no store, retrieval, or mutation capability: it only formats Mnemora-owned compilation output. */
@@ -48,7 +48,7 @@ class MarkdownReasoningAdapter implements ReasoningAgentAdapter {
   readonly contractVersion = REASONING_AGENT_ADAPTER_CONTRACT_V1;
   constructor(readonly id: "generic" | "codex" | "openclaw") {}
   render(context: CompiledReasoningContext): ReasoningAgentPresentation {
-    const content = ["<MNEMORA_REASONING_CONTEXT authority=\"non_authoritative_reference\">", "Use these as evidence-backed reference procedures; verify against the current task.", ...context.items.map((item, index) => `${index + 1}. [${item.kind}] ${item.strategy}\n   authority=${item.authority}; confidence=${item.confidence.toFixed(3)}; utility=${item.utility.toFixed(3)}; refs=${item.sourceRefs.join(",")}`), "</MNEMORA_REASONING_CONTEXT>"].join("\n").slice(0, 16_384);
+    const content = ["<MNEMORA_REASONING_CONTEXT authority=\"non_authoritative_reference\">", "Use these as evidence-backed reference procedures; verify against the current task. A delivery receipt may be cited only for deterministic outcome feedback.", ...context.items.map((item, index) => `${index + 1}. [${item.kind}] ${item.strategy}\n   authority=${item.authority}; confidence=${item.confidence.toFixed(3)}; utility=${item.utility.toFixed(3)}; refs=${item.sourceRefs.join(",")}${item.deliveryItemRef ? `; delivery_item=${item.deliveryItemRef}` : ""}`), "</MNEMORA_REASONING_CONTEXT>"].join("\n").slice(0, 16_384);
     return { adapterId: this.id, contractVersion: this.contractVersion, channel: "sidecar", format: "markdown", content, estimatedTokens: estimate(content) };
   }
 }

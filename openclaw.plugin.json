@@ -2,7 +2,7 @@
   "id": "mnemora",
   "name": "Mnemora",
   "description": "Evidence-first personal memory harness for persistent OpenClaw agents.",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -38,7 +38,7 @@
           "graduation": { "type": "object", "additionalProperties": false, "properties": { "enabled": { "type": "boolean", "default": false, "description": "Enable only local C8 graduation readiness reporting. It never enables memory writes, recall injection, or ContextEngine behavior." } } },
           "reasoningRuntime": {
             "type": "object", "additionalProperties": false,
-            "description": "Opt-in, per-scope ReasoningMemory shadow evaluation. It stores aggregate telemetry only and never attaches reasoning context to prompts.",
+            "description": "Opt-in, per-scope ReasoningMemory. Shadow telemetry is aggregate-only; delivery stays disabled until an exact-scope canary is explicitly calibrated and enabled.",
             "properties": {
               "shadowMode": { "type": "boolean", "default": false },
               "scopes": { "type": "array", "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 80 }, "default": [] },
@@ -52,7 +52,7 @@
               "excludeConflicted": { "type": "boolean", "default": true },
               "retentionDays": { "type": "integer", "default": 30, "minimum": 1, "maximum": 365 },
               "readiness": { "type": "object", "additionalProperties": false, "properties": { "minimumRuns": { "type": "integer", "default": 25, "minimum": 1, "maximum": 5000 }, "maxErrorRate": { "type": "number", "default": 0.05, "minimum": 0, "maximum": 1 }, "maxEmptyRate": { "type": "number", "default": 0.8, "minimum": 0, "maximum": 1 }, "maxP95Ms": { "type": "integer", "default": 100, "minimum": 1, "maximum": 30000 } } },
-              "delivery": { "type": "object", "additionalProperties": false, "description": "Governed ReasoningMemory delivery. Requires a fresh calibration and an explicitly activated exact-scope canary.", "properties": { "enabled": { "type": "boolean", "default": false }, "scopes": { "type": "array", "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 80 }, "default": [] }, "adapter": { "const": "openclaw", "type": "string", "default": "openclaw" }, "calibrationMaxAgeHours": { "type": "integer", "default": 168, "minimum": 1, "maximum": 720 }, "maxConsecutiveDeliveries": { "type": "integer", "default": 2, "minimum": 1, "maximum": 10 } } }
+              "delivery": { "type": "object", "additionalProperties": false, "description": "Governed ReasoningMemory delivery. Requires a fresh calibration and an explicitly activated exact-scope canary.", "properties": { "enabled": { "type": "boolean", "default": false }, "scopes": { "type": "array", "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 80 }, "default": [] }, "adapter": { "const": "openclaw", "type": "string", "default": "openclaw" }, "calibrationMaxAgeHours": { "type": "integer", "default": 168, "minimum": 1, "maximum": 720 }, "maxConsecutiveDeliveries": { "type": "integer", "default": 2, "minimum": 1, "maximum": 10 }, "itemRetentionDays": { "type": "integer", "default": 30, "minimum": 1, "maximum": 365, "description": "Retention window for non-content delivery-item references used by deterministic feedback." } } }
             }
           }
         }

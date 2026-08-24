@@ -2,7 +2,7 @@ import { normalizeScope } from "../scope.js";
 
 export const MNEMORA_CONTEXT_REF_VERSION = "v1" as const;
 /** Append-only kind registry revision for the unchanged v1 URI grammar. */
-export const MNEMORA_CONTEXT_REF_KIND_REGISTRY_REVISION = 5 as const;
+export const MNEMORA_CONTEXT_REF_KIND_REGISTRY_REVISION = 6 as const;
 export const MNEMORA_CONTEXT_REF_KINDS = [
   "conversation-event",
   "artifact",
@@ -16,6 +16,7 @@ export const MNEMORA_CONTEXT_REF_KINDS = [
   "decision",
   "task-outcome",
   "reasoning-memory",
+  "reasoning-delivery-item",
   "profile",
   "retrieval-trace"
 ] as const;

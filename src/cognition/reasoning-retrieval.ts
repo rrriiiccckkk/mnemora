@@ -5,7 +5,7 @@ import { ReasoningQualityPolicyService, type ReasoningQualityPolicy } from "./re
 
 export interface ReasoningRetrievalInput { scope: string; query: string; taskType?: string; riskLevel?: "low" | "medium" | "high"; environment?: string; availableTools?: string[]; limit?: number; semanticScores?: Readonly<Record<string, number>>; qualityPolicy?: ReasoningQualityPolicy; now?: () => number; }
 export interface ReasoningRetrievalCandidate { id: string; kind: ReasoningMemoryKind; strategy: string; score: number; utilityScore: number; confidence: number; evidenceQuality?: number; applicability: ReasoningApplicability; reasons: string[]; }
-export type ReasoningRetrievalExclusion = "state" | "query" | "task_type" | "risk_level" | "environment" | "required_tool" | "contraindication" | "confidence" | "evidence" | "staleness" | "conflict";
+export type ReasoningRetrievalExclusion = "state" | "query" | "task_type" | "risk_level" | "environment" | "required_tool" | "contraindication" | "confidence" | "evidence" | "staleness" | "conflict" | "delivery_circuit";
 export interface ReasoningRetrievalResult { version: "reasoning-retrieval-v1"; scope: string; candidates: ReasoningRetrievalCandidate[]; excluded: Record<ReasoningRetrievalExclusion, number>; empty: boolean; }
 
 /**
@@ -16,11 +16,12 @@ export class ReasoningRetrievalService {
   constructor(private readonly db: DatabaseSyncInstance) {}
 
   find(input: ReasoningRetrievalInput): ReasoningRetrievalResult {
-    const scope = normalizeScope(input.scope), query = text(input.query, 512), limit = bounded(input.limit ?? 8), excluded: ReasoningRetrievalResult["excluded"] = { state: 0, query: 0, task_type: 0, risk_level: 0, environment: 0, required_tool: 0, contraindication: 0, confidence: 0, evidence: 0, staleness: 0, conflict: 0 };
+    const scope = normalizeScope(input.scope), query = text(input.query, 512), limit = bounded(input.limit ?? 8), excluded: ReasoningRetrievalResult["excluded"] = { state: 0, query: 0, task_type: 0, risk_level: 0, environment: 0, required_tool: 0, contraindication: 0, confidence: 0, evidence: 0, staleness: 0, conflict: 0, delivery_circuit: 0 };
     if (!query) return { version: "reasoning-retrieval-v1", scope, candidates: [], excluded, empty: true };
-    const context = normalizeContext(input), tokens = words(query), quality = input.qualityPolicy ? new ReasoningQualityPolicyService(input.qualityPolicy, input.now) : undefined, rows = this.db.prepare("SELECT m.id,m.kind,m.strategy,m.applicability_json,m.contraindications_json,m.evidence_refs_json,m.outcome_refs_json,m.confidence,m.utility_score,m.success_count,m.failure_count,m.updated_at,m.state,EXISTS(SELECT 1 FROM mnemora_reasoning_reflection_proposals p WHERE p.scope=m.scope AND p.memory_id=m.id AND p.status='proposed') AS has_reflection FROM mnemora_reasoning_memories m WHERE m.scope=? ORDER BY m.updated_at DESC,m.id DESC LIMIT 200").all(scope) as Array<Record<string, unknown>>, candidates: ReasoningRetrievalCandidate[] = [];
+    const context = normalizeContext(input), tokens = words(query), quality = input.qualityPolicy ? new ReasoningQualityPolicyService(input.qualityPolicy, input.now) : undefined, rows = this.db.prepare("SELECT m.id,m.kind,m.strategy,m.applicability_json,m.contraindications_json,m.evidence_refs_json,m.outcome_refs_json,m.confidence,m.utility_score,m.success_count,m.failure_count,m.updated_at,m.state,EXISTS(SELECT 1 FROM mnemora_reasoning_reflection_proposals p WHERE p.scope=m.scope AND p.memory_id=m.id AND p.status='proposed') AS has_reflection,EXISTS(SELECT 1 FROM mnemora_reasoning_memory_delivery_circuits c WHERE c.scope=m.scope AND c.memory_id=m.id AND c.circuit_open=1) AS delivery_circuit_open FROM mnemora_reasoning_memories m WHERE m.scope=? ORDER BY m.updated_at DESC,m.id DESC LIMIT 200").all(scope) as Array<Record<string, unknown>>, candidates: ReasoningRetrievalCandidate[] = [];
     for (const row of rows) {
       if (row.state !== "admitted") { excluded.state++; continue; }
+      if (Number(row.delivery_circuit_open) === 1) { excluded.delivery_circuit++; continue; }
       const strategy = String(row.strategy), lower = strategy.toLowerCase(), applicability = parseApplicability(row.applicability_json), contraindications = strings(row.contraindications_json);
       if (contraindications.some(value => lowerMatch(query, value))) { excluded.contraindication++; continue; }
       const lexical = lexicalScore(lower, tokens), semantic = semanticScore(input.semanticScores, String(row.id)); if (!lexical && !semantic) { excluded.query++; continue; }

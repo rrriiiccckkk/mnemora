@@ -25,6 +25,8 @@ import { ReasoningAgentAdapterRegistry, ReasoningContextCompiler } from "./cogni
 import { ReasoningRuntimeService } from "./cognition/reasoning-runtime.js";
 import { ReasoningRuntimeTelemetryRepository } from "./cognition/reasoning-runtime-telemetry.js";
 import { ReasoningRuntimeGovernanceRepository, type ReasoningRuntimeGovernanceConfig } from "./cognition/reasoning-runtime-governance.js";
+import { ReasoningDeliveryFeedbackRepository } from "./cognition/reasoning-delivery-feedback.js";
+import { ReasoningDeliveryEffectivenessEvaluationService, validateReasoningDeliveryEffectivenessDataset } from "./cognition/reasoning-delivery-evaluation.js";
 import { RecallFeedbackRepository, ReflectionService, type RecallFeedbackKind } from "./cognition/reflection.js";
 import { CognitionGraduationService } from "./cognition/graduation.js";
 import { EvaluationRunner, serializeEvaluationReport, validateEvaluationDataset } from "./evaluation/index.js";
@@ -240,6 +242,26 @@ function cognitionCommand(graph: Mnemora, raw: string[]): unknown {
     if (operation === "runtime-rollback") { requireNone(positional); return confirmMutation(options.confirm === true, "cognition.reasoning.runtime-rollback", () => new ReasoningRuntimeGovernanceRepository(graph.store.db).rollback(scope)); }
     if (operation === "runtime-deliveries") { requireNone(positional); return new ReasoningRuntimeGovernanceRepository(graph.store.db).deliveries(scope, limit); }
     if (operation === "runtime-feedback") { const id = takeArgument(positional), feedback = takeArgument(positional); requireNone(positional); if (!["helpful", "neutral", "harmful"].includes(feedback)) throw new CliError("invalid_arguments"); const governance = new ReasoningRuntimeGovernanceRepository(graph.store.db), preview = governance.feedbackPreview(id, scope, feedback as "helpful" | "neutral" | "harmful"); if (options.confirm !== true) return preview; return governance.feedback(id, scope, feedback as "helpful" | "neutral" | "harmful", option(options, "preview-hash") ?? ""); }
+    if (operation === "runtime-delivery-items") { requireNone(positional); return new ReasoningDeliveryFeedbackRepository(graph.store.db).items(scope, limit); }
+    if (operation === "runtime-feedback-summary") { requireNone(positional); return new ReasoningDeliveryFeedbackRepository(graph.store.db).summary(scope); }
+    if (operation === "runtime-item-feedback") {
+      const itemRef = takeArgument(positional), feedback = takeArgument(positional); requireNone(positional);
+      if (!["helpful", "neutral", "harmful"].includes(feedback)) throw new CliError("invalid_arguments");
+      const repository = new ReasoningDeliveryFeedbackRepository(graph.store.db), preview = repository.feedbackPreview(itemRef, scope, feedback as "helpful" | "neutral" | "harmful");
+      if (options.confirm !== true) return preview;
+      return repository.feedback(itemRef, scope, feedback as "helpful" | "neutral" | "harmful", option(options, "preview-hash") ?? "");
+    }
+    if (operation === "runtime-memory-circuit") { const memoryId = requiredArgument(positional, "reasoning_memory_id"); requireNone(positional); return new ReasoningDeliveryFeedbackRepository(graph.store.db).circuit(scope, memoryId) ?? { status: "not_found" }; }
+    if (operation === "runtime-memory-circuit-reset") {
+      const memoryId = requiredArgument(positional, "reasoning_memory_id"); requireNone(positional);
+      const repository = new ReasoningDeliveryFeedbackRepository(graph.store.db), preview = repository.resetPreview(memoryId, scope);
+      if (options.confirm !== true) return preview;
+      return repository.reset(memoryId, scope, option(options, "preview-hash") ?? "");
+    }
+    if (operation === "runtime-effectiveness") {
+      const datasetPath = requiredArgument(positional, "dataset_path"); requireNone(positional);
+      return new ReasoningDeliveryEffectivenessEvaluationService().evaluate(validateReasoningDeliveryEffectivenessDataset(JSON.parse(readFileSync(resolve(datasetPath), "utf8"))));
+    }
     if (operation === "reflection") {
       const action = takeArgument(positional); requireNone(positional); const reflections = new ReasoningReflectionService(graph.store.db);
       if (action === "proposals") return reflections.proposals(scope, limit);
@@ -357,7 +379,7 @@ function reasoningRetrievalInput(scope: string, query: string, limit: number) {
 
 function reasoningGovernanceConfig(graph: Mnemora): ReasoningRuntimeGovernanceConfig {
   const value = graph.config.cognition!.reasoningRuntime!, requestedScopes = (process.env.MNEMORA_REASONING_DELIVERY_SCOPES ?? "").split(",").map(item => item.trim()).filter(Boolean), normalized = normalizeConfig({ dbPath: ":memory:", cognition: { reasoningRuntime: { ...value, delivery: { ...value.delivery, enabled: process.env.MNEMORA_REASONING_DELIVERY_ENABLED === "1", scopes: requestedScopes } } } }).cognition!.reasoningRuntime!;
-  return { tokenBudget: normalized.tokenBudget!, maxItems: normalized.maxItems!, minConfidence: normalized.minConfidence!, highRiskMinConfidence: normalized.highRiskMinConfidence!, minEvidenceQuality: normalized.minEvidenceQuality!, highRiskMinEvidenceQuality: normalized.highRiskMinEvidenceQuality!, maxStalenessDays: normalized.maxStalenessDays!, excludeConflicted: normalized.excludeConflicted!, retentionDays: normalized.retentionDays!, readiness: { minimumRuns: normalized.readiness!.minimumRuns!, maxErrorRate: normalized.readiness!.maxErrorRate!, maxEmptyRate: normalized.readiness!.maxEmptyRate!, maxP95Ms: normalized.readiness!.maxP95Ms! }, delivery: { enabled: normalized.delivery!.enabled!, scopes: normalized.delivery!.scopes!, adapter: "openclaw", calibrationMaxAgeHours: normalized.delivery!.calibrationMaxAgeHours!, maxConsecutiveDeliveries: normalized.delivery!.maxConsecutiveDeliveries! } };
+  return { tokenBudget: normalized.tokenBudget!, maxItems: normalized.maxItems!, minConfidence: normalized.minConfidence!, highRiskMinConfidence: normalized.highRiskMinConfidence!, minEvidenceQuality: normalized.minEvidenceQuality!, highRiskMinEvidenceQuality: normalized.highRiskMinEvidenceQuality!, maxStalenessDays: normalized.maxStalenessDays!, excludeConflicted: normalized.excludeConflicted!, retentionDays: normalized.retentionDays!, readiness: { minimumRuns: normalized.readiness!.minimumRuns!, maxErrorRate: normalized.readiness!.maxErrorRate!, maxEmptyRate: normalized.readiness!.maxEmptyRate!, maxP95Ms: normalized.readiness!.maxP95Ms! }, delivery: { enabled: normalized.delivery!.enabled!, scopes: normalized.delivery!.scopes!, adapter: "openclaw", calibrationMaxAgeHours: normalized.delivery!.calibrationMaxAgeHours!, maxConsecutiveDeliveries: normalized.delivery!.maxConsecutiveDeliveries!, itemRetentionDays: normalized.delivery!.itemRetentionDays! } };
 }
 
 async function operator(graph: Mnemora, family: "trust" | "profile" | "recall" | "governance", raw: string[]): Promise<unknown> {

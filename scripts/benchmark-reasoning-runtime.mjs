@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { ConversationEventRepository, createMnemoraContextRef, EpisodeRepository, GraphologyStore, REASONING_SEMANTIC_PROVIDER_CONTRACT_V1, ReasoningGovernedDeliveryService, ReasoningMemoryService, ReasoningRuntimeEvaluationService, ReasoningRuntimeGovernanceRepository, ReasoningRuntimeService, ReasoningRuntimeShadowService, ReasoningRuntimeTelemetryRepository, TaskOutcomeService } from "../dist/index.js";
+import { ConversationEventRepository, createMnemoraContextRef, EpisodeRepository, GraphologyStore, REASONING_SEMANTIC_PROVIDER_CONTRACT_V1, ReasoningDeliveryFeedbackRepository, ReasoningGovernedDeliveryService, ReasoningMemoryService, ReasoningRuntimeEvaluationService, ReasoningRuntimeGovernanceRepository, ReasoningRuntimeService, ReasoningRuntimeShadowService, ReasoningRuntimeTelemetryRepository, TaskOutcomeService } from "../dist/index.js";
 
 const scope = "benchmark:reasoning", otherScope = "benchmark:other", store = new GraphologyStore(":memory:"), policy = { maxInlineChars: 16000, maxEventBytes: 262144, sensitiveContentPolicy: "redact" };
 try {
@@ -18,7 +18,7 @@ try {
   assert.equal(report.passed, true); assert.deepEqual(report.failures, []); assert.equal(report.metrics.crossScopeLeakage, 0); assert.equal(report.metrics.irrelevantInjectionRate, 0); assert.equal(report.metrics.emptyRecallPrecision, 1);
   const semantic = await new ReasoningRuntimeService(store.db).prepareWithSemantic({ scope, query: "上线前检查数据库结构", taskType: "database_migration", riskLevel: "high" }, { id: "benchmark", contractVersion: REASONING_SEMANTIC_PROVIDER_CONTRACT_V1, async search() { return [{ memoryId: memory.id, score: .95 }, { memoryId: "not-local", score: 1 }]; } });
   assert.deepEqual(semantic.context?.items.map(item => item.id), [memory.id]);
-  const shadowConfig = { tokenBudget: 800, maxItems: 6, minConfidence: .6, highRiskMinConfidence: .8, minEvidenceQuality: .5, highRiskMinEvidenceQuality: .75, maxStalenessDays: 365, excludeConflicted: true, retentionDays: 30, readiness: { minimumRuns: 1, maxErrorRate: 0, maxEmptyRate: 0, maxP95Ms: 1000 } }, runtimeConfig = { ...shadowConfig, delivery: { enabled: true, scopes: [scope], adapter: "openclaw", calibrationMaxAgeHours: 168, maxConsecutiveDeliveries: 2 } };
+  const shadowConfig = { tokenBudget: 800, maxItems: 6, minConfidence: .6, highRiskMinConfidence: .8, minEvidenceQuality: .5, highRiskMinEvidenceQuality: .75, maxStalenessDays: 365, excludeConflicted: true, retentionDays: 30, readiness: { minimumRuns: 1, maxErrorRate: 0, maxEmptyRate: 0, maxP95Ms: 1000 } }, runtimeConfig = { ...shadowConfig, delivery: { enabled: true, scopes: [scope], adapter: "openclaw", calibrationMaxAgeHours: 168, maxConsecutiveDeliveries: 2, itemRetentionDays: 30 } };
   new ReasoningRuntimeShadowService(store.db, shadowConfig, () => 201).capture({ scope, query: "Deploy a production database migration with rollback validation." });
   const readiness = new ReasoningRuntimeTelemetryRepository(store.db, () => 201).readiness(scope, shadowConfig.readiness);
   assert.equal(readiness.ready, true); assert.equal(readiness.deliveryEnabled, false);
@@ -26,7 +26,10 @@ try {
   assert.equal(governance.enable(scope, calibration.id, runtimeConfig, enable.preview_hash).status, "confirmed");
   const before = memories.get(memory.id, scope), delivery = new ReasoningGovernedDeliveryService(store.db, runtimeConfig, () => 201).handle({ scope, query: "Deploy a production database migration with rollback validation." });
   assert.ok(delivery?.appendSystemContext.includes("Validate rollback")); assert.deepEqual(memories.get(memory.id, scope), before);
-  const delivered = governance.deliveries(scope)[0], feedbackPreview = governance.feedbackPreview(delivered.id, scope, "helpful"); assert.equal(governance.feedback(delivered.id, scope, "helpful", feedbackPreview.preview_hash).status, "confirmed");
+  const feedback = new ReasoningDeliveryFeedbackRepository(store.db, () => 202), deliveryItem = feedback.getByRef(delivery.deliveryItemRefs[0], scope); assert.ok(deliveryItem);
+  const deliveredOutcomeInput = { scope, taskRef, verdict: "success", impact: "helpful", confidence: .9, summary: "The delivery procedure was applied and the migration completed safely.", evidenceRefs: [evidenceRef, deliveryItem.ref] };
+  outcomes.confirm(deliveredOutcomeInput, outcomes.preview(deliveredOutcomeInput).preview_hash);
+  const feedbackSummary = feedback.summary(scope); assert.deepEqual({ adopted: feedbackSummary.adoptedItems, helpful: feedbackSummary.helpfulItems, open: feedbackSummary.openMemoryCircuits }, { adopted: 1, helpful: 1, open: 0 });
   const rolledBack = governance.rollback(scope); assert.equal(rolledBack.circuitOpen, true);
-  console.log(JSON.stringify({ benchmark: "reasoning-runtime-governance-v1", evaluation: report, semantic: { multilingual_selected: 1, cross_scope_or_unknown_selected: 0 }, readiness, governance: { calibration: calibration.status, delivered: 1, feedback: "helpful", rollback: rolledBack.circuitOpen, memory_mutations: 0 }, scope: "offline_release_gate" }, null, 2));
+  console.log(JSON.stringify({ benchmark: "reasoning-runtime-governance-v1", evaluation: report, semantic: { multilingual_selected: 1, cross_scope_or_unknown_selected: 0 }, readiness, governance: { calibration: calibration.status, delivered: 1, feedback: feedbackSummary, rollback: rolledBack.circuitOpen, memory_mutations: 0 }, outcome_evidence: "fixture_contract_only", scope: "offline_release_gate" }, null, 2));
 } finally { store.close(); }

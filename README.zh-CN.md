@@ -82,8 +82,37 @@ mnemora standalone guide
 - `extraction.enabled`：有边界的 OpenAI-compatible 关系抽取，默认关闭。
 - `contextEngine.compaction.enabled`：带来源的模型压缩，默认关闭。
 - `cognition.admission.mode: "enforce"`：确定性候选策略；Belief 和 enforcement 仍需各自显式开启。
+- `cognition.reasoningRuntime.shadowMode`：只记录安全的策略检索聚合遥测；ReasoningMemory 投递仍默认关闭，必须由 operator 校准并为精确 scope 显式开启 canary。
 
 所有模型或网络调用都有输入/输出上限、超时和取消处理。默认安装不会开启额外自动写入、严格验证、模型压缩或外部 Provider。
+
+### 实验性 ReasoningMemory 投递
+
+ReasoningMemory 把可复用的操作策略与个人事实分开保存。即使策略已经准入，运行时投递仍默认关闭。先开启 shadow 收集并检查 readiness，再只对一个精确 scope 显式校准、开启 canary：
+
+```json5
+cognition: {
+  reasoningRuntime: {
+    shadowMode: true,
+    scopes: ["project:alpha"],
+    delivery: {
+      enabled: true,
+      scopes: ["project:alpha"],
+      itemRetentionDays: 30
+    }
+  }
+}
+```
+
+每次投递的策略都会被包裹为 `non_authoritative_reference`，并获得一条短期回执。operator 可以把回执标为 helpful/neutral/harmful；或由 operator 确认的任务 outcome 显式引用回执，形成确定性反馈。harmful 信号只会抑制该 scope 下的这一条策略：不会把策略变成 belief、事实或图谱边，也不会自动关闭整个 canary。
+
+```bash
+mnemora cognition reasoning runtime-delivery-items --scope project:alpha
+mnemora cognition reasoning runtime-feedback-summary --scope project:alpha
+mnemora cognition reasoning runtime-memory-circuit <reasoning-memory-id> --scope project:alpha
+```
+
+若要衡量投递是否真的改善任务结果，使用 `mnemora cognition reasoning runtime-effectiveness <file>` 运行去标识化 A/B 数据集。只有随机对照且每一组至少有 20 条已判定 outcome 时，才会给出成功率差值；shadow 遥测、采用率或合成 benchmark 都不能当作效果结论。
 
 ## 安全模型
 

@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import type { DatabaseSyncInstance } from "@photostructure/sqlite";
-import { authorizeMnemoraContextRef, type MnemoraContextRef } from "../context/context-ref.js";
+import { authorizeMnemoraContextRef, createMnemoraContextRef, type MnemoraContextRef } from "../context/context-ref.js";
 import { normalizeScope } from "../scope.js";
+import { ReasoningDeliveryFeedbackRepository } from "./reasoning-delivery-feedback.js";
 
 export type OutcomeVerdict = "success" | "partial" | "failure" | "unknown";
 export type OutcomeImpact = "helpful" | "neutral" | "harmful";
@@ -56,6 +57,7 @@ export class TaskOutcomeService {
       }
       this.db.prepare("INSERT INTO mnemora_task_outcomes(id,scope,task_ref,verdict,impact,confidence,summary,evidence_refs_json,supersedes_id,status,outcome_hash,recorded_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?, 'recorded',?,?,?,?)").run(id, value.scope, value.taskRef, value.verdict, value.impact, value.confidence, value.summary ?? null, JSON.stringify(value.evidenceRefs), value.supersedesId ?? null, outcomeHash, now, now, now);
       this.event(value.scope, id, null, "recorded", "RECORD", "operator_confirmed", value.evidenceRefs, now);
+      new ReasoningDeliveryFeedbackRepository(this.db, () => now).observeTaskOutcome({ scope: value.scope, outcomeRef: createMnemoraContextRef({ scope: value.scope, kind: "task-outcome", id }), impact: value.impact, evidenceRefs: value.evidenceRefs, withinTransaction: true });
       this.db.exec("COMMIT"); return this.get(id, value.scope)!;
     } catch (error) { try { this.db.exec("ROLLBACK"); } catch {} throw error; }
   }
@@ -97,11 +99,12 @@ export class TaskOutcomeService {
     return reference;
   }
   private evidenceReference(value: unknown, scope: string): MnemoraContextRef {
-    const reference = authorizeMnemoraContextRef(value, { scope, kinds: ["conversation-event", "artifact", "episode", "claim", "decision"] });
+    const reference = authorizeMnemoraContextRef(value, { scope, kinds: ["conversation-event", "artifact", "episode", "claim", "decision", "reasoning-delivery-item"] });
     const exists = reference.kind === "conversation-event" ? this.db.prepare("SELECT 1 FROM mnemora_conversation_events WHERE id=? AND scope=? AND deleted_at IS NULL").get(reference.id, scope)
       : reference.kind === "artifact" ? this.db.prepare("SELECT 1 FROM mnemora_artifacts WHERE id=? AND scope=? AND deleted_at IS NULL").get(reference.id, scope)
       : reference.kind === "episode" ? this.db.prepare("SELECT 1 FROM mnemora_episodes WHERE id=? AND scope=? AND deleted_at IS NULL").get(reference.id, scope)
       : reference.kind === "claim" ? this.db.prepare("SELECT 1 FROM kg_observations WHERE id=? AND scope=?").get(reference.id, scope)
+      : reference.kind === "reasoning-delivery-item" ? this.db.prepare("SELECT 1 FROM mnemora_reasoning_runtime_delivery_items WHERE id=? AND scope=?").get(reference.id, scope)
       : this.db.prepare("SELECT 1 FROM mnemora_decisions WHERE id=? AND scope=?").get(reference.id, scope);
     if (!exists) throw new Error("invalid_task_outcome_evidence");
     return reference;

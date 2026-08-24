@@ -220,7 +220,7 @@ export class PluginRuntime {
       const config: ReasoningRuntimeGovernanceConfig = {
         tokenBudget: value.tokenBudget!, maxItems: value.maxItems!, minConfidence: value.minConfidence!, highRiskMinConfidence: value.highRiskMinConfidence!, minEvidenceQuality: value.minEvidenceQuality!, highRiskMinEvidenceQuality: value.highRiskMinEvidenceQuality!, maxStalenessDays: value.maxStalenessDays!, excludeConflicted: value.excludeConflicted!, retentionDays: value.retentionDays!,
         readiness: { minimumRuns: value.readiness!.minimumRuns!, maxErrorRate: value.readiness!.maxErrorRate!, maxEmptyRate: value.readiness!.maxEmptyRate!, maxP95Ms: value.readiness!.maxP95Ms! },
-        delivery: { enabled: value.delivery!.enabled!, scopes: value.delivery!.scopes!, adapter: "openclaw", calibrationMaxAgeHours: value.delivery!.calibrationMaxAgeHours!, maxConsecutiveDeliveries: value.delivery!.maxConsecutiveDeliveries! }
+        delivery: { enabled: value.delivery!.enabled!, scopes: value.delivery!.scopes!, adapter: "openclaw", calibrationMaxAgeHours: value.delivery!.calibrationMaxAgeHours!, maxConsecutiveDeliveries: value.delivery!.maxConsecutiveDeliveries!, itemRetentionDays: value.delivery!.itemRetentionDays! }
       };
       const signal = input.signal ?? this.shutdown.signal;
       if (!this.reasoningDeliveryEnabled) { new ReasoningRuntimeShadowService(graph.store.db, config as ReasoningRuntimeTelemetryConfig).capture({ scope: this.config.scope!.default!, query: input.query, signal }); return undefined; }
