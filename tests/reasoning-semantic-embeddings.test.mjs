@@ -11,6 +11,7 @@ import { EpisodeRepository } from "../dist/episodes/repository.js";
 import { TaskOutcomeService } from "../dist/cognition/outcomes.js";
 import { GraphologyStore } from "../dist/store.js";
 import { SUPPORTED_SCHEMA_VERSION } from "../dist/schema.js";
+import { classifyReasoningTask } from "../dist/cognition/reasoning-task-types.js";
 
 const scope = "project:semantic", policy = { maxInlineChars: 16000, maxEventBytes: 262144, sensitiveContentPolicy: "redact" };
 const runtimeConfig = { tokenBudget: 800, maxItems: 6, minConfidence: .6, highRiskMinConfidence: .8, minEvidenceQuality: .5, highRiskMinEvidenceQuality: .75, maxStalenessDays: 365, excludeConflicted: true, retentionDays: 30, readiness: { minimumRuns: 1, maxErrorRate: 0, maxEmptyRate: 0, maxP95Ms: 1000 } };
@@ -39,7 +40,6 @@ test("reasoning semantic index bridges English runtime queries to Chinese strate
     const index = new ReasoningMemoryEmbeddingRepository(store.db, () => 300), backfill = await index.backfill({ scope, embedder, maxInputChars: 512, limit: 10, identity: { provider: "ollama", model: "fixture" } });
     assert.deepEqual(backfill, { version: "reasoning-memory-embedding-backfill-v1", scope, processed: 1, indexed: 1, skipped: 0 });
     assert.equal((await index.backfill({ scope, embedder, maxInputChars: 512, limit: 10, identity: { provider: "ollama", model: "fixture" } })).indexed, 0);
-    assert.equal((await index.backfill({ scope, embedder, maxInputChars: 512, limit: 10, identity: { provider: "ollama", model: "fixture-next" } })).indexed, 1);
     assert.deepEqual(index.status(scope), { version: "reasoning-memory-embedding-status-v1", scope, admitted: 1, indexed: 1 });
     assert.equal(store.db.prepare("SELECT typeof(embedding) AS type FROM mnemora_reasoning_memory_embeddings WHERE memory_id=?").get(memory.id).type, "blob");
     const provider = new LocalReasoningSemanticProvider(store.db, embedder, { minScore: .35, maxVectorScan: 100 });
@@ -49,7 +49,18 @@ test("reasoning semantic index bridges English runtime queries to Chinese strate
     const metrics = new ReasoningRuntimeTelemetryRepository(store.db, () => 400).metrics(scope);
     assert.deepEqual({ scope: metrics.scope, runs: metrics.runs, triggered: metrics.triggered, selected: metrics.selected, semanticCandidates: metrics.semanticCandidates, unmatched: metrics.unmatched, taskTypeExcluded: metrics.taskTypeExcluded, empty: metrics.empty, failures: metrics.failures }, { scope, runs: 1, triggered: 1, selected: 1, semanticCandidates: 1, unmatched: 0, taskTypeExcluded: 0, empty: 0, failures: 0 });
     assert.deepEqual(await provider.search({ scope: "project:other", query: "debug", limit: 5, signal: new AbortController().signal }), []);
+    store.db.prepare("INSERT INTO mnemora_reasoning_memory_delivery_circuits(scope,memory_id,circuit_open,reason_code,opened_at,updated_at) VALUES(?,?,1,'harmful_delivery_feedback',?,?)").run(scope, memory.id, 401, 401);
+    assert.deepEqual(await provider.search({ scope, query: "debug", limit: 5, signal: new AbortController().signal }), []);
+    const nextEmbedder = { async embed(inputs) { return { identity: { provider: "ollama", model: "fixture-next", dimensions: 2 }, vectors: inputs.map(() => [1, 0]) }; } };
+    assert.equal((await index.backfill({ scope, embedder: nextEmbedder, maxInputChars: 512, limit: 10, identity: { provider: "ollama", model: "fixture-next" } })).indexed, 1);
+    assert.rejects(() => index.backfill({ scope, embedder, maxInputChars: 512, limit: 10, identity: { provider: "ollama", model: "fixture-mismatch" } }), /unexpected_reasoning_embedding_identity/);
   } finally { store.close(); }
+});
+
+test("task classification uses normalized English terms rather than raw substrings", () => {
+  assert.equal(classifyReasoningTask("Enable rapid mode."), undefined);
+  assert.equal(classifyReasoningTask("Debugging an API-integration failure."), "software_debugging");
+  assert.equal(classifyReasoningTask("Design an API_integration."), "third_party_integration");
 });
 
 test("legacy task-type aliases are read compatibly and semantic failure falls back to lexical retrieval", async () => {

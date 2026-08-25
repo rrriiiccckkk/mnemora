@@ -72,6 +72,18 @@ test("operator item feedback can halt one strategy without tripping the scope ca
   } finally { store.close(); }
 });
 
+test("expired delivery receipts remain audit-visible but cannot distort current feedback metrics or accept outcomes", () => {
+  let clock = 40_000; const now = () => clock, store = new GraphologyStore(":memory:");
+  try {
+    const state = setup(store, now), { result } = deliver(store, state, now), feedback = new ReasoningDeliveryFeedbackRepository(store.db, now), item = feedback.getByRef(result.deliveryItemRefs[0], state.scope);
+    assert.ok(item); clock += 31 * 86_400_000;
+    assert.deepEqual(feedback.summary(state.scope), { version: "reasoning-delivery-feedback-v1", scope: state.scope, deliveredItems: 1, feedbackEligibleItems: 0, expiredItems: 1, adoptedItems: 0, helpfulItems: 0, neutralItems: 0, harmfulItems: 0, openMemoryCircuits: 0, feedbackCoverage: 0, adoptionRate: 0, helpfulRate: 0, harmfulRate: 0 });
+    const input = { scope: state.scope, taskRef: state.taskRef, verdict: "failure", impact: "harmful", confidence: .9, summary: "This expired receipt must not reopen a strategy circuit.", evidenceRefs: [state.eventRef, item.ref] };
+    state.outcomes.confirm(input, state.outcomes.preview(input).preview_hash);
+    assert.deepEqual({ status: feedback.get(item.id, state.scope)?.status, circuit: feedback.circuit(state.scope, state.memory.id) }, { status: "delivered", circuit: undefined });
+  } finally { store.close(); }
+});
+
 test("schema v62 migration is additive and preserves prior reasoning memories", () => {
   const path = join(tmpdir(), `mnemora-reasoning-delivery-${process.pid}-${Date.now()}.db`); let legacy;
   try {

@@ -58,6 +58,7 @@ export class ReasoningMemoryEmbeddingRepository {
       const batch = values.slice(start, start + batchSize), result = await input.embedder.embed(batch.map(item => item.input), input.signal);
       abort(input.signal);
       if (result.vectors.length !== batch.length || !result.identity.provider || !result.identity.model || !Number.isInteger(result.identity.dimensions) || result.identity.dimensions <= 0) throw new Error("invalid_reasoning_embedding_response");
+      if (identityRequested && (result.identity.provider !== expectedProvider || result.identity.model !== expectedModel)) throw new Error("unexpected_reasoning_embedding_identity");
       for (let index = 0; index < batch.length; index++) {
         const vector = result.vectors[index];
         if (!vector || vector.length !== result.identity.dimensions) throw new Error("invalid_reasoning_embedding_response");
@@ -103,6 +104,7 @@ export class LocalReasoningSemanticProvider implements ReasoningSemanticProvider
     const rows = this.db.prepare(`SELECT e.memory_id,e.embedding,e.dimensions FROM mnemora_reasoning_memory_embeddings e
       INNER JOIN mnemora_reasoning_memories m ON m.id=e.memory_id AND m.scope=e.scope
       WHERE e.scope=? AND e.provider=? AND e.model=? AND e.dimensions=? AND e.input_version=? AND m.state='admitted'
+        AND NOT EXISTS (SELECT 1 FROM mnemora_reasoning_memory_delivery_circuits c WHERE c.scope=m.scope AND c.memory_id=m.id AND c.circuit_open=1)
       ORDER BY e.memory_id ASC LIMIT ?`).all(scope, result.identity.provider, result.identity.model, result.identity.dimensions, REASONING_MEMORY_EMBEDDING_INPUT_VERSION, bounded(this.options.maxVectorScan, 10_000, 100, 100_000)) as Array<Record<string, unknown>>;
     const floor = Math.min(1, Math.max(0, this.options.minScore)), hits: ReasoningSemanticHit[] = [];
     for (const row of rows) {

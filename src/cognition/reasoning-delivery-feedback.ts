@@ -38,6 +38,10 @@ export interface ReasoningDeliveryFeedbackSummary {
   helpfulItems: number;
   neutralItems: number;
   harmfulItems: number;
+  /** Immutable receipts remain available for audit after expiry, but they are
+   * not eligible for new feedback or current-window coverage metrics. */
+  feedbackEligibleItems: number;
+  expiredItems: number;
   openMemoryCircuits: number;
   feedbackCoverage: number;
   adoptionRate: number;
@@ -130,7 +134,7 @@ export class ReasoningDeliveryFeedbackRepository {
       try { reference = parseMnemoraContextRef(evidenceRef); } catch { continue; }
       if (reference.scope !== scope || reference.kind !== "reasoning-delivery-item") continue;
       const value = this.get(reference.id, scope);
-      if (!value) continue;
+      if (!value || value.expiresAt < this.now()) continue;
       const result = this.apply({ item: value, effect: input.impact, signalKind: "task_outcome", sourceRef: input.outcomeRef, adoption: true }, input.withinTransaction === true);
       observed++;
       if (result.circuitOpened) circuitOpened++;
@@ -154,15 +158,17 @@ export class ReasoningDeliveryFeedbackRepository {
   }
 
   summary(scope: string): ReasoningDeliveryFeedbackSummary {
-    const safe = normalizeScope(scope), row = this.db.prepare(`SELECT COUNT(*) AS delivered,
-      SUM(CASE WHEN adopted=1 THEN 1 ELSE 0 END) AS adopted,
-      SUM(CASE WHEN status='helpful' THEN 1 ELSE 0 END) AS helpful,
-      SUM(CASE WHEN status='neutral' THEN 1 ELSE 0 END) AS neutral,
-      SUM(CASE WHEN status='harmful' THEN 1 ELSE 0 END) AS harmful
-      FROM mnemora_reasoning_runtime_delivery_items WHERE scope=?`).get(safe) as ItemRow;
-    const deliveredItems = number(row.delivered), adoptedItems = number(row.adopted), helpfulItems = number(row.helpful), neutralItems = number(row.neutral), harmfulItems = number(row.harmful), feedbacked = helpfulItems + neutralItems + harmfulItems;
+    const safe = normalizeScope(scope), now = this.now(), row = this.db.prepare(`SELECT COUNT(*) AS delivered,
+      SUM(CASE WHEN expires_at>=? THEN 1 ELSE 0 END) AS feedback_eligible,
+      SUM(CASE WHEN expires_at<? THEN 1 ELSE 0 END) AS expired,
+      SUM(CASE WHEN expires_at>=? AND adopted=1 THEN 1 ELSE 0 END) AS adopted,
+      SUM(CASE WHEN expires_at>=? AND status='helpful' THEN 1 ELSE 0 END) AS helpful,
+      SUM(CASE WHEN expires_at>=? AND status='neutral' THEN 1 ELSE 0 END) AS neutral,
+      SUM(CASE WHEN expires_at>=? AND status='harmful' THEN 1 ELSE 0 END) AS harmful
+      FROM mnemora_reasoning_runtime_delivery_items WHERE scope=?`).get(now, now, now, now, now, now, safe) as ItemRow;
+    const deliveredItems = number(row.delivered), feedbackEligibleItems = number(row.feedback_eligible), expiredItems = number(row.expired), adoptedItems = number(row.adopted), helpfulItems = number(row.helpful), neutralItems = number(row.neutral), harmfulItems = number(row.harmful), feedbacked = helpfulItems + neutralItems + harmfulItems;
     const openMemoryCircuits = number((this.db.prepare("SELECT COUNT(*) AS value FROM mnemora_reasoning_memory_delivery_circuits WHERE scope=? AND circuit_open=1").get(safe) as ItemRow).value);
-    return { version: "reasoning-delivery-feedback-v1", scope: safe, deliveredItems, adoptedItems, helpfulItems, neutralItems, harmfulItems, openMemoryCircuits, feedbackCoverage: ratio(feedbacked, deliveredItems), adoptionRate: ratio(adoptedItems, deliveredItems), helpfulRate: ratio(helpfulItems, feedbacked), harmfulRate: ratio(harmfulItems, feedbacked) };
+    return { version: "reasoning-delivery-feedback-v1", scope: safe, deliveredItems, feedbackEligibleItems, expiredItems, adoptedItems, helpfulItems, neutralItems, harmfulItems, openMemoryCircuits, feedbackCoverage: ratio(feedbacked, feedbackEligibleItems), adoptionRate: ratio(adoptedItems, feedbackEligibleItems), helpfulRate: ratio(helpfulItems, feedbacked), harmfulRate: ratio(harmfulItems, feedbacked) };
   }
 
   private apply(input: { item: ReasoningDeliveryItem; effect: ReasoningDeliveryFeedback; signalKind: "operator_feedback" | "task_outcome"; sourceRef: string; adoption?: boolean }, withinTransaction = false): { item: ReasoningDeliveryItem; circuitOpened: boolean } {

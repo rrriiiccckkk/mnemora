@@ -33,7 +33,7 @@ const classifications: ReadonlyArray<readonly [CanonicalReasoningTaskType, reado
   // A repair task can mention a later deployment. Prefer the concrete repair
   // activity over that surrounding lifecycle word when only one task type can
   // be passed through the public ContextEngine input.
-  ["software_debugging", ["debug", "bug", "regression", "stack trace", "调试", "报错", "故障", "回归"]],
+  ["software_debugging", ["debug", "debugging", "bug", "regression", "stack trace", "调试", "报错", "故障", "回归"]],
   ["database_migration", ["migration", "migrate", "schema", "ddl", "数据库迁移", "迁移", "模式变更"]],
   ["deployment", ["deploy", "deployment", "rollout", "发布", "部署", "上线"]],
   ["destructive_operation", ["delete", "deletion", "drop table", "erase", "删除", "清空", "删库"]],
@@ -52,10 +52,17 @@ export function reasoningTaskType(value: unknown): string | undefined {
 }
 
 export function classifyReasoningTask(query: string): CanonicalReasoningTaskType | undefined {
-  const normalized = query.toLowerCase();
-  return classifications.find(([, terms]) => terms.some(term => normalized.includes(term)))?.[0];
+  const normalized = query.toLowerCase().replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
+  return classifications.find(([, terms]) => terms.some(term => taskTermMatches(normalized, term)))?.[0];
 }
 
 export function isHighRiskReasoningOperation(query: string): boolean {
   return /\b(production|deploy(?:ment)?|migration|migrate|delete|deletion|drop|security|credential|permission|payment|transfer|rollback)\b|生产|部署|发布|迁移|删除|清空|安全|凭据|权限|支付|转账|回滚/i.test(query);
 }
+
+function taskTermMatches(query: string, term: string): boolean {
+  const normalized = term.toLowerCase().replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
+  if (/[^\x00-\x7f]/.test(normalized)) return query.includes(normalized);
+  return new RegExp(`(?:^|[^a-z0-9])${escapeRegExp(normalized)}(?=$|[^a-z0-9])`, "i").test(query);
+}
+function escapeRegExp(value: string): string { return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
