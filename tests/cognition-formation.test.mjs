@@ -9,7 +9,7 @@ test("formation shadow is idempotent, scope-isolated, hash-chained, and creates 
   let now = 2_000_000_000_000;
   const store = new GraphologyStore(":memory:");
   try {
-    assert.equal(SUPPORTED_SCHEMA_VERSION, 63);
+    assert.equal(SUPPORTED_SCHEMA_VERSION, 64);
     const service = new FormationService(store.db, () => now);
     const first = service.observe({ scope: "a", origin: "explicit_ingest", authority: "manual_operator", kind: "graph_extraction", source: "manual", entities: 1, relations: 1, content: "private text" });
     assert.equal(first.status, "accepted_shadow");
@@ -66,7 +66,7 @@ test("later additive cognition migrations preserve a v34 formation database", ()
     legacy.close(); legacy = undefined;
     const migrated = new GraphologyStore(path);
     try {
-      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 63);
+      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 64);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='mnemora_beliefs'").get().n, 1);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='mnemora_cognition_change_sets'").get().n, 1);
     } finally { migrated.close(); }

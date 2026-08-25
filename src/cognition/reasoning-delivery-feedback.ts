@@ -13,7 +13,11 @@ export interface ReasoningDeliveryItem {
   deliveryRunId: string;
   memoryId: string;
   ordinal: number;
+  /** Historic persisted status. It is never rewritten by a later correction. */
   status: ReasoningDeliveryItemStatus;
+  /** Current read-model status, derived from the latest feedback event and an
+   * exact operator correction when one exists. */
+  effectiveStatus: ReasoningDeliveryItemStatus;
   adopted: boolean;
   expiresAt: number;
   feedbackAt?: number;
@@ -83,7 +87,7 @@ export class ReasoningDeliveryFeedbackRepository {
   }
 
   get(id: string, scope: string): ReasoningDeliveryItem | undefined {
-    const row = this.db.prepare("SELECT * FROM mnemora_reasoning_runtime_delivery_items WHERE id=? AND scope=?").get(id, normalizeScope(scope)) as ItemRow | undefined;
+    const row = this.db.prepare(`SELECT i.*,${effectiveStatusSql("i")} AS effective_status FROM mnemora_reasoning_runtime_delivery_items i WHERE i.id=? AND i.scope=?`).get(id, normalizeScope(scope)) as ItemRow | undefined;
     return row ? item(row) : undefined;
   }
 
@@ -93,7 +97,7 @@ export class ReasoningDeliveryFeedbackRepository {
   }
 
   items(scope: string, limit = 50): ReasoningDeliveryItem[] {
-    const rows = this.db.prepare("SELECT * FROM mnemora_reasoning_runtime_delivery_items WHERE scope=? ORDER BY created_at DESC,id DESC LIMIT ?").all(normalizeScope(scope), bounded(limit, 50, 1, 100)) as ItemRow[];
+    const rows = this.db.prepare(`SELECT i.*,${effectiveStatusSql("i")} AS effective_status FROM mnemora_reasoning_runtime_delivery_items i WHERE i.scope=? ORDER BY i.created_at DESC,i.id DESC LIMIT ?`).all(normalizeScope(scope), bounded(limit, 50, 1, 100)) as ItemRow[];
     return rows.map(item);
   }
 
@@ -142,30 +146,41 @@ export class ReasoningDeliveryFeedbackRepository {
     return { observed, circuitOpened };
   }
 
-  resetPreview(memoryId: string, scope: string): { status: "not_found" } | { status: "preview"; preview_hash: string; circuit: ReasoningMemoryCircuit } {
+  resetPreview(memoryId: string, scope: string): { status: "not_found" } | { status: "preview"; preview_hash: string; circuit: ReasoningMemoryCircuit; correctableItems: number } {
     const value = this.circuit(scope, memoryId);
     if (!value?.open) return { status: "not_found" };
-    return { status: "preview", preview_hash: digest({ version: "reasoning-memory-circuit-reset-v1", scope: value.scope, memoryId: value.memoryId, updatedAt: value.updatedAt }), circuit: value };
+    const correctableItems = this.correctableItems(value.scope, value.memoryId);
+    return { status: "preview", preview_hash: digest({ version: "reasoning-memory-circuit-reset-v2", scope: value.scope, memoryId: value.memoryId, updatedAt: value.updatedAt, correctableItems }), circuit: value, correctableItems };
   }
 
-  reset(memoryId: string, scope: string, previewHash: string): { status: "not_found" | "stale_preview" } | { status: "confirmed"; circuit: ReasoningMemoryCircuit } {
+  reset(memoryId: string, scope: string, previewHash: string): { status: "not_found" | "stale_preview" } | { status: "confirmed"; circuit: ReasoningMemoryCircuit; correctedItems: number } {
     const preview = this.resetPreview(memoryId, scope);
     if (preview.status !== "preview") return preview;
     if (!previewHash || previewHash !== preview.preview_hash) return { status: "stale_preview" };
-    const now = this.now(), changed = this.db.prepare("UPDATE mnemora_reasoning_memory_delivery_circuits SET circuit_open=0,reason_code='operator_reset',updated_at=? WHERE scope=? AND memory_id=? AND circuit_open=1 AND updated_at=?").run(now, preview.circuit.scope, preview.circuit.memoryId, preview.circuit.updatedAt).changes;
-    if (!changed) return { status: "stale_preview" };
-    return { status: "confirmed", circuit: this.circuit(preview.circuit.scope, preview.circuit.memoryId)! };
+    const now = this.now();
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const changed = this.db.prepare("UPDATE mnemora_reasoning_memory_delivery_circuits SET circuit_open=0,reason_code='operator_reset',updated_at=? WHERE scope=? AND memory_id=? AND circuit_open=1 AND updated_at=?").run(now, preview.circuit.scope, preview.circuit.memoryId, preview.circuit.updatedAt).changes;
+      if (!changed) { this.db.exec("ROLLBACK"); return { status: "stale_preview" }; }
+      const rows = this.correctableRows(preview.circuit.scope, preview.circuit.memoryId);
+      const insert = this.db.prepare("INSERT OR IGNORE INTO mnemora_reasoning_runtime_delivery_item_corrections(id,scope,delivery_item_id,memory_id,feedback_event_id,effective_status,reason_code,created_at) VALUES(?,?,?,?,?,'delivered','operator_circuit_reset',?)");
+      for (const row of rows) insert.run(`reasoning-delivery-correction:${randomUUID()}`, preview.circuit.scope, row.id, preview.circuit.memoryId, row.feedbackEventId, now);
+      this.db.exec("COMMIT");
+      return { status: "confirmed", circuit: this.circuit(preview.circuit.scope, preview.circuit.memoryId)!, correctedItems: rows.length };
+    } catch (error) { try { this.db.exec("ROLLBACK"); } catch {} throw error; }
   }
 
   summary(scope: string): ReasoningDeliveryFeedbackSummary {
-    const safe = normalizeScope(scope), now = this.now(), row = this.db.prepare(`SELECT COUNT(*) AS delivered,
+    const safe = normalizeScope(scope), now = this.now(), row = this.db.prepare(`WITH items AS (
+      SELECT i.*,${effectiveStatusSql("i")} AS effective_status FROM mnemora_reasoning_runtime_delivery_items i WHERE i.scope=?
+    ) SELECT COUNT(*) AS delivered,
       SUM(CASE WHEN expires_at>=? THEN 1 ELSE 0 END) AS feedback_eligible,
       SUM(CASE WHEN expires_at<? THEN 1 ELSE 0 END) AS expired,
       SUM(CASE WHEN expires_at>=? AND adopted=1 THEN 1 ELSE 0 END) AS adopted,
-      SUM(CASE WHEN expires_at>=? AND status='helpful' THEN 1 ELSE 0 END) AS helpful,
-      SUM(CASE WHEN expires_at>=? AND status='neutral' THEN 1 ELSE 0 END) AS neutral,
-      SUM(CASE WHEN expires_at>=? AND status='harmful' THEN 1 ELSE 0 END) AS harmful
-      FROM mnemora_reasoning_runtime_delivery_items WHERE scope=?`).get(now, now, now, now, now, now, safe) as ItemRow;
+      SUM(CASE WHEN expires_at>=? AND effective_status='helpful' THEN 1 ELSE 0 END) AS helpful,
+      SUM(CASE WHEN expires_at>=? AND effective_status='neutral' THEN 1 ELSE 0 END) AS neutral,
+      SUM(CASE WHEN expires_at>=? AND effective_status='harmful' THEN 1 ELSE 0 END) AS harmful
+      FROM items`).get(safe, now, now, now, now, now, now) as ItemRow;
     const deliveredItems = number(row.delivered), feedbackEligibleItems = number(row.feedback_eligible), expiredItems = number(row.expired), adoptedItems = number(row.adopted), helpfulItems = number(row.helpful), neutralItems = number(row.neutral), harmfulItems = number(row.harmful), feedbacked = helpfulItems + neutralItems + harmfulItems;
     const openMemoryCircuits = number((this.db.prepare("SELECT COUNT(*) AS value FROM mnemora_reasoning_memory_delivery_circuits WHERE scope=? AND circuit_open=1").get(safe) as ItemRow).value);
     return { version: "reasoning-delivery-feedback-v1", scope: safe, deliveredItems, feedbackEligibleItems, expiredItems, adoptedItems, helpfulItems, neutralItems, harmfulItems, openMemoryCircuits, feedbackCoverage: ratio(feedbacked, feedbackEligibleItems), adoptionRate: ratio(adoptedItems, feedbackEligibleItems), helpfulRate: ratio(helpfulItems, feedbacked), harmfulRate: ratio(harmfulItems, feedbacked) };
@@ -177,10 +192,10 @@ export class ReasoningDeliveryFeedbackRepository {
     try {
       let circuitOpened = false;
       if (input.adoption) this.event(scope, input.item.id, input.item.memoryId, "task_outcome", "adopted", input.sourceRef, now);
-      const inserted = this.event(scope, input.item.id, input.item.memoryId, input.signalKind, input.effect, input.sourceRef, now);
-      if (inserted) {
+      const eventId = this.event(scope, input.item.id, input.item.memoryId, input.signalKind, input.effect, input.sourceRef, now);
+      if (eventId) {
         const status = input.item.status === "harmful" ? "harmful" : input.effect;
-        this.db.prepare("UPDATE mnemora_reasoning_runtime_delivery_items SET status=?,adopted=CASE WHEN ? THEN 1 ELSE adopted END,feedback_at=? WHERE id=? AND scope=?").run(status, input.adoption ? 1 : 0, now, input.item.id, scope);
+        this.db.prepare("UPDATE mnemora_reasoning_runtime_delivery_items SET status=?,last_feedback_event_id=?,adopted=CASE WHEN ? THEN 1 ELSE adopted END,feedback_at=? WHERE id=? AND scope=?").run(status, eventId, input.adoption ? 1 : 0, now, input.item.id, scope);
         if (input.effect === "harmful") {
           const reason: ReasoningMemoryCircuitReason = input.signalKind === "task_outcome" ? "harmful_task_outcome" : "harmful_delivery_feedback";
           const prior = this.isCircuitOpen(scope, input.item.memoryId);
@@ -195,18 +210,31 @@ export class ReasoningDeliveryFeedbackRepository {
     } catch (error) { if (!withinTransaction) try { this.db.exec("ROLLBACK"); } catch {} throw error; }
   }
 
-  private event(scope: string, itemId: string, memoryId: string, signalKind: "operator_feedback" | "task_outcome", effect: "helpful" | "neutral" | "harmful" | "adopted", sourceRef: string, now: number): boolean {
+  private event(scope: string, itemId: string, memoryId: string, signalKind: "operator_feedback" | "task_outcome", effect: "helpful" | "neutral" | "harmful" | "adopted", sourceRef: string, now: number): string | undefined {
     const id = `reasoning-delivery-feedback:${randomUUID()}`;
     const result = this.db.prepare("INSERT OR IGNORE INTO mnemora_reasoning_runtime_delivery_feedback_events(id,scope,delivery_item_id,memory_id,signal_kind,effect,source_ref,created_at) VALUES(?,?,?,?,?,?,?,?)").run(id, scope, itemId, memoryId, signalKind, effect, signalRef(sourceRef), now) as { changes?: unknown };
-    return Number(result.changes) === 1;
+    return Number(result.changes) === 1 ? id : undefined;
+  }
+
+  private correctableItems(scope: string, memoryId: string): number { return this.correctableRows(scope, memoryId).length; }
+  private correctableRows(scope: string, memoryId: string): Array<{ id: string; feedbackEventId: string }> {
+    const rows = this.db.prepare(`SELECT i.id,i.last_feedback_event_id FROM mnemora_reasoning_runtime_delivery_items i
+      INNER JOIN mnemora_reasoning_runtime_delivery_feedback_events f ON f.id=i.last_feedback_event_id
+      WHERE i.scope=? AND i.memory_id=? AND f.effect='harmful'
+        AND NOT EXISTS (SELECT 1 FROM mnemora_reasoning_runtime_delivery_item_corrections c WHERE c.delivery_item_id=i.id AND c.feedback_event_id=f.id)
+      ORDER BY i.created_at DESC,i.id DESC`).all(scope, memoryId) as Array<{ id: string; last_feedback_event_id: string }>;
+    return rows.map(row => ({ id: row.id, feedbackEventId: row.last_feedback_event_id }));
   }
 }
 
 function item(row: ItemRow): ReasoningDeliveryItem {
   const scope = normalizeScope(String(row.scope));
-  return { id: String(row.id), scope, deliveryRunId: String(row.delivery_run_id), memoryId: String(row.memory_id), ordinal: number(row.ordinal), status: row.status as ReasoningDeliveryItemStatus, adopted: Number(row.adopted) === 1, expiresAt: Number(row.expires_at), ...(row.feedback_at == null ? {} : { feedbackAt: Number(row.feedback_at) }), createdAt: Number(row.created_at), ref: createMnemoraContextRef({ scope, kind: "reasoning-delivery-item", id: String(row.id) }) };
+  return { id: String(row.id), scope, deliveryRunId: String(row.delivery_run_id), memoryId: String(row.memory_id), ordinal: number(row.ordinal), status: row.status as ReasoningDeliveryItemStatus, effectiveStatus: (row.effective_status ?? row.status) as ReasoningDeliveryItemStatus, adopted: Number(row.adopted) === 1, expiresAt: Number(row.expires_at), ...(row.feedback_at == null ? {} : { feedbackAt: Number(row.feedback_at) }), createdAt: Number(row.created_at), ref: createMnemoraContextRef({ scope, kind: "reasoning-delivery-item", id: String(row.id) }) };
 }
 function circuit(row: ItemRow): ReasoningMemoryCircuit { return { scope: normalizeScope(String(row.scope)), memoryId: String(row.memory_id), open: Number(row.circuit_open) === 1, reason: row.reason_code as ReasoningMemoryCircuitReason, ...(row.opened_at == null ? {} : { openedAt: Number(row.opened_at) }), updatedAt: Number(row.updated_at) }; }
 function number(value: unknown): number { return Number.isFinite(Number(value)) ? Math.max(0, Math.floor(Number(value))) : 0; }
 function ratio(value: number, total: number): number { return total ? Number((value / total).toFixed(4)) : 0; }
 function validId(value: unknown): value is string { return typeof value === "string" && value.length > 0 && value.length <= 512 && !/[\u0000-\u001f\\/%?#]/u.test(value); }
+function effectiveStatusSql(alias: string): string {
+  return `COALESCE((SELECT CASE WHEN feedback.effect='harmful' THEN COALESCE((SELECT correction.effective_status FROM mnemora_reasoning_runtime_delivery_item_corrections correction WHERE correction.delivery_item_id=${alias}.id AND correction.feedback_event_id=feedback.id),feedback.effect) ELSE feedback.effect END FROM mnemora_reasoning_runtime_delivery_feedback_events feedback WHERE feedback.id=${alias}.last_feedback_event_id),${alias}.status)`;
+}

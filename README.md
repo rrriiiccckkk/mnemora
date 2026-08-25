@@ -143,9 +143,11 @@ cognition: {
 Each delivered strategy is wrapped as `non_authoritative_reference` and receives
 a short-lived receipt. An operator may mark a receipt helpful/neutral/harmful;
 or an operator-confirmed task outcome can cite it for deterministic feedback.
-A harmful signal suppresses only that strategy in that scope. It never changes
-the strategy into a belief, fact, or graph edge, and it does not automatically
-disable the whole canary.
+A harmful signal suppresses only that strategy in that scope. A later operator
+circuit reset records an append-only delivery-item correction: it preserves the
+historic harmful signal while restoring the item's current effective status. It
+never changes the strategy into a belief, fact, or graph edge, and it does not
+automatically disable the whole canary.
 
 ```bash
 mnemora cognition reasoning runtime-delivery-items --scope project:alpha
@@ -155,9 +157,10 @@ mnemora cognition reasoning runtime-memory-circuit <reasoning-memory-id> --scope
 
 To measure whether delivery improves real tasks, run a de-identified A/B
 dataset through `mnemora cognition reasoning runtime-effectiveness <file>`.
-Only a randomized comparison with at least 20 resolved outcomes in each arm
-receives a success-rate difference. Shadow telemetry, adoption, or synthetic
-benchmarks are not efficacy claims.
+Only an operator-declared randomized comparison with at least 20 resolved
+outcomes in each arm receives a non-causal point estimate and conservative 95%
+interval. Shadow telemetry, adoption, synthetic benchmarks, and legacy v1
+datasets are not efficacy claims.
 
 ### Optional multilingual ReasoningMemory retrieval
 

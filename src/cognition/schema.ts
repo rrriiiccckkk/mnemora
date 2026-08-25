@@ -288,6 +288,7 @@ CREATE TABLE IF NOT EXISTS mnemora_reasoning_runtime_delivery_items (
  adopted INTEGER NOT NULL CHECK(adopted IN (0,1)) DEFAULT 0,
  expires_at INTEGER NOT NULL,
  feedback_at INTEGER,
+ last_feedback_event_id TEXT,
  created_at INTEGER NOT NULL,
  UNIQUE(delivery_run_id,memory_id)
 );
@@ -333,4 +334,21 @@ CREATE TABLE IF NOT EXISTS mnemora_reasoning_memory_embeddings (
 );
 CREATE INDEX IF NOT EXISTS idx_mnemora_reasoning_embeddings_scope_identity ON mnemora_reasoning_memory_embeddings(scope,provider,model,input_version,dimensions,memory_id);
 `;
-export const cognitionOptionalRestoreTables=["mnemora_cognition_candidates","mnemora_cognition_evidence_links","mnemora_cognition_admissions","mnemora_cognition_audits","mnemora_cognition_enforcements","mnemora_cognition_pre_admissions","mnemora_cognition_change_sets","mnemora_beliefs","mnemora_belief_evidence","mnemora_belief_transitions","mnemora_decisions","mnemora_decision_evidence","mnemora_decision_episodes","mnemora_decision_transitions","mnemora_decision_evidence_reviews","mnemora_task_outcomes","mnemora_task_outcome_events","mnemora_reasoning_memories","mnemora_reasoning_memory_events","mnemora_reasoning_memory_outcomes","mnemora_reasoning_memory_governance_events","mnemora_reasoning_reflection_proposals","mnemora_reasoning_runtime_shadow_runs","mnemora_reasoning_runtime_calibrations","mnemora_reasoning_runtime_canaries","mnemora_reasoning_runtime_canary_events","mnemora_reasoning_runtime_delivery_runs","mnemora_reasoning_runtime_delivery_items","mnemora_reasoning_memory_delivery_circuits","mnemora_reasoning_runtime_delivery_feedback_events","mnemora_reasoning_memory_embeddings","mnemora_reflection_jobs","mnemora_reflection_candidates","mnemora_recall_feedback"] as const;
+/** Schema v64 preserves every harmful signal while recording an explicit,
+ * item-bound operator correction. Read models can then distinguish historic
+ * harmful feedback from the current, corrected delivery status. */
+export const cognitionReasoningDeliveryCorrectionSchemaSql = `
+CREATE TABLE IF NOT EXISTS mnemora_reasoning_runtime_delivery_item_corrections (
+ id TEXT PRIMARY KEY,
+ scope TEXT NOT NULL,
+ delivery_item_id TEXT NOT NULL REFERENCES mnemora_reasoning_runtime_delivery_items(id) ON DELETE CASCADE,
+ memory_id TEXT NOT NULL REFERENCES mnemora_reasoning_memories(id) ON DELETE RESTRICT,
+ feedback_event_id TEXT NOT NULL REFERENCES mnemora_reasoning_runtime_delivery_feedback_events(id) ON DELETE RESTRICT,
+ effective_status TEXT NOT NULL CHECK(effective_status IN ('delivered','helpful','neutral','harmful')),
+ reason_code TEXT NOT NULL CHECK(reason_code IN ('operator_circuit_reset')),
+ created_at INTEGER NOT NULL,
+ UNIQUE(delivery_item_id,feedback_event_id)
+);
+CREATE INDEX IF NOT EXISTS idx_mnemora_reasoning_delivery_corrections_scope_memory ON mnemora_reasoning_runtime_delivery_item_corrections(scope,memory_id,created_at DESC,id DESC);
+`;
+export const cognitionOptionalRestoreTables=["mnemora_cognition_candidates","mnemora_cognition_evidence_links","mnemora_cognition_admissions","mnemora_cognition_audits","mnemora_cognition_enforcements","mnemora_cognition_pre_admissions","mnemora_cognition_change_sets","mnemora_beliefs","mnemora_belief_evidence","mnemora_belief_transitions","mnemora_decisions","mnemora_decision_evidence","mnemora_decision_episodes","mnemora_decision_transitions","mnemora_decision_evidence_reviews","mnemora_task_outcomes","mnemora_task_outcome_events","mnemora_reasoning_memories","mnemora_reasoning_memory_events","mnemora_reasoning_memory_outcomes","mnemora_reasoning_memory_governance_events","mnemora_reasoning_reflection_proposals","mnemora_reasoning_runtime_shadow_runs","mnemora_reasoning_runtime_calibrations","mnemora_reasoning_runtime_canaries","mnemora_reasoning_runtime_canary_events","mnemora_reasoning_runtime_delivery_runs","mnemora_reasoning_runtime_delivery_items","mnemora_reasoning_memory_delivery_circuits","mnemora_reasoning_runtime_delivery_feedback_events","mnemora_reasoning_runtime_delivery_item_corrections","mnemora_reasoning_memory_embeddings","mnemora_reflection_jobs","mnemora_reflection_candidates","mnemora_recall_feedback"] as const;

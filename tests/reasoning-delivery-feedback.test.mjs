@@ -58,7 +58,10 @@ test("an explicitly cited task outcome automatically contains a delivered strate
     assert.deepEqual({ delivered: summary.deliveredItems, adopted: summary.adoptedItems, harmful: summary.harmfulItems, open: summary.openMemoryCircuits }, { delivered: 1, adopted: 1, harmful: 1, open: 1 });
     const retrieved = new ReasoningRetrievalService(store.db).find({ scope: state.scope, query: "production database migration rollback", taskType: "database_migration", riskLevel: "high" });
     assert.deepEqual({ candidates: retrieved.candidates.length, circuitExcluded: retrieved.excluded.delivery_circuit, state: state.memories.get(state.memory.id, state.scope).state }, { candidates: 0, circuitExcluded: 1, state: "admitted" });
-    const reset = feedback.resetPreview(state.memory.id, state.scope); assert.equal(reset.status, "preview"); assert.equal(feedback.reset(state.memory.id, state.scope, reset.preview_hash).status, "confirmed");
+    const reset = feedback.resetPreview(state.memory.id, state.scope); assert.equal(reset.status, "preview"); assert.equal(reset.correctableItems, 1); assert.equal(feedback.reset(state.memory.id, state.scope, reset.preview_hash).status, "confirmed");
+    assert.deepEqual({ historic: feedback.get(item.id, state.scope)?.status, effective: feedback.get(item.id, state.scope)?.effectiveStatus, corrections: store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_reasoning_runtime_delivery_item_corrections").get().value }, { historic: "harmful", effective: "delivered", corrections: 1 });
+    const helpful = feedback.feedbackPreview(item.ref, state.scope, "helpful"); assert.equal(helpful.status, "preview"); assert.equal(feedback.feedback(item.ref, state.scope, "helpful", helpful.preview_hash).status, "confirmed");
+    assert.deepEqual({ historic: feedback.get(item.id, state.scope)?.status, effective: feedback.get(item.id, state.scope)?.effectiveStatus, corrections: store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_reasoning_runtime_delivery_item_corrections").get().value }, { historic: "harmful", effective: "helpful", corrections: 1 });
     assert.equal(new ReasoningRetrievalService(store.db).find({ scope: state.scope, query: "production database migration rollback", taskType: "database_migration", riskLevel: "high" }).candidates[0].id, state.memory.id);
   } finally { store.close(); }
 });
@@ -84,17 +87,17 @@ test("expired delivery receipts remain audit-visible but cannot distort current 
   } finally { store.close(); }
 });
 
-test("schema v62 migration is additive and preserves prior reasoning memories", () => {
+test("schema v64 migration is additive and preserves prior reasoning memories", () => {
   const path = join(tmpdir(), `mnemora-reasoning-delivery-${process.pid}-${Date.now()}.db`); let legacy;
   try {
     legacy = new GraphologyStore(path); const state = setup(legacy, () => 30_000), memoryId = state.memory.id;
-    legacy.db.exec("DROP TABLE mnemora_reasoning_runtime_delivery_feedback_events; DROP TABLE mnemora_reasoning_memory_delivery_circuits; DROP TABLE mnemora_reasoning_runtime_delivery_items; PRAGMA user_version=61"); legacy.close(); legacy = undefined;
+    legacy.db.exec("DROP TABLE mnemora_reasoning_runtime_delivery_item_corrections; DROP TABLE mnemora_reasoning_runtime_delivery_feedback_events; DROP TABLE mnemora_reasoning_memory_delivery_circuits; DROP TABLE mnemora_reasoning_runtime_delivery_items; PRAGMA user_version=61"); legacy.close(); legacy = undefined;
     const migrated = new GraphologyStore(path);
     try {
-      assert.equal(SUPPORTED_SCHEMA_VERSION, 63);
-      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 63);
+      assert.equal(SUPPORTED_SCHEMA_VERSION, 64);
+      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 64);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM mnemora_reasoning_memories WHERE id=?").get(memoryId).value, 1);
-      for (const table of ["mnemora_reasoning_runtime_delivery_items", "mnemora_reasoning_memory_delivery_circuits", "mnemora_reasoning_runtime_delivery_feedback_events"]) assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name=?").get(table).value, 1);
+      for (const table of ["mnemora_reasoning_runtime_delivery_items", "mnemora_reasoning_memory_delivery_circuits", "mnemora_reasoning_runtime_delivery_feedback_events", "mnemora_reasoning_runtime_delivery_item_corrections"]) assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name=?").get(table).value, 1);
     } finally { migrated.close(); }
   } finally { try { legacy?.close(); } catch {} try { rmSync(path, { force: true }); } catch {} }
 });

@@ -15,7 +15,7 @@ function transitionHash(graph, verification) {
 test("governance schema is additive and absent from normal default behavior", async () => {
   const store = new GraphologyStore(":memory:");
   try {
-    assert.equal(SUPPORTED_SCHEMA_VERSION,63);
+    assert.equal(SUPPORTED_SCHEMA_VERSION,64);
     assert.equal(store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='kg_governance_principals'").get().name, "kg_governance_principals");
   } finally { store.close(); }
 
