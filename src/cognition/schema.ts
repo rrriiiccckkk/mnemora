@@ -352,8 +352,9 @@ CREATE TABLE IF NOT EXISTS mnemora_reasoning_runtime_delivery_item_corrections (
 );
 CREATE INDEX IF NOT EXISTS idx_mnemora_reasoning_delivery_corrections_scope_memory ON mnemora_reasoning_runtime_delivery_item_corrections(scope,memory_id,created_at DESC,id DESC);
 `;
-/** Schema v66 is an append-only, bounded ledger for deterministic strategy
- * verification. It records assertion values, never tool output or model text. */
+/** Schema v67 is an append-only, bounded ledger for deterministic strategy
+ * verification. It records assertion values, never tool output or model text.
+ * `expired` is terminal: a stale delivery receipt can never affect a circuit. */
 export const cognitionReasoningVerificationEventsSchemaSql = `
 CREATE TABLE IF NOT EXISTS mnemora_reasoning_runtime_verification_events (
  id TEXT PRIMARY KEY,
@@ -368,7 +369,7 @@ CREATE TABLE IF NOT EXISTS mnemora_reasoning_runtime_verification_events (
  verdict TEXT NOT NULL CHECK(verdict IN ('matched','mismatched')),
  source_kind TEXT NOT NULL CHECK(source_kind IN ('tool_result','task_outcome','strategy_adoption')),
  source_ref TEXT NOT NULL CHECK(length(source_ref)>0 AND length(source_ref)<=1024),
- status TEXT NOT NULL CHECK(status IN ('pending','processed')),
+ status TEXT NOT NULL CHECK(status IN ('pending','processed','expired')),
  created_at INTEGER NOT NULL,
  processed_at INTEGER,
  UNIQUE(delivery_item_id,assertion_key,source_kind,source_ref)

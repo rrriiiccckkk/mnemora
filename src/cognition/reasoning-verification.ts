@@ -9,7 +9,7 @@ type ToolResult = "success" | "failure";
 type OutcomeVerdict = "success" | "failure" | "partial" | "unknown";
 type AssertionKind = ReasoningVerificationAssertion["kind"];
 type VerificationVerdict = "matched" | "mismatched";
-type VerificationStatus = "pending" | "processed";
+type VerificationStatus = "pending" | "processed" | "expired";
 type Row = Record<string, unknown>;
 
 export interface ReasoningVerificationEvent {
@@ -30,8 +30,8 @@ export interface ReasoningVerificationEvent {
   processedAt?: number;
 }
 
-export interface ReasoningVerificationRun { processed: number; matched: number; mismatched: number; circuitsOpened: number; }
-export interface ReasoningVerificationSummary { version: "reasoning-verification-summary-v1"; scope: string; pending: number; processed: number; matched: number; mismatched: number; }
+export interface ReasoningVerificationRun { processed: number; expired: number; matched: number; mismatched: number; circuitsOpened: number; }
+export interface ReasoningVerificationSummary { version: "reasoning-verification-summary-v2"; scope: string; pending: number; processed: number; expired: number; matched: number; mismatched: number; }
 
 /**
  * A local, deterministic worker for an operator-confirmed strategy contract.
@@ -76,16 +76,23 @@ export class ReasoningVerificationService {
     const scope = normalizeScope(input.scope), limit = bounded(input.limit, 5, 1, 20), now = this.now();
     this.db.exec("BEGIN IMMEDIATE");
     try {
-      const rows = this.db.prepare("SELECT * FROM mnemora_reasoning_runtime_verification_events WHERE scope=? AND status='pending' ORDER BY created_at ASC,assertion_ordinal ASC,id ASC LIMIT ?").all(scope, limit) as Row[];
-      let matched = 0, mismatched = 0, circuitsOpened = 0;
+      const rows = this.db.prepare(`SELECT event.*,item.expires_at FROM mnemora_reasoning_runtime_verification_events event
+        INNER JOIN mnemora_reasoning_runtime_delivery_items item ON item.id=event.delivery_item_id AND item.scope=event.scope
+        WHERE event.scope=? AND event.status='pending' ORDER BY event.created_at ASC,event.assertion_ordinal ASC,event.id ASC LIMIT ?`).all(scope, limit) as Row[];
+      let expired = 0, matched = 0, mismatched = 0, circuitsOpened = 0;
       for (const row of rows) {
         const event = eventRow(row);
+        if (Number(row.expires_at) < now) {
+          expired++;
+          this.db.prepare("UPDATE mnemora_reasoning_runtime_verification_events SET status='expired',processed_at=? WHERE id=? AND scope=? AND status='pending'").run(now, event.id, scope);
+          continue;
+        }
         if (event.verdict === "mismatched") { mismatched++; if (this.feedback.openVerificationCircuit(scope, event.memoryId, true).opened) circuitsOpened++; }
         else matched++;
         this.db.prepare("UPDATE mnemora_reasoning_runtime_verification_events SET status='processed',processed_at=? WHERE id=? AND scope=? AND status='pending'").run(now, event.id, scope);
       }
       this.db.exec("COMMIT");
-      return { processed: rows.length, matched, mismatched, circuitsOpened };
+      return { processed: matched + mismatched, expired, matched, mismatched, circuitsOpened };
     } catch (error) { try { this.db.exec("ROLLBACK"); } catch {} throw error; }
   }
 
@@ -96,14 +103,14 @@ export class ReasoningVerificationService {
   }
 
   summary(scope: string): ReasoningVerificationSummary {
-    const safe = normalizeScope(scope), row = this.db.prepare("SELECT SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,SUM(CASE WHEN status='processed' THEN 1 ELSE 0 END) AS processed,SUM(CASE WHEN verdict='matched' THEN 1 ELSE 0 END) AS matched,SUM(CASE WHEN verdict='mismatched' THEN 1 ELSE 0 END) AS mismatched FROM mnemora_reasoning_runtime_verification_events WHERE scope=?").get(safe) as Row;
-    return { version: "reasoning-verification-summary-v1", scope: safe, pending: count(row.pending), processed: count(row.processed), matched: count(row.matched), mismatched: count(row.mismatched) };
+    const safe = normalizeScope(scope), row = this.db.prepare("SELECT SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,SUM(CASE WHEN status='processed' THEN 1 ELSE 0 END) AS processed,SUM(CASE WHEN status='expired' THEN 1 ELSE 0 END) AS expired,SUM(CASE WHEN status='processed' AND verdict='matched' THEN 1 ELSE 0 END) AS matched,SUM(CASE WHEN status='processed' AND verdict='mismatched' THEN 1 ELSE 0 END) AS mismatched FROM mnemora_reasoning_runtime_verification_events WHERE scope=?").get(safe) as Row;
+    return { version: "reasoning-verification-summary-v2", scope: safe, pending: count(row.pending), processed: count(row.processed), expired: count(row.expired), matched: count(row.matched), mismatched: count(row.mismatched) };
   }
 
   private enqueue(itemId: string, scope: string, sourceKind: "tool_result" | "task_outcome" | "strategy_adoption", sourceRef: string, observed: "success" | "failure" | "partial" | "true", tool: string | undefined): number {
-    const item = this.db.prepare("SELECT memory_id FROM mnemora_reasoning_runtime_delivery_items WHERE id=? AND scope=?").get(itemId, scope) as { memory_id?: unknown } | undefined;
+    const now = this.now(), item = this.db.prepare("SELECT memory_id FROM mnemora_reasoning_runtime_delivery_items WHERE id=? AND scope=? AND expires_at>=?").get(itemId, scope, now) as { memory_id?: unknown } | undefined;
     if (!item) return 0;
-    const memory = this.memories.get(String(item.memory_id), scope), assertions = memory?.verification?.assertions ?? [], now = this.now();
+    const memory = this.memories.get(String(item.memory_id), scope), assertions = memory?.verification?.assertions ?? [];
     let queued = 0;
     for (const [ordinal, assertion] of assertions.entries()) {
       if (assertion.kind !== sourceKind || assertion.kind === "tool_result" && assertion.tool !== tool) continue;

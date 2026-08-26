@@ -366,6 +366,7 @@ export class GraphologyStore {
     if (version < 64) this.migrateReasoningDeliveryCorrectionsV64();
     if (version < 65) this.migrateReasoningVerificationV65();
     if (version < 66) this.migrateReasoningVerificationEventsV66();
+    if (version < 67) this.migrateReasoningVerificationExpiryV67();
     this.db.exec(`PRAGMA user_version=${SUPPORTED_SCHEMA_VERSION}`);
   }
 
@@ -440,6 +441,26 @@ export class GraphologyStore {
       } catch (error) { try { this.db.exec("ROLLBACK"); } catch {} throw error; }
     }
     this.db.exec(cognitionReasoningVerificationEventsSchemaSql);
+  }
+
+  /** Schema v67 makes receipt expiry a terminal verification state. A pending
+   * assertion can never open a circuit after the receipt that authorized it
+   * has expired. Existing event values and timestamps are copied unchanged. */
+  private migrateReasoningVerificationExpiryV67(): void {
+    const event = this.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='mnemora_reasoning_runtime_verification_events'").get() as { sql?: unknown } | undefined;
+    if (String(event?.sql ?? "").includes("'expired'")) return;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.exec("DROP INDEX IF EXISTS idx_mnemora_reasoning_verification_scope_status");
+      this.db.exec("DROP INDEX IF EXISTS idx_mnemora_reasoning_verification_scope_memory");
+      this.db.exec("ALTER TABLE mnemora_reasoning_runtime_verification_events RENAME TO mnemora_reasoning_runtime_verification_events_v66");
+      this.db.exec(cognitionReasoningVerificationEventsSchemaSql);
+      this.db.exec(`INSERT INTO mnemora_reasoning_runtime_verification_events(id,scope,delivery_item_id,memory_id,assertion_kind,assertion_ordinal,assertion_key,expected_value,observed_value,verdict,source_kind,source_ref,status,created_at,processed_at)
+        SELECT id,scope,delivery_item_id,memory_id,assertion_kind,assertion_ordinal,assertion_key,expected_value,observed_value,verdict,source_kind,source_ref,status,created_at,processed_at
+        FROM mnemora_reasoning_runtime_verification_events_v66`);
+      this.db.exec("DROP TABLE mnemora_reasoning_runtime_verification_events_v66");
+      this.db.exec("COMMIT");
+    } catch (error) { try { this.db.exec("ROLLBACK"); } catch {} throw error; }
   }
 
   /** Schema v58 only adds durable receipts for explicitly confirmed consolidation

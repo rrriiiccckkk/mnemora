@@ -80,7 +80,9 @@ events. A circuit reset remains a separate explicit operator action through
 
 Schema 65 introduced nullable `verification_json` on
 `mnemora_reasoning_memories`. Schema 66 adds the append-only local event ledger
-and widens the delivery-circuit reason enum. The migration preserves every
-existing circuit row, including state and timestamps; it does not rewrite
-strategies, evidence, outcomes, scopes, or lifecycle records. Existing
-installations retain the default-disabled behavior.
+and widens the delivery-circuit reason enum. Schema 67 adds terminal `expired`
+events: once a delivery receipt reaches its existing retention deadline, new
+signals are ignored and pending checks are retained as `expired` rather than
+being allowed to open a circuit. The migration preserves every existing circuit
+row, verifier event, strategy, evidence, outcome, scope, and lifecycle record.
+Existing installations retain the default-disabled behavior.

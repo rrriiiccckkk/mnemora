@@ -186,7 +186,7 @@ export class PluginRuntime {
     const graph = this.openGraph();
     try {
       const result = new ReasoningVerificationService(graph.store.db).run({ scope: this.config.scope!.default!, limit: this.config.cognition!.reasoningRuntime!.verification!.maxJobsPerRun });
-      if (result.processed) this.logger.debug?.("reasoning verification processed", { ...result });
+      if (result.processed || result.expired) this.logger.debug?.("reasoning verification settled", { ...result });
     } catch { this.logger.warn?.("reasoning verification failed", { category: "operation_failed" }); }
     finally { graph.close(); }
   }
