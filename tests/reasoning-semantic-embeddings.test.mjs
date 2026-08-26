@@ -29,7 +29,7 @@ const embedder = { async embed(inputs) { return { identity: { provider: "ollama"
 test("reasoning semantic index bridges English runtime queries to Chinese strategies without cross-scope leakage", async () => {
   const store = new GraphologyStore(":memory:");
   try {
-    assert.equal(SUPPORTED_SCHEMA_VERSION, 64);
+    assert.equal(SUPPORTED_SCHEMA_VERSION, 65);
     const telemetryColumns = store.db.prepare("PRAGMA table_info(mnemora_reasoning_runtime_shadow_runs)").all().map(row => row.name);
     assert.equal(telemetryColumns.includes("semantic_candidates") && telemetryColumns.includes("unmatched") && telemetryColumns.includes("task_type_excluded"), true);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='mnemora_reasoning_memory_embeddings'").get().n, 1);
@@ -61,6 +61,29 @@ test("task classification uses normalized English terms rather than raw substrin
   assert.equal(classifyReasoningTask("Enable rapid mode."), undefined);
   assert.equal(classifyReasoningTask("Debugging an API-integration failure."), "software_debugging");
   assert.equal(classifyReasoningTask("Design an API_integration."), "third_party_integration");
+});
+
+test("CJK lexical fallback and inferred runtime applicability do not make untrusted host guesses hard gates", async () => {
+  const store = new GraphologyStore(":memory:");
+  try {
+    const refs = fixture(store), memories = new ReasoningMemoryService(store.db, () => 600);
+    const admit = (strategy, applicability) => {
+      const input = { scope, kind: "procedure", strategy, applicability, sourceTaskRefs: [refs.taskRef], outcomeRefs: [refs.outcomeRef], evidenceRefs: [refs.eventRef], confidence: .9 };
+      const proposed = memories.propose(input, memories.preview(input).preview_hash);
+      return memories.admit(proposed.id, scope, memories.admissionPreview(proposed.id, scope).preview_hash);
+    };
+    const lexical = admit("投资分析前先检查假设、风险与证据。", {});
+    const lowRisk = admit("投资任务低风险时先核对数据来源。", { taskTypes: ["investment_analysis"], riskLevels: ["low"] });
+    const highRisk = admit("投资任务高风险时先核对数据来源。", { taskTypes: ["investment_analysis"], riskLevels: ["high"] });
+    assert.equal(new ReasoningRetrievalService(store.db).find({ scope, query: "请做投资分析" }).candidates.some(item => item.id === lexical.id), true);
+    const provider = { id: "fixture", contractVersion: "mnemora-reasoning-semantic-provider/v1", async search() { return [{ memoryId: lowRisk.id, score: .9 }, { memoryId: highRisk.id, score: .8 }]; } };
+    const runtime = new ReasoningRuntimeService(store.db), inferred = await runtime.prepareWithSemantic({ scope, query: "请完成投资分析" }, provider);
+    assert.deepEqual(inferred.context?.items.slice(0, 2).map(item => item.id), [lowRisk.id, highRisk.id]);
+    assert.equal(inferred.context?.items.some(item => item.id === lexical.id), true);
+    const explicit = await runtime.prepareWithSemantic({ scope, query: "请完成投资分析", taskType: "investment_analysis", riskLevel: "medium" }, provider);
+    assert.equal(explicit.context?.items.some(item => item.id === lowRisk.id || item.id === highRisk.id), false);
+    assert.equal(runtime.plan({ scope, query: "删除生产数据库", riskLevel: "low" }).riskLevel, "high");
+  } finally { store.close(); }
 });
 
 test("legacy task-type aliases are read compatibly and semantic failure falls back to lexical retrieval", async () => {

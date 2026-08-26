@@ -32,7 +32,7 @@ export class ReasoningRuntimeService {
     abort(input.signal);
     if (input.riskLevel !== undefined && !["low", "medium", "high"].includes(input.riskLevel)) throw new Error("invalid_reasoning_runtime");
     const scope = normalizeScope(input.scope), query = clean(input.query), explicitTaskType = reasoningTaskType(input.taskType), classifiedTaskType = explicitTaskType ?? classifyReasoningTask(query);
-    const highRisk = input.riskLevel === "high" || isHighRiskReasoningOperation(query), riskLevel = input.riskLevel ?? (highRisk ? "high" : classifiedTaskType ? "medium" : "low");
+    const highRisk = input.riskLevel === "high" || isHighRiskReasoningOperation(query), riskLevel = highRisk ? "high" : input.riskLevel ?? (classifiedTaskType ? "medium" : "low");
     const triggers: ReasoningRuntimeTrigger[] = [], reasons: string[] = [];
     if (explicitTaskType) { triggers.push("explicit_task_type"); reasons.push("task_type_declared"); }
     else if (classifiedTaskType) { triggers.push("task_classification"); reasons.push(`task_type_classified:${classifiedTaskType}`); }
@@ -46,7 +46,7 @@ export class ReasoningRuntimeService {
     const decision = this.plan(input);
     if (!decision.shouldRetrieve) return { version: "reasoning-runtime-v1", decision };
     abort(input.signal);
-    const context = this.compiler.compile({ ...input, scope: decision.scope, query: clean(input.query), taskType: decision.taskType, riskLevel: decision.riskLevel, qualityPolicy: this.options.qualityPolicy, now: this.options.now });
+    const context = this.compiler.compile(compilationInput(input, decision, this.options));
     return { version: "reasoning-runtime-v1", decision, context };
   }
 
@@ -56,7 +56,7 @@ export class ReasoningRuntimeService {
     if (!decision.shouldRetrieve) return { version: "reasoning-runtime-v1", decision };
     const limit = maxCandidates === undefined ? Math.min(50, (input.maxItems ?? 6) * 4) : Math.min(50, Math.max(1, Math.trunc(maxCandidates)));
     const semanticScores = await new ReasoningSemanticRetrievalService(this.db, provider, timeoutMs).scores({ scope: decision.scope, query: clean(input.query), limit, signal: input.signal });
-    const context = this.compiler.compile({ ...input, scope: decision.scope, query: clean(input.query), taskType: decision.taskType, riskLevel: decision.riskLevel, semanticScores, qualityPolicy: this.options.qualityPolicy, now: this.options.now });
+    const context = this.compiler.compile({ ...compilationInput(input, decision, this.options), semanticScores });
     return { version: "reasoning-runtime-v1", decision, context };
   }
 
@@ -71,3 +71,18 @@ export class ReasoningRuntimeService {
 
 function clean(value: unknown): string { return typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, 4096) : ""; }
 function abort(signal?: AbortSignal): void { if (signal?.aborted) throw signal.reason ?? new Error("aborted"); }
+function compilationInput(input: ReasoningRuntimeTaskContext, decision: ReasoningRuntimeDecision, options: { qualityPolicy?: ReasoningQualityPolicy; now?: () => number }): CompileReasoningContextInput {
+  const explicitTaskType = reasoningTaskType(input.taskType), highRiskDetected = decision.triggers.includes("high_risk_operation");
+  return {
+    ...input,
+    scope: decision.scope,
+    query: clean(input.query),
+    taskType: explicitTaskType,
+    inferredTaskType: explicitTaskType ? undefined : decision.taskType,
+    riskLevel: highRiskDetected ? "high" : input.riskLevel,
+    inferredRiskLevel: highRiskDetected || input.riskLevel !== undefined ? undefined : decision.riskLevel,
+    qualityRiskLevel: decision.riskLevel,
+    qualityPolicy: options.qualityPolicy,
+    now: options.now
+  };
+}

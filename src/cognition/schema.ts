@@ -159,6 +159,7 @@ CREATE TABLE IF NOT EXISTS mnemora_reasoning_memories (
  source_task_refs_json TEXT NOT NULL CHECK(json_valid(source_task_refs_json) AND length(source_task_refs_json)<=8192),
  outcome_refs_json TEXT NOT NULL CHECK(json_valid(outcome_refs_json) AND length(outcome_refs_json)<=8192),
  evidence_refs_json TEXT NOT NULL CHECK(json_valid(evidence_refs_json) AND length(evidence_refs_json)<=8192),
+ verification_json TEXT CHECK(verification_json IS NULL OR (json_valid(verification_json) AND length(verification_json)<=4096)),
  confidence REAL NOT NULL CHECK(confidence>=0 AND confidence<=1),
  utility_score REAL NOT NULL CHECK(utility_score>=-1 AND utility_score<=1),
  success_count INTEGER NOT NULL DEFAULT 0 CHECK(success_count>=0),

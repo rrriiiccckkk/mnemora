@@ -105,7 +105,7 @@ cognition: {
 }
 ```
 
-每次投递的策略都会被包裹为 `non_authoritative_reference`，并获得一条短期回执。operator 可以把回执标为 helpful/neutral/harmful；或由 operator 确认的任务 outcome 显式引用回执，形成确定性反馈。harmful 信号只会抑制该 scope 下的这一条策略；之后 operator 的 circuit reset 会新增一条仅追加的 item correction，保留原有 harmful 历史，同时恢复当前有效状态。它不会把策略变成 belief、事实或图谱边，也不会自动关闭整个 canary。
+每次投递的策略都会被包裹为 `non_authoritative_reference`，并获得一条短期回执。operator 可以把回执标为 helpful/neutral/harmful；或由 operator 确认的任务 outcome 显式引用回执，形成确定性反馈。harmful 信号只会抑制该 scope 下的这一条策略。`effectiveStatus` 只表示最新回执信号，不代表可以重新投递；memory circuit 必须由 operator 显式 reset 才会关闭，处于关闭前状态的 item 会标出 `requiresOperatorReset`。reset 会新增一条仅追加的 item correction，保留原有 harmful 历史。它不会把策略变成 belief、事实或图谱边，也不会自动关闭整个 canary。
 
 ```bash
 mnemora cognition reasoning runtime-delivery-items --scope project:alpha
@@ -113,7 +113,11 @@ mnemora cognition reasoning runtime-feedback-summary --scope project:alpha
 mnemora cognition reasoning runtime-memory-circuit <reasoning-memory-id> --scope project:alpha
 ```
 
+`mnemora cognition reasoning find` 是供 operator 审计/查看目录的命令，因此可能展示已被抑制的策略文本；需要经过 circuit 过滤的选择请使用 `retrieve`、`compile` 或 runtime delivery。
+
 若要衡量投递是否真的改善任务结果，使用 `mnemora cognition reasoning runtime-effectiveness <file>` 运行去标识化 A/B 数据集。只有 operator 声明的随机对照且每一组至少有 20 条已判定 outcome 时，才会给出非因果的点估计和保守的 95% 区间；shadow 遥测、采用率、合成 benchmark 与旧版 v1 数据集都不能当作效果结论。
+
+operator 还可以为待准入策略附上[有界、确定性的验证说明](docs/reasoning-verification.md)。v1.4 仅保存这项元数据：不会执行验证、不会调用模型或工具、不会自动改变生命周期，更不会把策略升级为 belief 或事实。
 
 ### 可选的多语言 ReasoningMemory 检索
 

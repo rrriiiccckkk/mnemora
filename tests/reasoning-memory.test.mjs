@@ -34,7 +34,7 @@ function fixture(store, scope = "project:ops") {
 test("reasoning memory requires local lineage, remains proposed until admission, and never writes beliefs", () => {
   const store = new GraphologyStore(":memory:");
   try {
-    assert.equal(SUPPORTED_SCHEMA_VERSION, 64);
+    assert.equal(SUPPORTED_SCHEMA_VERSION, 65);
     const { eventRef, taskRef, outcomeRef } = fixture(store), service = new ReasoningMemoryService(store.db, () => 200);
     const input = { scope: "project:ops", kind: "failure_guard", strategy: "Validate rollback and a recovery plan before any production schema mutation.", applicability: { taskTypes: ["database_migration"], riskLevels: ["high"] }, contraindications: ["Do not delay an emergency rollback."], sourceTaskRefs: [taskRef], outcomeRefs: [outcomeRef], evidenceRefs: [eventRef], confidence: .8 };
     const preview = service.preview(input);
@@ -50,6 +50,36 @@ test("reasoning memory requires local lineage, remains proposed until admission,
     assert.equal(service.find("project:ops", "rollback")[0].id, admitted.id);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_beliefs").get().value, 0);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_reasoning_memory_events").get().value, 2);
+  } finally { store.close(); }
+});
+
+test("reasoning memory preserves bounded deterministic verification metadata without changing its lifecycle", () => {
+  const store = new GraphologyStore(":memory:");
+  try {
+    const { eventRef, taskRef, outcomeRef } = fixture(store), service = new ReasoningMemoryService(store.db, () => 201);
+    const input = {
+      scope: "project:ops",
+      kind: "failure_guard",
+      strategy: "Check the migration tool result before proceeding.",
+      sourceTaskRefs: [taskRef],
+      outcomeRefs: [outcomeRef],
+      evidenceRefs: [eventRef],
+      verification: {
+        version: "reasoning-verification-v1",
+        assertions: [
+          { kind: "tool_result", tool: "migration-runner", expected: "success" },
+          { kind: "task_outcome", expected: "failure" }
+        ]
+      }
+    };
+    const preview = service.preview(input);
+    assert.deepEqual(preview.candidate.verification, input.verification);
+    const proposed = service.propose(input, preview.preview_hash);
+    assert.equal(proposed.state, "proposed");
+    assert.deepEqual(service.get(proposed.id, input.scope)?.verification, input.verification);
+    assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_beliefs").get().value, 0);
+    assert.throws(() => service.preview({ ...input, verification: { version: "reasoning-verification-v1", assertions: [{ kind: "tool_result", tool: "migration-runner", expected: "success", output: "untrusted raw output" }] } }), /invalid_reasoning_verification/);
+    assert.throws(() => service.preview({ ...input, verification: { version: "reasoning-verification-v1", assertions: [{ kind: "tool_result", tool: "a".repeat(81), expected: "success" }] } }), /invalid_reasoning_verification/);
   } finally { store.close(); }
 });
 
@@ -309,7 +339,7 @@ test("schema v44 adds reasoning reflection proposals without rebuilding governan
     legacy = new GraphologyStore(path); legacy.db.exec("DROP TABLE mnemora_reasoning_reflection_proposals; PRAGMA user_version=43"); legacy.close(); legacy = undefined;
     const migrated = new GraphologyStore(path);
     try {
-      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 64);
+      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 65);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name='mnemora_reasoning_memories'").get().value, 1);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name='mnemora_task_outcomes'").get().value, 1);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name='mnemora_reasoning_memory_governance_events'").get().value, 1);
@@ -325,7 +355,7 @@ test("schema v45 adds aggregate reasoning shadow telemetry without rebuilding v4
     legacy.db.exec("DROP TABLE mnemora_reasoning_runtime_shadow_runs; PRAGMA user_version=44"); legacy.close(); legacy = undefined;
     const migrated = new GraphologyStore(path);
     try {
-      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 64);
+      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 65);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM mnemora_reasoning_memories WHERE id=?").get(memory.id).value, 1);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name='mnemora_reasoning_runtime_shadow_runs'").get().value, 1);
     } finally { migrated.close(); }
@@ -337,7 +367,24 @@ test("schema v46 adds governed delivery controls without rebuilding v45 reasonin
   try {
     legacy = new GraphologyStore(path); const refs = fixture(legacy), service = new ReasoningMemoryService(legacy.db, () => 5_000), input = { scope: "project:ops", kind: "strategy", strategy: "Validate rollback before migration.", sourceTaskRefs: [refs.taskRef], outcomeRefs: [refs.outcomeRef], evidenceRefs: [refs.eventRef] }, proposed = service.propose(input, service.preview(input).preview_hash), memory = service.admit(proposed.id, input.scope, service.admissionPreview(proposed.id, input.scope).preview_hash);
     legacy.db.exec("DROP TABLE mnemora_reasoning_runtime_delivery_runs; DROP TABLE mnemora_reasoning_runtime_canary_events; DROP TABLE mnemora_reasoning_runtime_canaries; DROP TABLE mnemora_reasoning_runtime_calibrations; PRAGMA user_version=45"); legacy.close(); legacy = undefined;
-    const migrated = new GraphologyStore(path); try { assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 64); assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM mnemora_reasoning_memories WHERE id=?").get(memory.id).value, 1); assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name='mnemora_reasoning_runtime_delivery_runs'").get().value, 1); } finally { migrated.close(); }
+    const migrated = new GraphologyStore(path); try { assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 65); assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM mnemora_reasoning_memories WHERE id=?").get(memory.id).value, 1); assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name='mnemora_reasoning_runtime_delivery_runs'").get().value, 1); } finally { migrated.close(); }
+  } finally { try { legacy?.close(); } catch {} try { rmSync(path, { force: true }); } catch {} }
+});
+
+test("schema v65 adds optional verifier contracts without rewriting existing reasoning memories", () => {
+  const path = join(tmpdir(), `mnemora-reasoning-v65-${process.pid}-${Date.now()}.db`); let legacy;
+  try {
+    legacy = new GraphologyStore(path); const refs = fixture(legacy), service = new ReasoningMemoryService(legacy.db, () => 6_000);
+    const input = { scope: "project:ops", kind: "strategy", strategy: "Validate a rollback before the migration.", sourceTaskRefs: [refs.taskRef], outcomeRefs: [refs.outcomeRef], evidenceRefs: [refs.eventRef] };
+    const proposed = service.propose(input, service.preview(input).preview_hash);
+    legacy.db.exec("ALTER TABLE mnemora_reasoning_memories DROP COLUMN verification_json; PRAGMA user_version=64"); legacy.close(); legacy = undefined;
+    const migrated = new GraphologyStore(path), memories = new ReasoningMemoryService(migrated.db, () => 6_001);
+    try {
+      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 65);
+      assert.ok(migrated.db.prepare("PRAGMA table_info(mnemora_reasoning_memories)").all().some(column => column.name === "verification_json"));
+      assert.equal(memories.get(proposed.id, input.scope)?.strategy, input.strategy);
+      assert.equal(memories.get(proposed.id, input.scope)?.verification, undefined);
+    } finally { migrated.close(); }
   } finally { try { legacy?.close(); } catch {} try { rmSync(path, { force: true }); } catch {} }
 });
 

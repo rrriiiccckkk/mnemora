@@ -364,6 +364,7 @@ export class GraphologyStore {
     if (version < 62) this.migrateReasoningDeliveryFeedbackV62();
     if (version < 63) this.migrateReasoningSemanticV63();
     if (version < 64) this.migrateReasoningDeliveryCorrectionsV64();
+    if (version < 65) this.migrateReasoningVerificationV65();
     this.db.exec(`PRAGMA user_version=${SUPPORTED_SCHEMA_VERSION}`);
   }
 
@@ -404,6 +405,13 @@ export class GraphologyStore {
       WHERE event.delivery_item_id=item.id AND event.effect IN ('helpful','neutral','harmful')
       ORDER BY event.created_at DESC,event.id DESC LIMIT 1
     ) WHERE last_feedback_event_id IS NULL`);
+  }
+
+  /** Schema v65 adds optional, bounded verifier contracts. It never derives a
+   * verification result, modifies a strategy, or changes retrieval behavior. */
+  private migrateReasoningVerificationV65(): void {
+    const columns = new Set((this.db.prepare("PRAGMA table_info(mnemora_reasoning_memories)").all() as Array<{ name: string }>).map(row => row.name));
+    if (!columns.has("verification_json")) this.db.exec("ALTER TABLE mnemora_reasoning_memories ADD COLUMN verification_json TEXT CHECK(verification_json IS NULL OR (json_valid(verification_json) AND length(verification_json)<=4096))");
   }
 
   /** Schema v58 only adds durable receipts for explicitly confirmed consolidation

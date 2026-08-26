@@ -24,6 +24,7 @@ test("delivery effectiveness refuses estimates for synthetic, legacy, sparse, or
   assert.deepEqual({ status: synthetic.status, lift: synthetic.successRateDifference, reasons: synthetic.reasons }, { status: "insufficient_evidence", lift: null, reasons: ["synthetic_dataset"] });
   const legacy = service.evaluate({ version: "reasoning-delivery-effectiveness-v1", id: "fixture:legacy", comparison: "randomized", cases: [...cases("withheld", 20, 0), ...cases("delivered", 20, 0)] });
   assert.equal(legacy.reasons.includes("unattested_evidence_kind"), true);
+  assert.equal(validateReasoningDeliveryEffectivenessDataset({ version: "reasoning-delivery-effectiveness-v1", id: "fixture:legacy-normalized", comparison: "randomized", cases: [...cases("withheld", 1, 0), ...cases("delivered", 1, 0)] }).evidenceKind, "unattested");
 });
 
 test("delivery effectiveness input is bounded and contains no raw task or strategy field", () => {

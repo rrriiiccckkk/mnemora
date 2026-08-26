@@ -75,6 +75,24 @@ test("operator item feedback can halt one strategy without tripping the scope ca
   } finally { store.close(); }
 });
 
+test("a later non-harmful signal never silently re-enables a circuit-broken strategy", () => {
+  let clock = 25_000; const now = () => clock, store = new GraphologyStore(":memory:");
+  try {
+    const state = setup(store, now), { result } = deliver(store, state, now), feedback = new ReasoningDeliveryFeedbackRepository(store.db, now), item = feedback.getByRef(result.deliveryItemRefs[0], state.scope);
+    assert.ok(item);
+    const harmful = feedback.feedbackPreview(item.ref, state.scope, "harmful"); assert.equal(harmful.status, "preview"); assert.equal(feedback.feedback(item.ref, state.scope, "harmful", harmful.preview_hash).status, "confirmed");
+    const openedAt = feedback.circuit(state.scope, state.memory.id)?.openedAt;
+    clock += 100;
+    const outcome = { scope: state.scope, taskRef: state.taskRef, verdict: "failure", impact: "harmful", confidence: .9, summary: "A second, independently cited harmful outcome confirms the delivery problem.", evidenceRefs: [state.eventRef, item.ref] };
+    state.outcomes.confirm(outcome, state.outcomes.preview(outcome).preview_hash);
+    const afterRepeat = feedback.circuit(state.scope, state.memory.id); assert.equal(afterRepeat?.openedAt, openedAt); assert.equal(afterRepeat?.updatedAt, clock);
+    clock += 100;
+    const helpful = feedback.feedbackPreview(item.ref, state.scope, "helpful"); assert.equal(helpful.status, "preview"); assert.equal(feedback.feedback(item.ref, state.scope, "helpful", helpful.preview_hash).status, "confirmed");
+    const latest = feedback.get(item.id, state.scope), summary = feedback.summary(state.scope), retrieved = new ReasoningRetrievalService(store.db).find({ scope: state.scope, query: "production database migration rollback", taskType: "database_migration", riskLevel: "high" });
+    assert.deepEqual({ effective: latest?.effectiveStatus, requiresReset: latest?.requiresOperatorReset, harmful: summary.harmfulItems, open: summary.openMemoryCircuits, candidates: retrieved.candidates.length, circuitExcluded: retrieved.excluded.delivery_circuit }, { effective: "helpful", requiresReset: true, harmful: 0, open: 1, candidates: 0, circuitExcluded: 1 });
+  } finally { store.close(); }
+});
+
 test("expired delivery receipts remain audit-visible but cannot distort current feedback metrics or accept outcomes", () => {
   let clock = 40_000; const now = () => clock, store = new GraphologyStore(":memory:");
   try {
@@ -94,8 +112,8 @@ test("schema v64 migration is additive and preserves prior reasoning memories", 
     legacy.db.exec("DROP TABLE mnemora_reasoning_runtime_delivery_item_corrections; DROP TABLE mnemora_reasoning_runtime_delivery_feedback_events; DROP TABLE mnemora_reasoning_memory_delivery_circuits; DROP TABLE mnemora_reasoning_runtime_delivery_items; PRAGMA user_version=61"); legacy.close(); legacy = undefined;
     const migrated = new GraphologyStore(path);
     try {
-      assert.equal(SUPPORTED_SCHEMA_VERSION, 64);
-      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 64);
+      assert.equal(SUPPORTED_SCHEMA_VERSION, 65);
+      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 65);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM mnemora_reasoning_memories WHERE id=?").get(memoryId).value, 1);
       for (const table of ["mnemora_reasoning_runtime_delivery_items", "mnemora_reasoning_memory_delivery_circuits", "mnemora_reasoning_runtime_delivery_feedback_events", "mnemora_reasoning_runtime_delivery_item_corrections"]) assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name=?").get(table).value, 1);
     } finally { migrated.close(); }

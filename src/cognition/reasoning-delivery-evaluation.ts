@@ -2,7 +2,8 @@ export const REASONING_DELIVERY_EFFECTIVENESS_DATASET_VERSION = "reasoning-deliv
 export const LEGACY_REASONING_DELIVERY_EFFECTIVENESS_DATASET_VERSION = "reasoning-delivery-effectiveness-v1" as const;
 export type ReasoningDeliveryExperimentArm = "withheld" | "delivered";
 export type ReasoningDeliveryExperimentOutcome = "success" | "failure" | "unknown";
-export type ReasoningDeliveryEvidenceKind = "operator_deidentified" | "synthetic_contract" | "unattested";
+export type ReasoningDeliveryDeclaredEvidenceKind = "operator_deidentified" | "synthetic_contract";
+export type ReasoningDeliveryEvidenceKind = ReasoningDeliveryDeclaredEvidenceKind | "unattested";
 
 export interface ReasoningDeliveryEffectivenessCase {
   caseId: string;
@@ -14,13 +15,26 @@ export interface ReasoningDeliveryEffectivenessCase {
 /** The v2 evidence declaration is an operator attestation, not proof of
  * randomization or a causal effect. v1 input remains readable but is
  * deliberately unattributed and cannot produce a point estimate. */
-export interface ReasoningDeliveryEffectivenessDataset {
-  version: typeof REASONING_DELIVERY_EFFECTIVENESS_DATASET_VERSION | typeof LEGACY_REASONING_DELIVERY_EFFECTIVENESS_DATASET_VERSION;
+interface ReasoningDeliveryEffectivenessDatasetBase {
   id: string;
   comparison: "randomized" | "observational";
-  evidenceKind: ReasoningDeliveryEvidenceKind;
   cases: ReasoningDeliveryEffectivenessCase[];
 }
+export interface ReasoningDeliveryEffectivenessDatasetV2 extends ReasoningDeliveryEffectivenessDatasetBase {
+  version: typeof REASONING_DELIVERY_EFFECTIVENESS_DATASET_VERSION;
+  evidenceKind: ReasoningDeliveryDeclaredEvidenceKind;
+}
+export interface LegacyReasoningDeliveryEffectivenessDataset extends ReasoningDeliveryEffectivenessDatasetBase {
+  version: typeof LEGACY_REASONING_DELIVERY_EFFECTIVENESS_DATASET_VERSION;
+  /** Legacy files have no evidence declaration; they normalize to unattested. */
+  evidenceKind?: never;
+}
+export type ReasoningDeliveryEffectivenessDataset = ReasoningDeliveryEffectivenessDatasetV2 | LegacyReasoningDeliveryEffectivenessDataset;
+export interface NormalizedLegacyReasoningDeliveryEffectivenessDataset extends ReasoningDeliveryEffectivenessDatasetBase {
+  version: typeof LEGACY_REASONING_DELIVERY_EFFECTIVENESS_DATASET_VERSION;
+  evidenceKind: "unattested";
+}
+export type NormalizedReasoningDeliveryEffectivenessDataset = ReasoningDeliveryEffectivenessDatasetV2 | NormalizedLegacyReasoningDeliveryEffectivenessDataset;
 
 export interface ReasoningDeliveryArmMetrics {
   total: number;
@@ -62,7 +76,7 @@ const MINIMUM_RESOLVED_PER_ARM = 20;
 /** Offline-only calculation for an operator-created A/B harness. It does not
  * persist data, select strategies, or alter delivery/governance behavior. */
 export class ReasoningDeliveryEffectivenessEvaluationService {
-  evaluate(input: ReasoningDeliveryEffectivenessDataset): ReasoningDeliveryEffectivenessReport {
+  evaluate(input: ReasoningDeliveryEffectivenessDataset | NormalizedReasoningDeliveryEffectivenessDataset): ReasoningDeliveryEffectivenessReport {
     const dataset = validateReasoningDeliveryEffectivenessDataset(input);
     const delivered = metrics(dataset.cases.filter(value => value.arm === "delivered"));
     const withheld = metrics(dataset.cases.filter(value => value.arm === "withheld"));
@@ -91,17 +105,18 @@ export class ReasoningDeliveryEffectivenessEvaluationService {
   }
 }
 
-export function validateReasoningDeliveryEffectivenessDataset(value: unknown): ReasoningDeliveryEffectivenessDataset {
-  const input = value as Partial<ReasoningDeliveryEffectivenessDataset> | undefined, legacy = input?.version === LEGACY_REASONING_DELIVERY_EFFECTIVENESS_DATASET_VERSION;
+export function validateReasoningDeliveryEffectivenessDataset(value: unknown): NormalizedReasoningDeliveryEffectivenessDataset {
+  const input = value as { version?: unknown; id?: unknown; comparison?: unknown; evidenceKind?: unknown; cases?: unknown } | undefined, legacy = input?.version === LEGACY_REASONING_DELIVERY_EFFECTIVENESS_DATASET_VERSION;
   const allowed = legacy ? ["version", "id", "comparison", "cases"] : ["version", "id", "comparison", "evidenceKind", "cases"];
-  if (!input || ![REASONING_DELIVERY_EFFECTIVENESS_DATASET_VERSION, LEGACY_REASONING_DELIVERY_EFFECTIVENESS_DATASET_VERSION].includes(input.version as typeof REASONING_DELIVERY_EFFECTIVENESS_DATASET_VERSION) || Object.keys(input).some(key => !allowed.includes(key)) || !identifier(input.id) || !["randomized", "observational"].includes(input.comparison ?? "") || !Array.isArray(input.cases) || input.cases.length < 1 || input.cases.length > 2_000 || !legacy && !["operator_deidentified", "synthetic_contract"].includes(input.evidenceKind ?? "")) throw new Error("invalid_reasoning_delivery_effectiveness_dataset");
-  const comparison: ReasoningDeliveryEffectivenessDataset["comparison"] = input.comparison === "randomized" ? "randomized" : "observational", evidenceKind: ReasoningDeliveryEvidenceKind = legacy ? "unattested" : input.evidenceKind === "operator_deidentified" ? "operator_deidentified" : "synthetic_contract";
+  if (!input || ![REASONING_DELIVERY_EFFECTIVENESS_DATASET_VERSION, LEGACY_REASONING_DELIVERY_EFFECTIVENESS_DATASET_VERSION].includes(input.version as typeof REASONING_DELIVERY_EFFECTIVENESS_DATASET_VERSION) || Object.keys(input).some(key => !allowed.includes(key)) || !identifier(input.id) || !["randomized", "observational"].includes(String(input.comparison ?? "")) || !Array.isArray(input.cases) || input.cases.length < 1 || input.cases.length > 2_000 || !legacy && !["operator_deidentified", "synthetic_contract"].includes(String(input.evidenceKind ?? ""))) throw new Error("invalid_reasoning_delivery_effectiveness_dataset");
+  const comparison: ReasoningDeliveryEffectivenessDatasetBase["comparison"] = input.comparison === "randomized" ? "randomized" : "observational";
   const seen = new Set<string>(), cases: ReasoningDeliveryEffectivenessCase[] = [];
   for (const item of input.cases) {
     if (!item || Object.keys(item).some(key => !["caseId", "arm", "outcome", "adopted"].includes(key)) || !identifier(item.caseId) || seen.has(item.caseId) || !["withheld", "delivered"].includes(item.arm) || !["success", "failure", "unknown"].includes(item.outcome) || item.adopted !== undefined && typeof item.adopted !== "boolean") throw new Error("invalid_reasoning_delivery_effectiveness_dataset");
     seen.add(item.caseId); cases.push({ caseId: item.caseId, arm: item.arm, outcome: item.outcome, ...(item.adopted === true ? { adopted: true } : {}) });
   }
-  return { version: legacy ? LEGACY_REASONING_DELIVERY_EFFECTIVENESS_DATASET_VERSION : REASONING_DELIVERY_EFFECTIVENESS_DATASET_VERSION, id: input.id, comparison, evidenceKind, cases };
+  if (legacy) return { version: LEGACY_REASONING_DELIVERY_EFFECTIVENESS_DATASET_VERSION, id: input.id, comparison, evidenceKind: "unattested", cases };
+  return { version: REASONING_DELIVERY_EFFECTIVENESS_DATASET_VERSION, id: input.id, comparison, evidenceKind: input.evidenceKind === "operator_deidentified" ? "operator_deidentified" : "synthetic_contract", cases };
 }
 
 function metrics(cases: readonly ReasoningDeliveryEffectivenessCase[]): ReasoningDeliveryArmMetrics {
