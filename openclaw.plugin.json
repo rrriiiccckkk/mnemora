@@ -2,7 +2,7 @@
   "id": "mnemora",
   "name": "Mnemora",
   "description": "Evidence-first personal memory harness for persistent OpenClaw agents.",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -53,7 +53,8 @@
               "retentionDays": { "type": "integer", "default": 30, "minimum": 1, "maximum": 365 },
               "readiness": { "type": "object", "additionalProperties": false, "properties": { "minimumRuns": { "type": "integer", "default": 25, "minimum": 1, "maximum": 5000 }, "maxErrorRate": { "type": "number", "default": 0.05, "minimum": 0, "maximum": 1 }, "maxEmptyRate": { "type": "number", "default": 0.8, "minimum": 0, "maximum": 1 }, "maxP95Ms": { "type": "integer", "default": 100, "minimum": 1, "maximum": 30000 } } },
               "delivery": { "type": "object", "additionalProperties": false, "description": "Governed ReasoningMemory delivery. Requires a fresh calibration and an explicitly activated exact-scope canary.", "properties": { "enabled": { "type": "boolean", "default": false }, "scopes": { "type": "array", "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 80 }, "default": [] }, "adapter": { "const": "openclaw", "type": "string", "default": "openclaw" }, "calibrationMaxAgeHours": { "type": "integer", "default": 168, "minimum": 1, "maximum": 720 }, "maxConsecutiveDeliveries": { "type": "integer", "default": 2, "minimum": 1, "maximum": 10 }, "itemRetentionDays": { "type": "integer", "default": 30, "minimum": 1, "maximum": 365, "description": "Retention window for non-content delivery-item references used by deterministic feedback." } } },
-              "semantic": { "type": "object", "additionalProperties": false, "description": "Optional local semantic retrieval for ReasoningMemory. It remains disabled until both this flag and the local Ollama embedding provider are enabled; failures fall back to lexical retrieval.", "properties": { "enabled": { "type": "boolean", "default": false }, "timeoutMs": { "type": "integer", "default": 1500, "minimum": 100, "maximum": 15000 }, "minScore": { "type": "number", "default": 0.35, "minimum": 0, "maximum": 1 }, "maxCandidates": { "type": "integer", "default": 50, "minimum": 1, "maximum": 50 } } }
+              "semantic": { "type": "object", "additionalProperties": false, "description": "Optional local semantic retrieval for ReasoningMemory. It remains disabled until both this flag and the local Ollama embedding provider are enabled; failures fall back to lexical retrieval.", "properties": { "enabled": { "type": "boolean", "default": false }, "timeoutMs": { "type": "integer", "default": 1500, "minimum": 100, "maximum": 15000 }, "minScore": { "type": "number", "default": 0.35, "minimum": 0, "maximum": 1 }, "maxCandidates": { "type": "integer", "default": 50, "minimum": 1, "maximum": 50 } } },
+              "verification": { "type": "object", "additionalProperties": false, "properties": { "enabled": { "type": "boolean", "default": false, "description": "Process only bounded deterministic ReasoningMemory verification events after completed ContextEngine turns. It never calls a model or enables delivery." }, "maxJobsPerRun": { "type": "integer", "default": 5, "minimum": 1, "maximum": 20 } } }
             }
           }
         }

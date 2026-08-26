@@ -16,7 +16,7 @@ import { artifactSchemaSql } from "./artifacts/schema.js";
 import { episodeSchemaSql } from "./episodes/schema.js";
 import { providerMigrationSchemaSql } from "./integrations/migration-schema.js";
 import { consolidationOptionalRestoreTables, consolidationSchemaSql } from "./consolidation/schema.js";
-import { cognitionBeliefSchemaSql, cognitionDecisionReviewSchemaSql, cognitionDecisionSchemaSql, cognitionEnforcementSchemaSql, cognitionIntegritySchemaSql, cognitionOptionalRestoreTables, cognitionOutcomeSchemaSql, cognitionPreAdmissionSchemaSql, cognitionReasoningDeliveryCorrectionSchemaSql, cognitionReasoningDeliveryFeedbackSchemaSql, cognitionReasoningGovernanceSchemaSql, cognitionReasoningReflectionSchemaSql, cognitionReasoningRuntimeGovernanceSchemaSql, cognitionReasoningRuntimeTelemetrySchemaSql, cognitionReasoningSchemaSql, cognitionReasoningSemanticSchemaSql, cognitionReflectionSchemaSql, cognitionSchemaSql } from "./cognition/schema.js";
+import { cognitionBeliefSchemaSql, cognitionDecisionReviewSchemaSql, cognitionDecisionSchemaSql, cognitionEnforcementSchemaSql, cognitionIntegritySchemaSql, cognitionOptionalRestoreTables, cognitionOutcomeSchemaSql, cognitionPreAdmissionSchemaSql, cognitionReasoningDeliveryCorrectionSchemaSql, cognitionReasoningDeliveryFeedbackSchemaSql, cognitionReasoningGovernanceSchemaSql, cognitionReasoningReflectionSchemaSql, cognitionReasoningRuntimeGovernanceSchemaSql, cognitionReasoningRuntimeTelemetrySchemaSql, cognitionReasoningSchemaSql, cognitionReasoningSemanticSchemaSql, cognitionReasoningVerificationEventsSchemaSql, cognitionReflectionSchemaSql, cognitionSchemaSql } from "./cognition/schema.js";
 import { identityHash, legacyNormalizeSlug, normalizeSlug } from "./slug.js";
 import { cosineSimilarity, decodeEmbedding, encodeEmbedding, type EmbeddingIdentity } from "./embeddings.js";
 import { duplicatePairKey, entityFingerprint, scoreDuplicatePair } from "./resolution.js";
@@ -365,6 +365,7 @@ export class GraphologyStore {
     if (version < 63) this.migrateReasoningSemanticV63();
     if (version < 64) this.migrateReasoningDeliveryCorrectionsV64();
     if (version < 65) this.migrateReasoningVerificationV65();
+    if (version < 66) this.migrateReasoningVerificationEventsV66();
     this.db.exec(`PRAGMA user_version=${SUPPORTED_SCHEMA_VERSION}`);
   }
 
@@ -412,6 +413,33 @@ export class GraphologyStore {
   private migrateReasoningVerificationV65(): void {
     const columns = new Set((this.db.prepare("PRAGMA table_info(mnemora_reasoning_memories)").all() as Array<{ name: string }>).map(row => row.name));
     if (!columns.has("verification_json")) this.db.exec("ALTER TABLE mnemora_reasoning_memories ADD COLUMN verification_json TEXT CHECK(verification_json IS NULL OR (json_valid(verification_json) AND length(verification_json)<=4096))");
+  }
+
+  /** Schema v66 adds append-only deterministic verification events. The only
+   * table rebuild widens a local circuit reason enum; all existing circuit
+   * rows retain their exact state and timestamps. */
+  private migrateReasoningVerificationEventsV66(): void {
+    const circuit = this.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='mnemora_reasoning_memory_delivery_circuits'").get() as { sql?: unknown } | undefined;
+    if (!String(circuit?.sql ?? "").includes("verification_mismatch")) {
+      this.db.exec("BEGIN IMMEDIATE");
+      try {
+        // SQLite keeps a named index attached to the renamed old table. Drop
+        // it first so the replacement index is created for the new table.
+        this.db.exec("DROP INDEX IF EXISTS idx_mnemora_reasoning_memory_circuits_scope_open");
+        this.db.exec("ALTER TABLE mnemora_reasoning_memory_delivery_circuits RENAME TO mnemora_reasoning_memory_delivery_circuits_v65");
+        this.db.exec(`CREATE TABLE mnemora_reasoning_memory_delivery_circuits (
+          scope TEXT NOT NULL,memory_id TEXT NOT NULL REFERENCES mnemora_reasoning_memories(id) ON DELETE CASCADE,
+          circuit_open INTEGER NOT NULL CHECK(circuit_open IN (0,1)),
+          reason_code TEXT NOT NULL CHECK(reason_code IN ('harmful_delivery_feedback','harmful_task_outcome','verification_mismatch','operator_reset')),
+          opened_at INTEGER,updated_at INTEGER NOT NULL,PRIMARY KEY(scope,memory_id)
+        )`);
+        this.db.exec("INSERT INTO mnemora_reasoning_memory_delivery_circuits(scope,memory_id,circuit_open,reason_code,opened_at,updated_at) SELECT scope,memory_id,circuit_open,reason_code,opened_at,updated_at FROM mnemora_reasoning_memory_delivery_circuits_v65");
+        this.db.exec("DROP TABLE mnemora_reasoning_memory_delivery_circuits_v65");
+        this.db.exec("CREATE INDEX IF NOT EXISTS idx_mnemora_reasoning_memory_circuits_scope_open ON mnemora_reasoning_memory_delivery_circuits(scope,circuit_open,updated_at DESC)");
+        this.db.exec("COMMIT");
+      } catch (error) { try { this.db.exec("ROLLBACK"); } catch {} throw error; }
+    }
+    this.db.exec(cognitionReasoningVerificationEventsSchemaSql);
   }
 
   /** Schema v58 only adds durable receipts for explicitly confirmed consolidation

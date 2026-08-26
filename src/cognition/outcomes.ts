@@ -3,6 +3,7 @@ import type { DatabaseSyncInstance } from "@photostructure/sqlite";
 import { authorizeMnemoraContextRef, createMnemoraContextRef, type MnemoraContextRef } from "../context/context-ref.js";
 import { normalizeScope } from "../scope.js";
 import { ReasoningDeliveryFeedbackRepository } from "./reasoning-delivery-feedback.js";
+import { ReasoningVerificationService } from "./reasoning-verification.js";
 
 export type OutcomeVerdict = "success" | "partial" | "failure" | "unknown";
 export type OutcomeImpact = "helpful" | "neutral" | "harmful";
@@ -57,7 +58,9 @@ export class TaskOutcomeService {
       }
       this.db.prepare("INSERT INTO mnemora_task_outcomes(id,scope,task_ref,verdict,impact,confidence,summary,evidence_refs_json,supersedes_id,status,outcome_hash,recorded_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?, 'recorded',?,?,?,?)").run(id, value.scope, value.taskRef, value.verdict, value.impact, value.confidence, value.summary ?? null, JSON.stringify(value.evidenceRefs), value.supersedesId ?? null, outcomeHash, now, now, now);
       this.event(value.scope, id, null, "recorded", "RECORD", "operator_confirmed", value.evidenceRefs, now);
-      new ReasoningDeliveryFeedbackRepository(this.db, () => now).observeTaskOutcome({ scope: value.scope, outcomeRef: createMnemoraContextRef({ scope: value.scope, kind: "task-outcome", id }), impact: value.impact, evidenceRefs: value.evidenceRefs, withinTransaction: true });
+      const outcomeRef = createMnemoraContextRef({ scope: value.scope, kind: "task-outcome", id });
+      new ReasoningDeliveryFeedbackRepository(this.db, () => now).observeTaskOutcome({ scope: value.scope, outcomeRef, impact: value.impact, evidenceRefs: value.evidenceRefs, withinTransaction: true });
+      new ReasoningVerificationService(this.db, () => now).enqueueTaskOutcome({ scope: value.scope, outcomeRef, verdict: value.verdict, evidenceRefs: value.evidenceRefs });
       this.db.exec("COMMIT"); return this.get(id, value.scope)!;
     } catch (error) { try { this.db.exec("ROLLBACK"); } catch {} throw error; }
   }

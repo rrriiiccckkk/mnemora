@@ -84,6 +84,7 @@ mnemora standalone guide
 - `cognition.admission.mode: "enforce"`：确定性候选策略；Belief 和 enforcement 仍需各自显式开启。
 - `cognition.reasoningRuntime.shadowMode`：只记录安全的策略检索聚合遥测；ReasoningMemory 投递仍默认关闭，必须由 operator 校准并为精确 scope 显式开启 canary。
 - `cognition.reasoningRuntime.semantic.enabled`：只有同时开启 `embeddings.enabled` 时，才启用独立的本地 ReasoningMemory 语义索引。默认关闭；Provider 失败时自动退回确定性词法检索。
+- `cognition.reasoningRuntime.verification.enabled`：在 durable completed turn 后运行有界、本地、确定性的策略验证。默认关闭；不会开启投递，也不会让策略成为权威事实。
 
 所有模型或网络调用都有输入/输出上限、超时和取消处理。默认安装不会开启额外自动写入、严格验证、模型压缩或外部 Provider。
 
@@ -117,7 +118,11 @@ mnemora cognition reasoning runtime-memory-circuit <reasoning-memory-id> --scope
 
 若要衡量投递是否真的改善任务结果，使用 `mnemora cognition reasoning runtime-effectiveness <file>` 运行去标识化 A/B 数据集。只有 operator 声明的随机对照且每一组至少有 20 条已判定 outcome 时，才会给出非因果的点估计和保守的 95% 区间；shadow 遥测、采用率、合成 benchmark 与旧版 v1 数据集都不能当作效果结论。
 
-operator 还可以为待准入策略附上[有界、确定性的验证说明](docs/reasoning-verification.md)。v1.4 仅保存这项元数据：不会执行验证、不会调用模型或工具、不会自动改变生命周期，更不会把策略升级为 belief 或事实。
+operator 还可以为待准入策略附上[有界、确定性的验证说明](docs/reasoning-verification.md)。它只会在本地 append-only ledger 中比对明确 receipt 引用与规范化工具结果；不匹配仅打开对应策略的 delivery circuit，直到 operator 显式 reset。它不会调用模型、网络或工具，也不会把策略升级为 belief 或事实。自动处理仍默认关闭：
+
+```json5
+cognition: { reasoningRuntime: { verification: { enabled: true, maxJobsPerRun: 5 } } }
+```
 
 ### 可选的多语言 ReasoningMemory 检索
 

@@ -299,7 +299,7 @@ CREATE TABLE IF NOT EXISTS mnemora_reasoning_memory_delivery_circuits (
  scope TEXT NOT NULL,
  memory_id TEXT NOT NULL REFERENCES mnemora_reasoning_memories(id) ON DELETE CASCADE,
  circuit_open INTEGER NOT NULL CHECK(circuit_open IN (0,1)),
- reason_code TEXT NOT NULL CHECK(reason_code IN ('harmful_delivery_feedback','harmful_task_outcome','operator_reset')),
+ reason_code TEXT NOT NULL CHECK(reason_code IN ('harmful_delivery_feedback','harmful_task_outcome','verification_mismatch','operator_reset')),
  opened_at INTEGER,
  updated_at INTEGER NOT NULL,
  PRIMARY KEY(scope,memory_id)
@@ -352,4 +352,28 @@ CREATE TABLE IF NOT EXISTS mnemora_reasoning_runtime_delivery_item_corrections (
 );
 CREATE INDEX IF NOT EXISTS idx_mnemora_reasoning_delivery_corrections_scope_memory ON mnemora_reasoning_runtime_delivery_item_corrections(scope,memory_id,created_at DESC,id DESC);
 `;
-export const cognitionOptionalRestoreTables=["mnemora_cognition_candidates","mnemora_cognition_evidence_links","mnemora_cognition_admissions","mnemora_cognition_audits","mnemora_cognition_enforcements","mnemora_cognition_pre_admissions","mnemora_cognition_change_sets","mnemora_beliefs","mnemora_belief_evidence","mnemora_belief_transitions","mnemora_decisions","mnemora_decision_evidence","mnemora_decision_episodes","mnemora_decision_transitions","mnemora_decision_evidence_reviews","mnemora_task_outcomes","mnemora_task_outcome_events","mnemora_reasoning_memories","mnemora_reasoning_memory_events","mnemora_reasoning_memory_outcomes","mnemora_reasoning_memory_governance_events","mnemora_reasoning_reflection_proposals","mnemora_reasoning_runtime_shadow_runs","mnemora_reasoning_runtime_calibrations","mnemora_reasoning_runtime_canaries","mnemora_reasoning_runtime_canary_events","mnemora_reasoning_runtime_delivery_runs","mnemora_reasoning_runtime_delivery_items","mnemora_reasoning_memory_delivery_circuits","mnemora_reasoning_runtime_delivery_feedback_events","mnemora_reasoning_runtime_delivery_item_corrections","mnemora_reasoning_memory_embeddings","mnemora_reflection_jobs","mnemora_reflection_candidates","mnemora_recall_feedback"] as const;
+/** Schema v66 is an append-only, bounded ledger for deterministic strategy
+ * verification. It records assertion values, never tool output or model text. */
+export const cognitionReasoningVerificationEventsSchemaSql = `
+CREATE TABLE IF NOT EXISTS mnemora_reasoning_runtime_verification_events (
+ id TEXT PRIMARY KEY,
+ scope TEXT NOT NULL,
+ delivery_item_id TEXT NOT NULL REFERENCES mnemora_reasoning_runtime_delivery_items(id) ON DELETE CASCADE,
+ memory_id TEXT NOT NULL REFERENCES mnemora_reasoning_memories(id) ON DELETE RESTRICT,
+ assertion_kind TEXT NOT NULL CHECK(assertion_kind IN ('tool_result','task_outcome','strategy_adoption')),
+ assertion_ordinal INTEGER NOT NULL CHECK(assertion_ordinal>=0 AND assertion_ordinal<16),
+ assertion_key TEXT NOT NULL CHECK(length(assertion_key)<=160),
+ expected_value TEXT NOT NULL CHECK(expected_value IN ('success','failure','partial','true')),
+ observed_value TEXT NOT NULL CHECK(observed_value IN ('success','failure','partial','true')),
+ verdict TEXT NOT NULL CHECK(verdict IN ('matched','mismatched')),
+ source_kind TEXT NOT NULL CHECK(source_kind IN ('tool_result','task_outcome','strategy_adoption')),
+ source_ref TEXT NOT NULL CHECK(length(source_ref)>0 AND length(source_ref)<=1024),
+ status TEXT NOT NULL CHECK(status IN ('pending','processed')),
+ created_at INTEGER NOT NULL,
+ processed_at INTEGER,
+ UNIQUE(delivery_item_id,assertion_key,source_kind,source_ref)
+);
+CREATE INDEX IF NOT EXISTS idx_mnemora_reasoning_verification_scope_status ON mnemora_reasoning_runtime_verification_events(scope,status,created_at ASC,id ASC);
+CREATE INDEX IF NOT EXISTS idx_mnemora_reasoning_verification_scope_memory ON mnemora_reasoning_runtime_verification_events(scope,memory_id,created_at DESC,id DESC);
+`;
+export const cognitionOptionalRestoreTables=["mnemora_cognition_candidates","mnemora_cognition_evidence_links","mnemora_cognition_admissions","mnemora_cognition_audits","mnemora_cognition_enforcements","mnemora_cognition_pre_admissions","mnemora_cognition_change_sets","mnemora_beliefs","mnemora_belief_evidence","mnemora_belief_transitions","mnemora_decisions","mnemora_decision_evidence","mnemora_decision_episodes","mnemora_decision_transitions","mnemora_decision_evidence_reviews","mnemora_task_outcomes","mnemora_task_outcome_events","mnemora_reasoning_memories","mnemora_reasoning_memory_events","mnemora_reasoning_memory_outcomes","mnemora_reasoning_memory_governance_events","mnemora_reasoning_reflection_proposals","mnemora_reasoning_runtime_shadow_runs","mnemora_reasoning_runtime_calibrations","mnemora_reasoning_runtime_canaries","mnemora_reasoning_runtime_canary_events","mnemora_reasoning_runtime_delivery_runs","mnemora_reasoning_runtime_delivery_items","mnemora_reasoning_memory_delivery_circuits","mnemora_reasoning_runtime_delivery_feedback_events","mnemora_reasoning_runtime_delivery_item_corrections","mnemora_reasoning_runtime_verification_events","mnemora_reasoning_memory_embeddings","mnemora_reflection_jobs","mnemora_reflection_candidates","mnemora_recall_feedback"] as const;

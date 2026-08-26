@@ -127,6 +127,11 @@ test("operator CLI keeps ReasoningMemory local, read-gated, and outside the agen
   assert.deepEqual({ version: metrics.json.result.version, runs: metrics.json.result.runs }, { version: "reasoning-shadow-metrics-v1", runs: 0 });
   const readiness = execute("cognition", "reasoning", "runtime-readiness", "--scope", "project:alpha");
   assert.deepEqual({ version: readiness.json.result.version, ready: readiness.json.result.ready, delivery: readiness.json.result.deliveryEnabled }, { version: "reasoning-runtime-readiness-v1", ready: false, delivery: false });
+  const verification = execute("cognition", "reasoning", "runtime-verification-summary", "--scope", "project:alpha");
+  assert.deepEqual(verification.json.result, { version: "reasoning-verification-summary-v1", scope: "project:alpha", pending: 0, processed: 0, matched: 0, mismatched: 0 });
+  const verificationEvents = execute("cognition", "reasoning", "runtime-verification-events", "--scope", "project:alpha"); assert.deepEqual(verificationEvents.json.result, []);
+  const verificationGuarded = execute("cognition", "reasoning", "runtime-verification-run", "--scope", "project:alpha"); assert.deepEqual(verificationGuarded.json.result, { status: "confirm_required", operation: "cognition.reasoning.runtime-verification-run" });
+  const toolResultGuarded = execute("cognition", "reasoning", "runtime-verification-tool-result", "mnemora://v1/scope/project%3Aalpha/reasoning-delivery-item/item", "migration-runner", "failure", "tool-run:42", "--scope", "project:alpha"); assert.deepEqual(toolResultGuarded.json.result, { status: "confirm_required", operation: "cognition.reasoning.runtime-verification-tool-result" });
   const calibration = execute("cognition", "reasoning", "runtime-calibrate", "--scope", "project:alpha");
   assert.deepEqual({ version: calibration.json.result.version, status: calibration.json.result.status }, { version: "reasoning-runtime-calibration-preview-v1", status: "rejected" });
   const canary = execute("cognition", "reasoning", "runtime-canary-status", "--scope", "project:alpha");

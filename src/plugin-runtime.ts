@@ -12,6 +12,7 @@ import { ConsolidationService } from "./consolidation/service.js";
 import { ReflectionService } from "./cognition/reflection.js";
 import { ReasoningRuntimeShadowService, type ReasoningRuntimeTelemetryConfig } from "./cognition/reasoning-runtime-telemetry.js";
 import { ReasoningGovernedDeliveryService, type ReasoningRuntimeGovernanceConfig } from "./cognition/reasoning-runtime-governance.js";
+import { ReasoningVerificationService } from "./cognition/reasoning-verification.js";
 import { LocalReasoningSemanticProvider } from "./cognition/reasoning-semantic-embeddings.js";
 import { createEmbedder } from "./embeddings.js";
 import type { CompletedTurn, ContextAssemblyInput } from "./context-engine/lifecycle.js";
@@ -65,6 +66,7 @@ export class PluginRuntime {
   standalone: StandaloneReadiness;
   readonly reasoningShadowEnabled: boolean;
   readonly reasoningDeliveryEnabled: boolean;
+  readonly reasoningVerificationEnabled: boolean;
   private contextEngineSlotBound = false;
   readonly consolidationEnabled: boolean;
   readonly reflectionEnabled: boolean;
@@ -99,6 +101,7 @@ export class PluginRuntime {
     this.standalone = standaloneReadiness(this.config, this.config.standalone?.activePluginIds);
     this.reasoningShadowEnabled = this.config.cognition?.reasoningRuntime?.shadowMode === true && (this.config.cognition.reasoningRuntime.scopes ?? []).includes(this.config.scope!.default!);
     this.reasoningDeliveryEnabled = this.config.cognition?.reasoningRuntime?.delivery?.enabled === true && (this.config.cognition.reasoningRuntime.delivery.scopes ?? []).includes(this.config.scope!.default!);
+    this.reasoningVerificationEnabled = this.config.cognition?.reasoningRuntime?.verification?.enabled === true;
     this.consolidationEnabled = this.config.consolidation?.enabled === true;
     this.reflectionEnabled = this.config.cognition?.reflection?.enabled === true;
     const autoExtract = this.extract !== undefined;
@@ -114,6 +117,7 @@ export class PluginRuntime {
       ...(this.reflectionEnabled ? { reflection: true } : {}),
       ...(this.reasoningShadowEnabled ? { reasoningRuntimeShadow: true } : {}),
       ...(this.reasoningDeliveryEnabled ? { reasoningRuntimeDelivery: true } : {}),
+      ...(this.reasoningVerificationEnabled ? { reasoningRuntimeVerification: true } : {}),
       ...(this.config.unifiedRetrieval?.enabled ? { unifiedRetrieval: true, recallTokenBudget: this.config.unifiedRetrieval.tokenBudget } : {}),
       ...(autoExtract ? { extractionTimeoutMs: this.config.extraction?.timeoutMs } : {})
     });
@@ -175,6 +179,18 @@ export class PluginRuntime {
     finally { graph.close(); }
   }
 
+  /** Runs only the bounded local verifier. It does not call a model, tool, or
+   * provider; disabled mode leaves queued events intact for an operator run. */
+  runReasoningVerification(): void {
+    if (!this.reasoningVerificationEnabled) return;
+    const graph = this.openGraph();
+    try {
+      const result = new ReasoningVerificationService(graph.store.db).run({ scope: this.config.scope!.default!, limit: this.config.cognition!.reasoningRuntime!.verification!.maxJobsPerRun });
+      if (result.processed) this.logger.debug?.("reasoning verification processed", { ...result });
+    } catch { this.logger.warn?.("reasoning verification failed", { category: "operation_failed" }); }
+    finally { graph.close(); }
+  }
+
   async processCompletedTurn(turn: CompletedTurn, receipt: JournalTurnReceipt): Promise<void> {
     if (this.isExcludedAgent(turn.agentId)) {
       this.logger.debug?.("automatic turn processing skipped for excluded agent", { agentId: turn.agentId! });
@@ -198,6 +214,7 @@ export class PluginRuntime {
     }
     this.runConsolidation();
     this.runReflection();
+    this.runReasoningVerification();
   }
 
   private async handleContextCompletedTurn(turn: CompletedTurn, receipt: JournalTurnReceipt): Promise<void> {

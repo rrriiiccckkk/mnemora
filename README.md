@@ -114,6 +114,9 @@ mnemora standalone guide
   semantic index for admitted ReasoningMemory strategies only when
   `embeddings.enabled` is also true. It is disabled by default and always
   falls back to deterministic lexical retrieval on provider failure.
+- `cognition.reasoningRuntime.verification.enabled`: runs a bounded, local
+  deterministic verifier after durable completed turns. It is disabled by
+  default and never enables delivery or makes strategy output authoritative.
 
 Every model or network call has input/output bounds, timeout, and cancellation
 handling. Default installation never enables an extra automatic write path,
@@ -168,10 +171,16 @@ outcomes in each arm receives a non-causal point estimate and conservative 95%
 interval. Shadow telemetry, adoption, synthetic benchmarks, and legacy v1
 datasets are not efficacy claims.
 
-An operator may also attach a [bounded deterministic verification
-specification](docs/reasoning-verification.md) to a proposed strategy. This is
-metadata only in v1.4: it performs no verification, model call, tool call, or
-automatic lifecycle change, and it is never promoted into a belief or fact.
+An operator may attach a [bounded deterministic verification
+specification](docs/reasoning-verification.md) to a proposed strategy. It can
+compare explicit receipt citations and normalized tool outcomes in a local
+append-only ledger; a mismatch only opens that strategy's delivery circuit
+until an operator resets it. It performs no model, network, or tool call and
+is never promoted into a belief or fact. Automatic processing remains disabled:
+
+```json5
+cognition: { reasoningRuntime: { verification: { enabled: true, maxJobsPerRun: 5 } } }
+```
 
 ### Optional multilingual ReasoningMemory retrieval
 

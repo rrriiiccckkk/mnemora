@@ -26,6 +26,7 @@ import { ReasoningRuntimeService } from "./cognition/reasoning-runtime.js";
 import { ReasoningRuntimeTelemetryRepository } from "./cognition/reasoning-runtime-telemetry.js";
 import { ReasoningRuntimeGovernanceRepository, type ReasoningRuntimeGovernanceConfig } from "./cognition/reasoning-runtime-governance.js";
 import { ReasoningDeliveryFeedbackRepository } from "./cognition/reasoning-delivery-feedback.js";
+import { ReasoningVerificationService } from "./cognition/reasoning-verification.js";
 import { ReasoningDeliveryEffectivenessEvaluationService, validateReasoningDeliveryEffectivenessDataset } from "./cognition/reasoning-delivery-evaluation.js";
 import { ReasoningMemoryEmbeddingRepository } from "./cognition/reasoning-semantic-embeddings.js";
 import { createEmbedder } from "./embeddings.js";
@@ -254,6 +255,14 @@ async function cognitionCommand(graph: Mnemora, raw: string[]): Promise<unknown>
     if (operation === "runtime-feedback") { const id = takeArgument(positional), feedback = takeArgument(positional); requireNone(positional); if (!["helpful", "neutral", "harmful"].includes(feedback)) throw new CliError("invalid_arguments"); const governance = new ReasoningRuntimeGovernanceRepository(graph.store.db), preview = governance.feedbackPreview(id, scope, feedback as "helpful" | "neutral" | "harmful"); if (options.confirm !== true) return preview; return governance.feedback(id, scope, feedback as "helpful" | "neutral" | "harmful", option(options, "preview-hash") ?? ""); }
     if (operation === "runtime-delivery-items") { requireNone(positional); return new ReasoningDeliveryFeedbackRepository(graph.store.db).items(scope, limit); }
     if (operation === "runtime-feedback-summary") { requireNone(positional); return new ReasoningDeliveryFeedbackRepository(graph.store.db).summary(scope); }
+    if (operation === "runtime-verification-summary") { requireNone(positional); return new ReasoningVerificationService(graph.store.db).summary(scope); }
+    if (operation === "runtime-verification-events") { requireNone(positional); return new ReasoningVerificationService(graph.store.db).events(scope, limit); }
+    if (operation === "runtime-verification-run") { requireNone(positional); return confirmMutation(options.confirm === true, "cognition.reasoning.runtime-verification-run", () => new ReasoningVerificationService(graph.store.db).run({ scope, limit })); }
+    if (operation === "runtime-verification-tool-result") {
+      const itemRef = takeArgument(positional), tool = takeArgument(positional), result = takeArgument(positional), sourceRef = takeArgument(positional); requireNone(positional);
+      if (result !== "success" && result !== "failure") throw new CliError("invalid_arguments");
+      return confirmMutation(options.confirm === true, "cognition.reasoning.runtime-verification-tool-result", () => new ReasoningVerificationService(graph.store.db).recordToolResult({ scope, itemRef, tool, result, sourceRef }));
+    }
     if (operation === "runtime-item-feedback") {
       const itemRef = takeArgument(positional), feedback = takeArgument(positional); requireNone(positional);
       if (!["helpful", "neutral", "harmful"].includes(feedback)) throw new CliError("invalid_arguments");

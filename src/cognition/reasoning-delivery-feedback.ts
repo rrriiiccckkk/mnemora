@@ -5,7 +5,7 @@ import { normalizeScope } from "../scope.js";
 
 export type ReasoningDeliveryFeedback = "helpful" | "neutral" | "harmful";
 export type ReasoningDeliveryItemStatus = "delivered" | ReasoningDeliveryFeedback;
-export type ReasoningMemoryCircuitReason = "harmful_delivery_feedback" | "harmful_task_outcome" | "operator_reset";
+export type ReasoningMemoryCircuitReason = "harmful_delivery_feedback" | "harmful_task_outcome" | "verification_mismatch" | "operator_reset";
 
 export interface ReasoningDeliveryItem {
   id: string;
@@ -113,6 +113,19 @@ export class ReasoningDeliveryFeedbackRepository {
     return Boolean(this.db.prepare("SELECT 1 FROM mnemora_reasoning_memory_delivery_circuits WHERE scope=? AND memory_id=? AND circuit_open=1").get(normalizeScope(scope), memoryId));
   }
 
+  /** A deterministic verification mismatch is a delivery safety signal, not a
+   * model judgment. It shares the same explicit operator-reset boundary as
+   * harmful outcome feedback and does not rewrite receipt status. */
+  openVerificationCircuit(scope: string, memoryId: string, withinTransaction = false): { opened: boolean } {
+    const safe = normalizeScope(scope), now = this.now();
+    if (!withinTransaction) this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const opened = this.openCircuit(safe, memoryId, "verification_mismatch", now);
+      if (!withinTransaction) this.db.exec("COMMIT");
+      return { opened };
+    } catch (error) { if (!withinTransaction) try { this.db.exec("ROLLBACK"); } catch {} throw error; }
+  }
+
   feedbackPreview(itemRef: unknown, scope: string, feedback: ReasoningDeliveryFeedback): { status: "not_found" | "expired" } | { status: "preview"; preview_hash: string; item: ReasoningDeliveryItem } {
     if (!["helpful", "neutral", "harmful"].includes(feedback)) throw new Error("invalid_reasoning_delivery_feedback");
     let value: ReasoningDeliveryItem | undefined;
@@ -200,11 +213,7 @@ export class ReasoningDeliveryFeedbackRepository {
         const status = input.item.status === "harmful" ? "harmful" : input.effect;
         this.db.prepare("UPDATE mnemora_reasoning_runtime_delivery_items SET status=?,last_feedback_event_id=?,adopted=CASE WHEN ? THEN 1 ELSE adopted END,feedback_at=? WHERE id=? AND scope=?").run(status, eventId, input.adoption ? 1 : 0, now, input.item.id, scope);
         if (input.effect === "harmful") {
-          const reason: ReasoningMemoryCircuitReason = input.signalKind === "task_outcome" ? "harmful_task_outcome" : "harmful_delivery_feedback";
-          const prior = this.isCircuitOpen(scope, input.item.memoryId);
-          this.db.prepare(`INSERT INTO mnemora_reasoning_memory_delivery_circuits(scope,memory_id,circuit_open,reason_code,opened_at,updated_at) VALUES(?,?,1,?,?,?)
-            ON CONFLICT(scope,memory_id) DO UPDATE SET circuit_open=1,reason_code=excluded.reason_code,opened_at=CASE WHEN mnemora_reasoning_memory_delivery_circuits.circuit_open=1 THEN COALESCE(mnemora_reasoning_memory_delivery_circuits.opened_at,excluded.opened_at) ELSE excluded.opened_at END,updated_at=excluded.updated_at`).run(scope, input.item.memoryId, reason, now, now);
-          circuitOpened = !prior;
+          circuitOpened = this.openCircuit(scope, input.item.memoryId, input.signalKind === "task_outcome" ? "harmful_task_outcome" : "harmful_delivery_feedback", now);
         }
       }
       const value = this.get(input.item.id, scope);
@@ -217,6 +226,13 @@ export class ReasoningDeliveryFeedbackRepository {
     const id = `reasoning-delivery-feedback:${randomUUID()}`;
     const result = this.db.prepare("INSERT OR IGNORE INTO mnemora_reasoning_runtime_delivery_feedback_events(id,scope,delivery_item_id,memory_id,signal_kind,effect,source_ref,created_at) VALUES(?,?,?,?,?,?,?,?)").run(id, scope, itemId, memoryId, signalKind, effect, signalRef(sourceRef), now) as { changes?: unknown };
     return Number(result.changes) === 1 ? id : undefined;
+  }
+
+  private openCircuit(scope: string, memoryId: string, reason: Exclude<ReasoningMemoryCircuitReason, "operator_reset">, now: number): boolean {
+    const prior = this.isCircuitOpen(scope, memoryId);
+    this.db.prepare(`INSERT INTO mnemora_reasoning_memory_delivery_circuits(scope,memory_id,circuit_open,reason_code,opened_at,updated_at) VALUES(?,?,1,?,?,?)
+      ON CONFLICT(scope,memory_id) DO UPDATE SET circuit_open=1,reason_code=excluded.reason_code,opened_at=CASE WHEN mnemora_reasoning_memory_delivery_circuits.circuit_open=1 THEN COALESCE(mnemora_reasoning_memory_delivery_circuits.opened_at,excluded.opened_at) ELSE excluded.opened_at END,updated_at=excluded.updated_at`).run(scope, memoryId, reason, now, now);
+    return !prior;
   }
 
   private correctableItems(scope: string, memoryId: string): number { return this.correctableRows(scope, memoryId).length; }
