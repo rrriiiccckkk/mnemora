@@ -54,8 +54,8 @@ test("schema v39 adds reflection and feedback tables without changing historical
     legacy.close(); legacy = undefined;
     const migrated = new GraphologyStore(path);
     try {
-      assert.equal(SUPPORTED_SCHEMA_VERSION, 67);
-      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 67);
+      assert.equal(SUPPORTED_SCHEMA_VERSION, 68);
+      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 68);
       for (const table of ["mnemora_reflection_jobs", "mnemora_reflection_candidates", "mnemora_recall_feedback"]) assert.equal(migrated.db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name=?").get(table).n, 1);
     } finally { migrated.close(); }
   } finally { try { legacy?.close(); } catch {} try { rmSync(path, { force: true }); } catch {} }

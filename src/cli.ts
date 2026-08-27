@@ -19,6 +19,7 @@ import { FormationService } from "./cognition/service.js";
 import { DecisionMemoryService, type DecisionMaker } from "./cognition/decisions.js";
 import { TaskOutcomeService, type OutcomeImpact, type OutcomeVerdict } from "./cognition/outcomes.js";
 import { ReasoningMemoryService, type ReasoningMemoryKind } from "./cognition/reasoning.js";
+import { ReasoningCurationService } from "./cognition/reasoning-curation.js";
 import { ReasoningRetrievalService } from "./cognition/reasoning-retrieval.js";
 import { ReasoningReflectionService } from "./cognition/reasoning-reflection.js";
 import { ReasoningAgentAdapterRegistry, ReasoningContextCompiler } from "./cognition/reasoning-adapters.js";
@@ -287,6 +288,36 @@ async function cognitionCommand(graph: Mnemora, raw: string[]): Promise<unknown>
       if (action === "metrics") return reflections.metrics(scope);
       if (action === "preview") return reflections.preview(scope);
       if (action === "run") { const preview = reflections.preview(scope); if (options.confirm !== true) return { status: "confirm_required", operation: "cognition.reasoning.reflection.run", preview_hash: preview.preview_hash }; if (option(options, "preview-hash") !== preview.preview_hash) return { status: "preview_confirmation_required", preview_hash: preview.preview_hash }; return reflections.run(scope, preview.preview_hash); }
+      throw new CliError("invalid_arguments");
+    }
+    if (operation === "curation") {
+      const action = takeArgument(positional), curation = new ReasoningCurationService(graph.store.db);
+      if (action === "formations") { requireNone(positional); return curation.formationProposals(scope, limit); }
+      if (action === "reviews") { requireNone(positional); return curation.reviewProposals(scope, limit); }
+      if (action === "runs") { requireNone(positional); return curation.runs(scope, limit); }
+      if (action === "promote") {
+        const id = requiredArgument(positional, "formation_proposal_id"); requireNone(positional); const preview = curation.promotionPreview(id, scope);
+        if (options.confirm !== true) return preview;
+        if (preview.status !== "preview") return preview;
+        if (option(options, "preview-hash") !== preview.preview_hash) return { status: "preview_confirmation_required", preview_hash: preview.preview_hash };
+        return curation.promote(id, scope, option(options, "preview-hash") ?? "");
+      }
+      if (action === "discard") {
+        const id = requiredArgument(positional, "formation_proposal_id"); requireNone(positional); const preview = curation.discardPreview(id, scope);
+        if (options.confirm !== true) return preview;
+        if (preview.status !== "preview") return preview;
+        if (option(options, "preview-hash") !== preview.preview_hash) return { status: "preview_confirmation_required", preview_hash: preview.preview_hash };
+        return curation.discard(id, scope, option(options, "preview-hash") ?? "");
+      }
+      if (action === "resolve-review") {
+        const id = requiredArgument(positional, "review_proposal_id"), decision = requiredArgument(positional, "retain|retire|dismiss"); requireNone(positional);
+        if (decision !== "retain" && decision !== "retire" && decision !== "dismiss") throw new CliError("invalid_arguments");
+        const preview = curation.reviewResolutionPreview(id, scope, decision);
+        if (options.confirm !== true) return preview;
+        if (preview.status !== "preview") return preview;
+        if (option(options, "preview-hash") !== preview.preview_hash) return { status: "preview_confirmation_required", preview_hash: preview.preview_hash };
+        return curation.resolveReview(id, scope, decision, option(options, "preview-hash") ?? "");
+      }
       throw new CliError("invalid_arguments");
     }
     if (operation === "propose") {

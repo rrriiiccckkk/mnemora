@@ -7,6 +7,7 @@ export * from "./outcomes.js";
 export * from "./reasoning.js";
 export * from "./reasoning-retrieval.js";
 export * from "./reasoning-reflection.js";
+export * from "./reasoning-curation.js";
 export * from "./reasoning-adapters.js";
 export * from "./reasoning-runtime.js";
 export * from "./reasoning-runtime-evaluation.js";

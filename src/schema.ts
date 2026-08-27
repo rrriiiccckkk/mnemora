@@ -439,7 +439,7 @@ CREATE TABLE kg_observations_v21 (
 );
 `;
 
-export const SUPPORTED_SCHEMA_VERSION = 67;
+export const SUPPORTED_SCHEMA_VERSION = 68;
 
 export function edgeWeight(observationCount: number, averageConfidence: number): number {
   return Math.min(1, (observationCount * averageConfidence) / 5);

@@ -119,6 +119,8 @@ test("operator CLI keeps ReasoningMemory local, read-gated, and outside the agen
   assert.deepEqual({ ok: retrieve.json.ok, command: retrieve.json.command, version: retrieve.json.result.version, empty: retrieve.json.result.empty }, { ok: true, command: "cognition.reasoning", version: "reasoning-retrieval-v1", empty: true });
   const reflection = execute("cognition", "reasoning", "reflection", "preview", "--scope", "project:alpha");
   assert.deepEqual({ ok: reflection.json.ok, command: reflection.json.command, proposals: reflection.json.result.proposals }, { ok: true, command: "cognition.reasoning", proposals: [] });
+  const curation = execute("cognition", "reasoning", "curation", "formations", "--scope", "project:alpha");
+  assert.deepEqual({ ok: curation.json.ok, command: curation.json.command, proposals: curation.json.result }, { ok: true, command: "cognition.reasoning", proposals: [] });
   const compiled = execute("cognition", "reasoning", "compile", "rollback", "--scope", "project:alpha", "--adapter", "codex");
   assert.deepEqual({ ok: compiled.json.ok, command: compiled.json.command, adapter: compiled.json.result.adapterId, channel: compiled.json.result.channel }, { ok: true, command: "cognition.reasoning", adapter: "codex", channel: "sidecar" });
   const runtime = execute("cognition", "reasoning", "runtime", "deploy production migration", "--scope", "project:alpha");

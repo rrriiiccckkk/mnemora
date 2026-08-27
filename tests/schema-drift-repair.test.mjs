@@ -5,7 +5,7 @@ import { Mnemora, GraphologyStore, SUPPORTED_SCHEMA_VERSION } from "../dist/inde
 test("schema drift repair is scope-bound, preview-first, evidence-gated, and down-weighted", () => {
   const store = new GraphologyStore(":memory:");
   try {
-    assert.equal(SUPPORTED_SCHEMA_VERSION, 67);
+    assert.equal(SUPPORTED_SCHEMA_VERSION, 68);
     const result = store.ingest([
       { name: "Widget", type: "product", confidence: .95, evidence_span: "Widget depends on Fabric." },
       { name: "Fabric", type: "technology", confidence: .95, evidence_span: "Widget depends on Fabric." }

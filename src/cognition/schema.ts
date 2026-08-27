@@ -377,4 +377,57 @@ CREATE TABLE IF NOT EXISTS mnemora_reasoning_runtime_verification_events (
 CREATE INDEX IF NOT EXISTS idx_mnemora_reasoning_verification_scope_status ON mnemora_reasoning_runtime_verification_events(scope,status,created_at ASC,id ASC);
 CREATE INDEX IF NOT EXISTS idx_mnemora_reasoning_verification_scope_memory ON mnemora_reasoning_runtime_verification_events(scope,memory_id,created_at DESC,id DESC);
 `;
-export const cognitionOptionalRestoreTables=["mnemora_cognition_candidates","mnemora_cognition_evidence_links","mnemora_cognition_admissions","mnemora_cognition_audits","mnemora_cognition_enforcements","mnemora_cognition_pre_admissions","mnemora_cognition_change_sets","mnemora_beliefs","mnemora_belief_evidence","mnemora_belief_transitions","mnemora_decisions","mnemora_decision_evidence","mnemora_decision_episodes","mnemora_decision_transitions","mnemora_decision_evidence_reviews","mnemora_task_outcomes","mnemora_task_outcome_events","mnemora_reasoning_memories","mnemora_reasoning_memory_events","mnemora_reasoning_memory_outcomes","mnemora_reasoning_memory_governance_events","mnemora_reasoning_reflection_proposals","mnemora_reasoning_runtime_shadow_runs","mnemora_reasoning_runtime_calibrations","mnemora_reasoning_runtime_canaries","mnemora_reasoning_runtime_canary_events","mnemora_reasoning_runtime_delivery_runs","mnemora_reasoning_runtime_delivery_items","mnemora_reasoning_memory_delivery_circuits","mnemora_reasoning_runtime_delivery_feedback_events","mnemora_reasoning_runtime_delivery_item_corrections","mnemora_reasoning_runtime_verification_events","mnemora_reasoning_memory_embeddings","mnemora_reflection_jobs","mnemora_reflection_candidates","mnemora_recall_feedback"] as const;
+/** Schema v68 stores non-authoritative LLM curation output separately from
+ * strategies. Human review remains the only path to propose, retain, or retire
+ * a ReasoningMemory. */
+export const cognitionReasoningCurationSchemaSql = `
+CREATE TABLE IF NOT EXISTS mnemora_reasoning_curation_runs (
+ id TEXT PRIMARY KEY,
+ scope TEXT NOT NULL,
+ kind TEXT NOT NULL CHECK(kind IN ('formation','review')),
+ subject_key TEXT NOT NULL CHECK(length(subject_key)>0 AND length(subject_key)<=256),
+ input_hash TEXT NOT NULL CHECK(length(input_hash)=64),
+ status TEXT NOT NULL CHECK(status IN ('running','succeeded','skipped','failed')),
+ attempts INTEGER NOT NULL CHECK(attempts>=1 AND attempts<=100),
+ lease_expires_at INTEGER,
+ error_category TEXT CHECK(error_category IS NULL OR error_category IN ('model_unavailable','model_timeout','model_transport','invalid_model_response','aborted')),
+ retry_not_before INTEGER,
+ started_at INTEGER NOT NULL,
+ finished_at INTEGER,
+ UNIQUE(scope,kind,subject_key)
+);
+CREATE INDEX IF NOT EXISTS idx_mnemora_reasoning_curation_runs_scope_status ON mnemora_reasoning_curation_runs(scope,kind,status,retry_not_before,started_at ASC);
+CREATE TABLE IF NOT EXISTS mnemora_reasoning_formation_proposals (
+ id TEXT PRIMARY KEY,
+ scope TEXT NOT NULL,
+ outcome_id TEXT NOT NULL REFERENCES mnemora_task_outcomes(id) ON DELETE CASCADE,
+ task_ref TEXT NOT NULL CHECK(length(task_ref)<=1024),
+ outcome_ref TEXT NOT NULL CHECK(length(outcome_ref)<=1024),
+ proposal_hash TEXT NOT NULL CHECK(length(proposal_hash)=64),
+ kind TEXT NOT NULL CHECK(kind IN ('strategy','procedure','failure_guard','anti_pattern')),
+ strategy TEXT NOT NULL CHECK(length(strategy)>0 AND length(strategy)<=1200),
+ applicability_json TEXT NOT NULL CHECK(json_valid(applicability_json) AND length(applicability_json)<=4096),
+ rationale TEXT NOT NULL CHECK(length(rationale)>0 AND length(rationale)<=512),
+ evidence_refs_json TEXT NOT NULL CHECK(json_valid(evidence_refs_json) AND length(evidence_refs_json)<=8192),
+ status TEXT NOT NULL CHECK(status IN ('pending_review','promoted','discarded')),
+ created_at INTEGER NOT NULL,
+ reviewed_at INTEGER,
+ UNIQUE(scope,outcome_id)
+);
+CREATE INDEX IF NOT EXISTS idx_mnemora_reasoning_formation_scope_status ON mnemora_reasoning_formation_proposals(scope,status,created_at DESC,id DESC);
+CREATE TABLE IF NOT EXISTS mnemora_reasoning_review_proposals (
+ id TEXT PRIMARY KEY,
+ scope TEXT NOT NULL,
+ memory_id TEXT NOT NULL REFERENCES mnemora_reasoning_memories(id) ON DELETE CASCADE,
+ run_id TEXT NOT NULL REFERENCES mnemora_reasoning_curation_runs(id) ON DELETE CASCADE,
+ proposal_hash TEXT NOT NULL CHECK(length(proposal_hash)=64),
+ recommendation TEXT NOT NULL CHECK(recommendation IN ('retain','retire','needs_review')),
+ rationale TEXT NOT NULL CHECK(length(rationale)>0 AND length(rationale)<=512),
+ status TEXT NOT NULL CHECK(status IN ('pending_review','retained','retired','dismissed')),
+ created_at INTEGER NOT NULL,
+ reviewed_at INTEGER,
+ UNIQUE(scope,memory_id,proposal_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_mnemora_reasoning_review_scope_status ON mnemora_reasoning_review_proposals(scope,status,created_at DESC,id DESC);
+`;
+export const cognitionOptionalRestoreTables=["mnemora_cognition_candidates","mnemora_cognition_evidence_links","mnemora_cognition_admissions","mnemora_cognition_audits","mnemora_cognition_enforcements","mnemora_cognition_pre_admissions","mnemora_cognition_change_sets","mnemora_beliefs","mnemora_belief_evidence","mnemora_belief_transitions","mnemora_decisions","mnemora_decision_evidence","mnemora_decision_episodes","mnemora_decision_transitions","mnemora_decision_evidence_reviews","mnemora_task_outcomes","mnemora_task_outcome_events","mnemora_reasoning_memories","mnemora_reasoning_memory_events","mnemora_reasoning_memory_outcomes","mnemora_reasoning_memory_governance_events","mnemora_reasoning_reflection_proposals","mnemora_reasoning_runtime_shadow_runs","mnemora_reasoning_runtime_calibrations","mnemora_reasoning_runtime_canaries","mnemora_reasoning_runtime_canary_events","mnemora_reasoning_runtime_delivery_runs","mnemora_reasoning_runtime_delivery_items","mnemora_reasoning_memory_delivery_circuits","mnemora_reasoning_runtime_delivery_feedback_events","mnemora_reasoning_runtime_delivery_item_corrections","mnemora_reasoning_runtime_verification_events","mnemora_reasoning_curation_runs","mnemora_reasoning_formation_proposals","mnemora_reasoning_review_proposals","mnemora_reasoning_memory_embeddings","mnemora_reflection_jobs","mnemora_reflection_candidates","mnemora_recall_feedback"] as const;

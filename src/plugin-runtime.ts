@@ -13,6 +13,7 @@ import { ReflectionService } from "./cognition/reflection.js";
 import { ReasoningRuntimeShadowService, type ReasoningRuntimeTelemetryConfig } from "./cognition/reasoning-runtime-telemetry.js";
 import { ReasoningGovernedDeliveryService, type ReasoningRuntimeGovernanceConfig } from "./cognition/reasoning-runtime-governance.js";
 import { ReasoningVerificationService } from "./cognition/reasoning-verification.js";
+import { ReasoningCurationService, type ReasoningFormationConfig, type ReasoningReviewConfig } from "./cognition/reasoning-curation.js";
 import { LocalReasoningSemanticProvider } from "./cognition/reasoning-semantic-embeddings.js";
 import { createEmbedder } from "./embeddings.js";
 import type { CompletedTurn, ContextAssemblyInput } from "./context-engine/lifecycle.js";
@@ -67,6 +68,8 @@ export class PluginRuntime {
   readonly reasoningShadowEnabled: boolean;
   readonly reasoningDeliveryEnabled: boolean;
   readonly reasoningVerificationEnabled: boolean;
+  readonly reasoningFormationEnabled: boolean;
+  readonly reasoningReviewEnabled: boolean;
   private contextEngineSlotBound = false;
   readonly consolidationEnabled: boolean;
   readonly reflectionEnabled: boolean;
@@ -102,6 +105,8 @@ export class PluginRuntime {
     this.reasoningShadowEnabled = this.config.cognition?.reasoningRuntime?.shadowMode === true && (this.config.cognition.reasoningRuntime.scopes ?? []).includes(this.config.scope!.default!);
     this.reasoningDeliveryEnabled = this.config.cognition?.reasoningRuntime?.delivery?.enabled === true && (this.config.cognition.reasoningRuntime.delivery.scopes ?? []).includes(this.config.scope!.default!);
     this.reasoningVerificationEnabled = this.config.cognition?.reasoningRuntime?.verification?.enabled === true;
+    this.reasoningFormationEnabled = this.config.cognition?.reasoningCuration?.formation?.enabled === true;
+    this.reasoningReviewEnabled = this.config.cognition?.reasoningCuration?.review?.enabled === true;
     this.consolidationEnabled = this.config.consolidation?.enabled === true;
     this.reflectionEnabled = this.config.cognition?.reflection?.enabled === true;
     const autoExtract = this.extract !== undefined;
@@ -118,6 +123,8 @@ export class PluginRuntime {
       ...(this.reasoningShadowEnabled ? { reasoningRuntimeShadow: true } : {}),
       ...(this.reasoningDeliveryEnabled ? { reasoningRuntimeDelivery: true } : {}),
       ...(this.reasoningVerificationEnabled ? { reasoningRuntimeVerification: true } : {}),
+      ...(this.reasoningFormationEnabled ? { reasoningCurationFormation: true } : {}),
+      ...(this.reasoningReviewEnabled ? { reasoningCurationReview: true } : {}),
       ...(this.config.unifiedRetrieval?.enabled ? { unifiedRetrieval: true, recallTokenBudget: this.config.unifiedRetrieval.tokenBudget } : {}),
       ...(autoExtract ? { extractionTimeoutMs: this.config.extraction?.timeoutMs } : {})
     });
@@ -191,6 +198,26 @@ export class PluginRuntime {
     finally { graph.close(); }
   }
 
+  /** Curation is intentionally post-commit and host-runtime only. The model
+   * can create advisory records, never a strategy mutation or admission. */
+  async runReasoningCuration(turn: CompletedTurn): Promise<void> {
+    if (!this.reasoningFormationEnabled && !this.reasoningReviewEnabled) return;
+    if (!turn.runtimeLlm) {
+      this.logger.debug?.("reasoning curation skipped: host runtime model unavailable", {});
+      return;
+    }
+    const graph = this.openGraph();
+    try {
+      const service = new ReasoningCurationService(graph.store.db);
+      const scope = this.config.scope!.default!, signal = turn.signal ?? this.shutdown.signal, curation = this.config.cognition!.reasoningCuration!;
+      const formation = await service.runFormation({ scope, runtime: turn.runtimeLlm, config: curation.formation! as ReasoningFormationConfig, signal });
+      const review = await service.runReview({ scope, runtime: turn.runtimeLlm, config: curation.review! as ReasoningReviewConfig, signal });
+      if (formation.attempted || review.attempted) this.logger.info?.("reasoning curation completed", { formationProposals: formation.proposed, formationFailed: formation.failed, reviewProposals: review.proposed, reviewFailed: review.failed });
+    } catch {
+      this.logger.warn?.("reasoning curation failed", { category: "operation_failed" });
+    } finally { graph.close(); }
+  }
+
   async processCompletedTurn(turn: CompletedTurn, receipt: JournalTurnReceipt): Promise<void> {
     if (this.isExcludedAgent(turn.agentId)) {
       this.logger.debug?.("automatic turn processing skipped for excluded agent", { agentId: turn.agentId! });
@@ -215,6 +242,7 @@ export class PluginRuntime {
     this.runConsolidation();
     this.runReflection();
     this.runReasoningVerification();
+    await this.runReasoningCuration(turn);
   }
 
   private async handleContextCompletedTurn(turn: CompletedTurn, receipt: JournalTurnReceipt): Promise<void> {

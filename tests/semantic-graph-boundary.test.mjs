@@ -78,8 +78,8 @@ test("v59 migration is additive and historic semantic edges are projected as leg
     store.db.prepare("INSERT INTO kg_observations(id,edge_id,payload,source,scope,quote,confidence,created_at) VALUES(?,?,?,?,?,?,?,?)").run("obs:legacy-semantic", "edge:legacy-semantic", "{}", "fixture:legacy", "work", "Legacy uses legacy tech", .9, now);
     store.db.exec("DROP TABLE kg_semantic_pattern_reviews; DROP TABLE kg_semantic_pattern_candidates; PRAGMA user_version=58");
     store.close(); store = new GraphologyStore(path);
-    assert.equal(SUPPORTED_SCHEMA_VERSION, 67);
-    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 67);
+    assert.equal(SUPPORTED_SCHEMA_VERSION, 68);
+    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 68);
     assert.equal(store.getEdgeById("edge:legacy-semantic")?.edge_props.semantics, undefined);
     const labels = store.related("Legacy", 1, ["uses"], undefined, "work").semantic_labels;
     assert.deepEqual(labels.map(item => [item.id, item.legacy]), [["edge:legacy-semantic", true]]);

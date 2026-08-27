@@ -117,10 +117,55 @@ mnemora standalone guide
 - `cognition.reasoningRuntime.verification.enabled`: runs a bounded, local
   deterministic verifier after durable completed turns. It is disabled by
   default and never enables delivery or makes strategy output authoritative.
+- `cognition.reasoningCuration`: optionally uses the public host runtime model
+  after durable turns to form reviewable strategy candidates and periodically
+  review existing strategies. Both paths are disabled by default; neither can
+  create, admit, retain, or retire a strategy automatically.
 
 Every model or network call has input/output bounds, timeout, and cancellation
 handling. Default installation never enables an extra automatic write path,
 strict verification, model compaction, or external provider.
+
+### Governed strategy curation
+
+`AGENTS.md` is appropriate for hand-authored, static instructions. Mnemora's
+optional curation path is for source-linked, evolving procedural advice: it
+keeps the confirmed outcome, the bounded model proposal, review status, and
+every later human decision together in the local database.
+
+Enable either path only after ContextEngine is configured. Curation runs
+opportunistically after a *durable completed turn* for which OpenClaw exposed
+its public runtime LLM; it never reads host-private model state or credentials.
+
+```json5
+cognition: {
+  reasoningCuration: {
+    formation: { enabled: true }, // one outcome-backed candidate at most per turn
+    review: { enabled: true, intervalHours: 168 } // weekly advisory review
+  }
+}
+```
+
+Formation starts only from explicit, confirmed TaskOutcomes with adequate
+confidence. Its model output is stored as `pending_review`, not as a
+ReasoningMemory. Promote a candidate, then perform the existing separate
+admission step before it is eligible for retrieval. Periodic review can only
+recommend `retain`, `retire`, or `needs_review`; an operator must resolve it.
+`retire` is a reversible lifecycle state, not a destructive deletion.
+
+```bash
+mnemora cognition reasoning curation formations --scope project:alpha
+mnemora cognition reasoning curation promote <formation-proposal-id> --scope project:alpha
+# Repeat the returned command with --preview-hash <hash> --confirm.
+mnemora cognition reasoning admit <reasoning-memory-id> --scope project:alpha
+
+mnemora cognition reasoning curation reviews --scope project:alpha
+mnemora cognition reasoning curation resolve-review <review-proposal-id> retire --scope project:alpha
+# Repeat the returned command with --preview-hash <hash> --confirm.
+```
+
+See [governed reasoning curation](docs/reasoning-curation.md) for failure,
+retry, scope, and review semantics.
 
 ### Experimental ReasoningMemory delivery
 

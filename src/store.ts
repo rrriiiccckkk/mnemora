@@ -16,7 +16,7 @@ import { artifactSchemaSql } from "./artifacts/schema.js";
 import { episodeSchemaSql } from "./episodes/schema.js";
 import { providerMigrationSchemaSql } from "./integrations/migration-schema.js";
 import { consolidationOptionalRestoreTables, consolidationSchemaSql } from "./consolidation/schema.js";
-import { cognitionBeliefSchemaSql, cognitionDecisionReviewSchemaSql, cognitionDecisionSchemaSql, cognitionEnforcementSchemaSql, cognitionIntegritySchemaSql, cognitionOptionalRestoreTables, cognitionOutcomeSchemaSql, cognitionPreAdmissionSchemaSql, cognitionReasoningDeliveryCorrectionSchemaSql, cognitionReasoningDeliveryFeedbackSchemaSql, cognitionReasoningGovernanceSchemaSql, cognitionReasoningReflectionSchemaSql, cognitionReasoningRuntimeGovernanceSchemaSql, cognitionReasoningRuntimeTelemetrySchemaSql, cognitionReasoningSchemaSql, cognitionReasoningSemanticSchemaSql, cognitionReasoningVerificationEventsSchemaSql, cognitionReflectionSchemaSql, cognitionSchemaSql } from "./cognition/schema.js";
+import { cognitionBeliefSchemaSql, cognitionDecisionReviewSchemaSql, cognitionDecisionSchemaSql, cognitionEnforcementSchemaSql, cognitionIntegritySchemaSql, cognitionOptionalRestoreTables, cognitionOutcomeSchemaSql, cognitionPreAdmissionSchemaSql, cognitionReasoningCurationSchemaSql, cognitionReasoningDeliveryCorrectionSchemaSql, cognitionReasoningDeliveryFeedbackSchemaSql, cognitionReasoningGovernanceSchemaSql, cognitionReasoningReflectionSchemaSql, cognitionReasoningRuntimeGovernanceSchemaSql, cognitionReasoningRuntimeTelemetrySchemaSql, cognitionReasoningSchemaSql, cognitionReasoningSemanticSchemaSql, cognitionReasoningVerificationEventsSchemaSql, cognitionReflectionSchemaSql, cognitionSchemaSql } from "./cognition/schema.js";
 import { identityHash, legacyNormalizeSlug, normalizeSlug } from "./slug.js";
 import { cosineSimilarity, decodeEmbedding, encodeEmbedding, type EmbeddingIdentity } from "./embeddings.js";
 import { duplicatePairKey, entityFingerprint, scoreDuplicatePair } from "./resolution.js";
@@ -367,6 +367,7 @@ export class GraphologyStore {
     if (version < 65) this.migrateReasoningVerificationV65();
     if (version < 66) this.migrateReasoningVerificationEventsV66();
     if (version < 67) this.migrateReasoningVerificationExpiryV67();
+    if (version < 68) this.migrateReasoningCurationV68();
     this.db.exec(`PRAGMA user_version=${SUPPORTED_SCHEMA_VERSION}`);
   }
 
@@ -462,6 +463,10 @@ export class GraphologyStore {
       this.db.exec("COMMIT");
     } catch (error) { try { this.db.exec("ROLLBACK"); } catch {} throw error; }
   }
+
+  /** Schema v68 is additive review work only. It cannot create or alter a
+   * strategy during migration, and it does not backfill model proposals. */
+  private migrateReasoningCurationV68(): void { this.db.exec(cognitionReasoningCurationSchemaSql); }
 
   /** Schema v58 only adds durable receipts for explicitly confirmed consolidation
    * lifecycle actions. Existing evidence, episodes, and proposals are not
