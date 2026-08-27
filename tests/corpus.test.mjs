@@ -104,6 +104,21 @@ test("v60 corpus migration is additive over a v59 database", () => {
   } finally { legacy?.close(); try { rmSync(directory, { recursive: true, force: true, maxRetries: 4, retryDelay: 100 }); } catch {} }
 });
 
+test("current-schema startup repairs a missing derived corpus FTS table without changing corpus chunks", () => {
+  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-corpus-fts-repair-")), path = join(directory, "memory.sqlite");
+  let store;
+  try {
+    store = new GraphologyStore(path);
+    store.db.prepare("INSERT INTO mnemora_corpus_documents(id,scope,logical_path,source_kind,content_hash,byte_length,line_count,last_synced_at) VALUES(?,?,?,?,?,?,?,?)").run("corpus:repair", "default", "memory/repair.md", "memory", "a".repeat(64), 10, 1, 1);
+    store.db.prepare("INSERT INTO mnemora_corpus_chunks(id,document_id,scope,start_line,end_line,content,content_hash,created_at) VALUES(?,?,?,?,?,?,?,?)").run("corpus:repair:chunk", "corpus:repair", "default", 1, 1, "REPAIR-NEEDLE", "b".repeat(64), 1);
+    store.db.exec("DROP TABLE mnemora_corpus_chunks_fts");
+    store.close(); store = new GraphologyStore(path);
+    assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM pragma_table_list WHERE name=?").get("mnemora_corpus_chunks_fts").value, 1);
+    assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_corpus_chunks_fts WHERE mnemora_corpus_chunks_fts MATCH 'REPAIR'").get().value, 1);
+    assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_corpus_chunks WHERE id=?").get("corpus:repair:chunk").value, 1);
+  } finally { try { store?.close(); } catch {} try { rmSync(directory, { recursive: true, force: true, maxRetries: 4, retryDelay: 100 }); } catch {} }
+});
+
 test("restore rebuilds the corpus FTS cache from restored canonical chunks", () => {
   const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-corpus-restore-"));
   const sourcePath = join(directory, "source.sqlite"), targetPath = join(directory, "target.sqlite");

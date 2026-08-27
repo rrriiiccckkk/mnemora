@@ -368,7 +368,34 @@ export class GraphologyStore {
     if (version < 66) this.migrateReasoningVerificationEventsV66();
     if (version < 67) this.migrateReasoningVerificationExpiryV67();
     if (version < 68) this.migrateReasoningCurationV68();
+    this.repairCanonicalCorpusFts();
     this.db.exec(`PRAGMA user_version=${SUPPORTED_SCHEMA_VERSION}`);
+  }
+
+  /** The corpus FTS table is a fully derived local index. A completed schema
+   * version cannot prove that a prior trigram rebuild was not interrupted, so
+   * repair only this cache from immutable corpus chunks at startup. */
+  private repairCanonicalCorpusFts(): void {
+    let rebuild = this.db.prepare("SELECT COUNT(*) AS value FROM pragma_table_list WHERE name=?").get("mnemora_corpus_chunks_fts") as { value?: unknown } | undefined;
+    if (Number(rebuild?.value) === 1) {
+      try {
+        const drift = this.db.prepare(`SELECT
+          (SELECT COUNT(*) FROM mnemora_corpus_chunks) AS chunks,
+          (SELECT COUNT(*) FROM mnemora_corpus_chunks_fts) AS indexed,
+          EXISTS(SELECT 1 FROM mnemora_corpus_chunks c LEFT JOIN mnemora_corpus_chunks_fts f ON f.id=c.id WHERE f.id IS NULL) AS missing,
+          EXISTS(SELECT 1 FROM mnemora_corpus_chunks_fts f LEFT JOIN mnemora_corpus_chunks c ON c.id=f.id WHERE c.id IS NULL) AS stale,
+          EXISTS(SELECT 1 FROM mnemora_corpus_chunks c JOIN mnemora_corpus_chunks_fts f ON f.id=c.id WHERE f.content<>c.content) AS changed`).get() as { chunks?: unknown; indexed?: unknown; missing?: unknown; stale?: unknown; changed?: unknown } | undefined;
+        rebuild = Number(drift?.chunks) !== Number(drift?.indexed) || Number(drift?.missing) === 1 || Number(drift?.stale) === 1 || Number(drift?.changed) === 1 ? { value: 0 } : { value: 1 };
+      } catch { rebuild = { value: 0 }; }
+    }
+    if (Number(rebuild?.value) === 1) return;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.exec(corpusSchemaSql);
+      this.db.exec("DELETE FROM mnemora_corpus_chunks_fts");
+      this.db.exec("INSERT INTO mnemora_corpus_chunks_fts(id,content) SELECT id,content FROM mnemora_corpus_chunks");
+      this.db.exec("COMMIT");
+    } catch (error) { try { this.db.exec("ROLLBACK"); } catch {} throw error; }
   }
 
   /** Schema v61 adds a non-destructive lifecycle overlay for memory documents.
