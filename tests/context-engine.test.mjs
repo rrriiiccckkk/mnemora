@@ -527,6 +527,28 @@ test("standalone ContextEngine adds bounded semantic recall inside its one attac
   assert.equal((assembled.systemPromptAddition?.match(/<MNEMORA_MEMORY/g) ?? []).length, 1);
 });
 
+test("ContextEngine suppresses a generic graph match and records redacted injection telemetry", async () => {
+  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-recall-precision-"));
+  const config = normalizeConfig({ dbPath: join(directory, "memory.db"), contextEngine: { enabled: true, maxContextTokens: 800 }, unifiedRetrieval: { enabled: true, shadowMode: true, tokenBudget: 240, maxItems: 2, minConfidence: .5 } });
+  const open = () => new Mnemora({ config });
+  const graph = open();
+  try {
+    graph.store.ingest([{ name: "Micron Technology", type: "company", description: "A semiconductor memory company.", confidence: .95, evidence_span: "Micron supplies memory chips." }], [], "manual:semiconductor", 0, undefined, "default");
+  } finally { graph.close(); }
+  const engine = new MnemoraContextEngine(config, open);
+  try {
+    const assembled = await engine.assemble({ sessionId: "precision", prompt: "How does the Mnemora memory system work?", messages: [{ role: "user", content: "How does the Mnemora memory system work?" }], tokenBudget: 800 });
+    assert.doesNotMatch(assembled.systemPromptAddition ?? "", /Micron Technology|semiconductor memory company|memory chips/i);
+    const verification = open();
+    try {
+      const metrics = verification.kg_recall_metrics().unified;
+      assert.deepEqual(metrics.summary, { total_runs: 1, attached_runs: 0, graph_suppressed_runs: 1, empty_runs: 1 });
+      assert.deepEqual(metrics.items.map(item => ({ local_candidate_count: item.local_candidate_count, graph_candidate_count: item.graph_candidate_count, graph_attached: item.graph_attached, graph_suppression: item.graph_suppression, attached: item.attached })), [{ local_candidate_count: 0, graph_candidate_count: 1, graph_attached: false, graph_suppression: "no_anchor_match", attached: false }]);
+      assert.doesNotMatch(JSON.stringify(metrics), /Mnemora|Micron|memory chips/i);
+    } finally { verification.close(); }
+  } finally { try { rmSync(directory, { recursive: true, force: true }); } catch {} }
+});
+
 test("ContextEngine preserves ordinary history while excluding unknown and background envelopes", async () => {
   const config = normalizeConfig({ dbPath: ":memory:", contextEngine: { enabled: true, maxContextTokens: 512 } });
   const engine = new MnemoraContextEngine(config, () => { const store = new GraphologyStore(":memory:"); return { store, close() { store.close(); } }; });

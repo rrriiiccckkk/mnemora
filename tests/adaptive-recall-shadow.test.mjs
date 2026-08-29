@@ -31,7 +31,7 @@ test("shadow mode records bounded redacted metrics without changing the original
     const actual = await shadow.kg_context("Acme", 5, 1, 0, 800, "lexical");
     assert.deepEqual(actual.nodes.map(item => ({ id: item.node.id, score: item.score })), expected.nodes.map(item => ({ id: item.node.id, score: item.score })));
     assert.equal(actual.context, expected.context);
-    assert.deepEqual(base.kg_recall_metrics(), { items: [], summary: { total_runs: 0, empty_runs: 0, empty_rate: 0 } });
+    assert.deepEqual(base.kg_recall_metrics(), { items: [], summary: { total_runs: 0, empty_runs: 0, empty_rate: 0 }, unified: { items: [], summary: { total_runs: 0, attached_runs: 0, graph_suppressed_runs: 0, empty_runs: 0 } } });
     const metrics = shadow.kg_recall_metrics();
     assert.equal(metrics.items.length, 1);
     assert.deepEqual(metrics.summary, { total_runs: 1, empty_runs: 0, empty_rate: 0 });

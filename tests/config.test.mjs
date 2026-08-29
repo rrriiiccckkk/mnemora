@@ -12,6 +12,7 @@ test("automatic features are opt-in with bounded defaults", () => {
   assert.equal(config.recall.autoRecall, false);
   assert.deepEqual(config.recall.queryRouting, { enabled: false, tagPrefix: true, queryExpansion: true, intentRouting: true, identifierHints: true });
   assert.deepEqual(config.recall.excludedAgentIds, []);
+  assert.deepEqual(config.unifiedRetrieval, { enabled: false, shadowMode: false, tokenBudget: 800, maxItems: 8, minConfidence: .6, maxStalenessDays: 36500, diversityLambda: .75 });
   assert.deepEqual(config.contextEngine.compaction, { enabled: false, minEvents: 4, maxInputChars: 12000, maxOutputChars: 4000, timeoutMs: 15000, maxRunsPerHour: 4, maxDailyTokens: 32000, circuitCooldownMs: 3600000, summaryMaxCallsPerWindow: 24, summaryCallWindowMs: 600000, summarySpendBackoffMs: 1800000, contextThreshold: .75, freshTailCount: 8, leafChunkTokens: 3000, maxChunksPerRun: 4, condensedMinFanout: 4, deadlineMs: 45000 });
   assert.deepEqual(config.conversationJournal, { enabled: false, maxInlineChars: 16000, maxEventBytes: 262144, retentionDays: 0, sensitiveContentPolicy: "redact", ignoreSessionPatterns: [], statelessSessionPatterns: [], replayFloodThresholdExternal: 24, replayFloodThresholdInternal: 8 });
   assert.deepEqual(config.corpus, { enabled: false, workspaceRoot: "", syncOnSearch: true, syncIntervalMs: 60000, maxFileBytes: 1048576, maxFiles: 500, maxSessionFilesPerAgent: 25, maxChunkChars: 4000, maxChunkLines: 80, includeSessions: false, includeDreamingArtifacts: false });
@@ -89,6 +90,12 @@ test("cognition admission remains opt-in and accepts only closed modes", () => {
   const curationDefaults = { intake: { enabled: false, maxCandidatesPerTurn: 2, timeoutMs: 15000, maxInputChars: 8000, maxOutputChars: 2000 }, formation: { enabled: false, maxJobsPerTurn: 1, minOutcomeConfidence: .75, timeoutMs: 15000, maxInputChars: 8000, maxOutputChars: 2000 }, review: { enabled: false, intervalHours: 168, maxItems: 12, timeoutMs: 15000, maxInputChars: 12000, maxOutputChars: 4000 } };
   assert.deepEqual(normalizeConfig({ cognition: { formationShadow: true, admission: { mode: "enforce", preAdmission: { mode: "off" } }, beliefs: { enabled: true, autoCorroborate: true }, contextCompiler: { enabled: true, tokenBudget: 64, maxItems: 1 }, reflection: { enabled: true, maxJobsPerRun: 1, staleAfterDays: 1 }, graduation: { enabled: true } } }).cognition, { formationShadow: true, admission: { mode: "enforce", preAdmission: { mode: "off" } }, beliefs: { enabled: true, autoCorroborate: true }, contextCompiler: { enabled: true, tokenBudget: 64, maxItems: 1 }, reflection: { enabled: true, maxJobsPerRun: 1, staleAfterDays: 1 }, graduation: { enabled: true }, reasoningCuration: curationDefaults, reasoningRuntime: runtimeDefaults });
   assert.deepEqual(normalizeConfig({ cognition: { formationShadow: true, admission: { mode: "unsafe" } } }).cognition, { formationShadow: true, admission: { mode: "shadow", preAdmission: { mode: "off" } }, beliefs: { enabled: false, autoCorroborate: false }, contextCompiler: { enabled: false, tokenBudget: 600, maxItems: 8 }, reflection: { enabled: false, maxJobsPerRun: 4, staleAfterDays: 90 }, graduation: { enabled: false }, reasoningCuration: curationDefaults, reasoningRuntime: runtimeDefaults });
+});
+
+test("unified automatic recall keeps telemetry opt-in and bounds its diversity weight", () => {
+  const value = normalizeConfig({ unifiedRetrieval: { enabled: true, shadowMode: true, diversityLambda: -1 } }).unifiedRetrieval;
+  assert.deepEqual(value, { enabled: true, shadowMode: true, tokenBudget: 800, maxItems: 8, minConfidence: .6, maxStalenessDays: 36500, diversityLambda: 0 });
+  assert.equal(normalizeConfig({ unifiedRetrieval: { diversityLambda: 2 } }).unifiedRetrieval.diversityLambda, 1);
 });
 
 test("reasoning curation is off by default and bounds every host-runtime model call", () => {

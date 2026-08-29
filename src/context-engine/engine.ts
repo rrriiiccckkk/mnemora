@@ -6,6 +6,7 @@ import type { JournalDerivedTaskKind, JournalEventInput, JournalEventKind, Journ
 import type { CompletedTurn, ContextAssemblyInput } from "./lifecycle.js";
 import { contextDomain, estimateMessageTokens, messageText, selectBoundHostMessages, type HostMessage } from "./message-safety.js";
 import { UnifiedRetrievalService } from "../retrieval/service.js";
+import { selectGraphInjection, selectInjectionCandidates, type InjectionSuppressionReason } from "../retrieval/injection-policy.js";
 import { planRecallQuery } from "../retrieval/query-routing.js";
 import { RecallUsageRepository } from "../recall-lifecycle/repository.js";
 import { ConfiguredCompactionSummarizer, RuntimeCompactionSummarizer } from "./compaction-model.js";
@@ -168,22 +169,31 @@ export class MnemoraContextEngine implements ContextEngine {
         const graphBudget = recallBudget >= 128 ? Math.max(64, Math.floor(recallBudget * .4)) : 0;
         const lexicalBudget = Math.max(64, recallBudget - graphBudget);
         const plan = planRecallQuery(params.prompt, this.config.recall?.queryRouting), retrievalQuery = plan.query;
-        const result = retrieval.find({ scope: this.scope(), query: retrievalQuery, alternates: plan.alternates, tags: plan.tags, metadataFilters: plan.metadataFilters, mustContain: plan.mustContain, lexicalOnly: plan.lexicalOnly, scopeConstraint: plan.scopeConstraint, intent: plan.intent, intentCategory: plan.category, tokenBudget: lexicalBudget, limit: this.config.unifiedRetrieval.maxItems, minConfidence: this.config.unifiedRetrieval.minConfidence, maxStalenessDays: this.config.unifiedRetrieval.maxStalenessDays });
+        const rawResult = retrieval.find({ scope: this.scope(), query: retrievalQuery, alternates: plan.alternates, tags: plan.tags, metadataFilters: plan.metadataFilters, mustContain: plan.mustContain, lexicalOnly: plan.lexicalOnly, scopeConstraint: plan.scopeConstraint, intent: plan.intent, intentCategory: plan.category, tokenBudget: lexicalBudget, limit: Math.min(20, this.config.unifiedRetrieval.maxItems! * 3), minConfidence: this.config.unifiedRetrieval.minConfidence, maxStalenessDays: this.config.unifiedRetrieval.maxStalenessDays });
+        const localSelection = selectInjectionCandidates({ query: retrievalQuery, alternates: plan.alternates, candidates: rawResult.candidates, maxItems: this.config.unifiedRetrieval.maxItems!, diversityLambda: this.config.unifiedRetrieval.diversityLambda! });
+        const result = { ...rawResult, candidates: localSelection.candidates, empty: localSelection.candidates.length === 0 };
         // Graph recall is bounded by the same standalone budget and joins the
         // memory corpus inside this one attachment. Hybrid uses embeddings when
         // configured; otherwise the graph's exact lexical path remains useful.
-        let graphSupplement: string | undefined;
+        let graphSupplement: string | undefined, graphCandidates = 0, graphAttached = false, graphSuppression: InjectionSuppressionReason | undefined;
         // Prefix-constrained retrieval has an exact local-document contract.
         // Do not add a broad graph supplement beside it, and never turn an
         // incompatible `scope:` constraint into a same-scope graph search.
         const routeAllowsGraph = plan.lexicalOnly !== true && (!plan.scopeConstraint || plan.scopeConstraint === this.scope());
         if (routeAllowsGraph && graphBudget && retrievalQuery && typeof graph.kg_context === "function") {
-          const graphContext = await graph.kg_context(retrievalQuery, this.config.unifiedRetrieval.maxItems, 1, this.config.unifiedRetrieval.minConfidence, graphBudget, this.config.embeddings?.enabled ? "hybrid" : "lexical", undefined, this.scope(), { recordMetrics: false });
-          if ((graphContext.nodes.length || graphContext.memories?.length) && graphContext.context !== "") graphSupplement = graphContext.context;
+          // One seed may expand to its directly evidenced neighborhood. A broad
+          // lexical graph fan-out has low precision for automatic context.
+          const graphContext = await graph.kg_context(retrievalQuery, 1, 1, this.config.unifiedRetrieval.minConfidence, graphBudget, this.config.embeddings?.enabled ? "hybrid" : "lexical", undefined, this.scope(), { recordMetrics: false });
+          const graphSelection = selectGraphInjection({ query: retrievalQuery, alternates: plan.alternates, context: graphContext });
+          graphCandidates = graphSelection.candidates;
+          graphSuppression = graphSelection.reason;
+          if (graphSelection.allowed && graphContext.context !== "") { graphSupplement = graphContext.context; graphAttached = true; }
         }
         const rendered = retrieval.compilePrompt(result, this.config.unifiedRetrieval.maxItems, graphSupplement);
+        let attached = false;
         if (rendered && estimateTextTokens(rendered) <= available) {
           additions.push(rendered);
+          attached = true;
           // Only this successful public ContextEngine attachment counts as a
           // recall. Search, shadow diagnostics, graph expansion, and a prompt
           // that did not fit are intentionally not lifecycle signals.
@@ -196,6 +206,9 @@ export class MnemoraContextEngine implements ContextEngine {
             }));
           } catch { /* usage telemetry never changes recall availability */ }
         }
+        if (this.config.unifiedRetrieval.shadowMode) try {
+          graph.unifiedRecallShadow.record({ scope: this.scope(), query: retrievalQuery, localCandidates: rawResult.candidates.length, localSelected: result.candidates.length, localSuppressed: localSelection.suppressed, graphCandidates, graphAttached, graphSuppression, attached });
+        } catch { /* optional telemetry never changes host context assembly */ }
       } catch { /* recall must remain fail-open: host messages are authoritative */ }
       finally { graph.close(); }
     }

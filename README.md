@@ -82,7 +82,13 @@ plugins: {
         conversationJournal: { enabled: true },
         contextEngine: { enabled: true },
         episodicMemory: { enabled: true },
-        unifiedRetrieval: { enabled: true, tokenBudget: 800, maxItems: 8 }
+        unifiedRetrieval: {
+          enabled: true,
+          shadowMode: true, // bounded, redacted automatic-recall telemetry
+          tokenBudget: 800,
+          maxItems: 8,
+          diversityLambda: 0.75
+        }
       }
     }
   },
@@ -97,6 +103,30 @@ stays manual-only. Check the local deployment state with:
 mnemora standalone status
 mnemora standalone guide
 ```
+
+### Automatic-recall precision
+
+Manual search may return broad candidates for exploration. Automatic context is
+stricter: before Mnemora attaches a local record or graph supplement, it
+requires a non-generic query anchor in the candidate, or a graph semantic score
+of at least `0.72`. It uses one graph seed (with one evidenced hop) and a
+deterministic MMR pass to avoid near-duplicate local context. Consequently, a
+generic question such as “How does the memory system work?” will not attach a
+company merely because its description contains “memory.” An empty attachment
+is the safe result when no candidate proves relevance.
+
+`unifiedRetrieval.shadowMode` is opt-in and stores only a query hash plus
+bounded counts of local/graph candidates, suppressions, and attachments. It
+never stores prompt text, candidate text, IDs, sources, or evidence. Inspect
+it alongside existing adaptive-recall metrics:
+
+```bash
+mnemora recall metrics --scope default
+```
+
+The `unified` section reports the real ContextEngine attachment path; it does
+not alter retrieval or injection. Set `diversityLambda: 1` to retain score-only
+ordering, or keep the default `0.75` for modest deterministic diversification.
 
 ### Optional services
 

@@ -40,6 +40,36 @@ ReasoningMemory delivery.  This phase does not turn delivery on globally.
 - Retain deterministic verification, per-memory circuits, rollback, and the
   no-efficacy-claim boundary until randomized operator evidence exists.
 
+## v1.10 — Recall Precision and Observability
+
+Keep automatic ContextEngine memory attachment conservative while making its
+real decision path measurable.
+
+- Require a non-generic query anchor for automatic lexical local/graph
+  attachment; graph semantic candidates must instead clear a conservative
+  fixed floor.
+- Limit automatic graph expansion to one seed and one direct evidenced hop;
+  apply deterministic MMR only to the bounded local attachment set.
+- Record an opt-in, scope-local, redacted shadow row for each real automatic
+  attachment decision. Rows contain a query hash and bounded counts only—no
+  prompt, candidate text, identifiers, sources, or evidence.
+- Keep manual search broad and unchanged. An empty automatic attachment is a
+  correct safe outcome, not a fallback that should inject generic matches.
+
+## v1.11 — Graph Hygiene and Local Resilience
+
+Improve the quality and availability diagnostics around the graph without
+making automatic graph mutation a default behavior.
+
+- Add a bounded scheduled hygiene review for duplicate entities, suspicious
+  self-links, and overuse of `related_to`; keep merging preview/confirm unless
+  a future explicit policy introduces a narrowly-scoped automatic action.
+- Add measurable graph-recall quality diagnostics so an operator can compare
+  precision before changing routing or confidence policy.
+- Surface local embedding/provider health and deterministic lexical fallback
+  state. Do not add a remote dependency or make gateway availability a hidden
+  prerequisite for core local memory access.
+
 ## Non-negotiable boundaries
 
 - Never automate personality formation.

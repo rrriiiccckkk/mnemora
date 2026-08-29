@@ -296,7 +296,7 @@ export interface MnemoraConfig {
   workspaceBoundary?: { userMdExclusive?: { enabled?: boolean; }; };
   episodicMemory?: { enabled?: boolean; autoExtract?: boolean; maxEpisodesPerTurn?: number; minImportance?: number; /** Basic preserves historical interaction capture; signal classifies explicit task events locally. */ extractionMode?: "basic" | "signal"; /** Optional host-runtime LLM episode projection. It is source-linked, bounded, and off by default. */ smartExtraction?: { enabled?: boolean; maxInputChars?: number; maxOutputChars?: number; maxEpisodesPerTurn?: number; timeoutMs?: number; minImportance?: number; }; };
   /** Read-only cross-record recall. Injection is opt-in and only the standalone ContextEngine may produce it. */
-  unifiedRetrieval?: { enabled?: boolean; shadowMode?: boolean; tokenBudget?: number; maxItems?: number; minConfidence?: number; maxStalenessDays?: number; };
+  unifiedRetrieval?: { enabled?: boolean; shadowMode?: boolean; tokenBudget?: number; maxItems?: number; minConfidence?: number; maxStalenessDays?: number; /** MMR weight for automatic context only; lower values prefer diversity. */ diversityLambda?: number; };
   embeddings?: Partial<EmbeddingConfig> & Pick<EmbeddingConfig, "enabled">;
   insights?: InsightsConfig;
   quality?: {
@@ -395,7 +395,7 @@ export const defaultConfig: MnemoraConfig = {
   standalone: { activePluginIds: [] },
   consolidation: { enabled: false, maxJobsPerRun: 4, leaseMs: 45000, proposalTtlDays: 14, staleAfterDays: 90 },
   cognition: { formationShadow: true, admission: { mode: "shadow", preAdmission: { mode: "off" } }, beliefs: { enabled: false, autoCorroborate: false }, contextCompiler: { enabled: false, tokenBudget: 600, maxItems: 8 }, reflection: { enabled: false, maxJobsPerRun: 4, staleAfterDays: 90 }, graduation: { enabled: false }, reasoningCuration: { intake: { enabled: false, maxCandidatesPerTurn: 2, timeoutMs: 15000, maxInputChars: 8000, maxOutputChars: 2000 }, formation: { enabled: false, maxJobsPerTurn: 1, minOutcomeConfidence: .75, timeoutMs: 15000, maxInputChars: 8000, maxOutputChars: 2000 }, review: { enabled: false, intervalHours: 168, maxItems: 12, timeoutMs: 15000, maxInputChars: 12000, maxOutputChars: 4000 } }, reasoningRuntime: { shadowMode: false, scopes: [], tokenBudget: 800, maxItems: 6, minConfidence: .6, highRiskMinConfidence: .8, minEvidenceQuality: .5, highRiskMinEvidenceQuality: .75, maxStalenessDays: 365, excludeConflicted: true, retentionDays: 30, readiness: { minimumRuns: 25, maxErrorRate: .05, maxEmptyRate: .8, maxP95Ms: 100 }, delivery: { enabled: false, scopes: [], adapter: "openclaw", calibrationMaxAgeHours: 168, maxConsecutiveDeliveries: 2, itemRetentionDays: 30 }, semantic: { enabled: false, timeoutMs: 1500, minScore: .35, maxCandidates: 50 }, verification: { enabled: false, maxJobsPerRun: 5 } } },
-  unifiedRetrieval: { enabled: false, shadowMode: false, tokenBudget: 800, maxItems: 8, minConfidence: .6, maxStalenessDays: 36500 },
+  unifiedRetrieval: { enabled: false, shadowMode: false, tokenBudget: 800, maxItems: 8, minConfidence: .6, maxStalenessDays: 36500, diversityLambda: .75 },
   embeddings: {
     enabled: false,
     provider: "ollama",

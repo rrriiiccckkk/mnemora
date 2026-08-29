@@ -41,6 +41,7 @@ import { RecallFeedbackRepository } from "./cognition/reflection.js";
 import { createMnemoraContextRef } from "./context/context-ref.js";
 import { MemoryReranker } from "./retrieval/memory-reranker.js";
 import { memoryMatchesTags, planRecallQuery } from "./retrieval/query-routing.js";
+import { UnifiedRecallShadowRepository } from "./retrieval/unified-recall-shadow.js";
 import { RecallDecayReviewService, RecallUsageRepository } from "./recall-lifecycle/repository.js";
 import { CanonicalCorpusIndexer } from "./corpus/indexer.js";
 import { isExclusiveUserMdPath, isExclusiveUserMdSource } from "./workspace-boundary.js";
@@ -131,6 +132,8 @@ export class Mnemora {
   private readonly recallPolicy: RecallPolicyService;
   private readonly recallExplanation: RecallExplanationService;
   readonly recallShadowRepository: RecallShadowRepository;
+  /** ContextEngine automatic-recall telemetry, separate from graph canary metrics. */
+  readonly unifiedRecallShadow: UnifiedRecallShadowRepository;
   private readonly recallShadow: AdaptiveRecallShadowService;
   readonly recallCanaryRepository: RecallCanaryRepository;
   private readonly recallCanary: AdaptiveRecallCanaryService;
@@ -206,6 +209,7 @@ export class Mnemora {
     this.recallPolicy = new RecallPolicyService(this.verificationRepository, this.config.trustLayer?.verification?.enabled === true, this.config.recall?.tokenBudget ?? 800);
     this.recallExplanation = new RecallExplanationService(this.verificationRepository, this.config.trustLayer?.verification?.enabled === true, this.config.unifiedRetrieval?.enabled === true);
     this.recallShadowRepository = new RecallShadowRepository(this.store.db);
+    this.unifiedRecallShadow = new UnifiedRecallShadowRepository(this.store.db, this.now);
     this.recallShadow = new AdaptiveRecallShadowService(this.recallShadowRepository, {
       shadowMode: this.config.trustLayer?.recall?.shadowMode === true,
       absoluteFloor: this.config.trustLayer?.recall?.absoluteFloor ?? 0,
@@ -349,7 +353,8 @@ export class Mnemora {
     return this.recallExplanation.explain(context, scope, policy);
   }
   kg_recall_metrics(input: { scope?: string; limit?: number } = {}) {
-    return this.recallShadow.list(normalizeScope(input.scope, this.config.scope?.default ?? "default"), input.limit);
+    const scope = normalizeScope(input.scope, this.config.scope?.default ?? "default");
+    return { ...this.recallShadow.list(scope, input.limit), unified: this.unifiedRecallShadow.list(scope, input.limit) };
   }
   kg_recall_canary(input: { operation: "status"; scope?: string } | { operation: "calibrations"; scope?: string; limit?: number } | { operation: "evaluate"; scope?: string; criteria?: RecallCalibrationCriteria } | { operation: "calibrate"; scope?: string; criteria?: RecallCalibrationCriteria; preview_hash?: string; confirm?: boolean } | { operation: "enable"; scope?: string; calibration_id: string; preview_hash?: string; confirm?: boolean } | { operation: "rollback"; scope?: string; confirm?: boolean }) {
     const scope = normalizeScope(input.scope, this.config.scope?.default ?? "default");

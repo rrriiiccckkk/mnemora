@@ -2,7 +2,7 @@
   "id": "mnemora",
   "name": "Mnemora",
   "description": "Evidence-first personal memory harness for persistent OpenClaw agents.",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -380,10 +380,11 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "enabled": { "type": "boolean", "default": false },
-          "shadowMode": { "type": "boolean", "default": false },
+          "enabled": { "type": "boolean", "default": false, "description": "Allow the selected ContextEngine to attach bounded, scope-local Mnemora context." },
+          "shadowMode": { "type": "boolean", "default": false, "description": "Record bounded, redacted metrics for real automatic attachment decisions. It never stores prompt or candidate text and never changes selection." },
           "tokenBudget": { "type": "integer", "default": 800, "minimum": 64, "maximum": 8000 },
           "maxItems": { "type": "integer", "default": 8, "minimum": 1, "maximum": 20 },
+          "diversityLambda": { "type": "number", "default": 0.75, "minimum": 0, "maximum": 1, "description": "Deterministic MMR diversity weight for automatic context candidates; 1 preserves score-only ordering." },
           "minConfidence": { "type": "number", "default": 0.6, "minimum": 0, "maximum": 1 },
           "maxStalenessDays": { "type": "integer", "default": 36500, "minimum": 1, "maximum": 36500 }
         }

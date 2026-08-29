@@ -38,6 +38,7 @@ import { SemanticPatternRepository } from "./semantics/repository.js";
 import { recallLifecycleOptionalRestoreTables, recallLifecycleSchemaSql } from "./recall-lifecycle/schema.js";
 import { corpusOptionalRestoreTables, corpusSchemaSql } from "./corpus/schema.js";
 import { memoryLifecycleSchemaSql } from "./memory-lifecycle/schema.js";
+import { unifiedRecallShadowSchemaSql } from "./retrieval/schema.js";
 import { openMnemoraDatabase } from "./sqlite.js";
 import type { AutoRunClaim, AutoRunFinishStatus, CommunitySummary, ConflictCandidate, ConflictCandidateStatus, DuplicateCandidate, DuplicateCandidateStatus, DuplicateScanResult, EvidenceSummary, ExtractedEntity, ExtractedRelation, InsightKind, KgContextResult, KgEdge, KgForgetResult, KgInsight, KgMemoryChunk, KgMemoryDocument, KgMemoryExpiryReview, KgMemoryLifecycleAudit, KgMemoryLifecycleConfirm, KgMemoryLifecyclePreview, KgMemorySearchResult, KgNode, KgObservation, KgRelatedResult, KgScopeSummary, KgSearchResult, KgSourceSummary, KgStatsResult, LegacyIdentityAuditResult, MemoryLifecycleAction, MergeResult, MergeUndoResult, NodeType, QualityCleanupResult, QualityEvidenceSummary, RankedNode, RelatedSemanticLabelResult, RelationshipAnomaly, SchemaDriftCandidate, SchemaDriftRepairResult, SchemaDriftScanResult, SemanticPatternCandidate, SemanticPatternReviewResult, StoredEmbedding } from "./types.js";
 import type { GraphProjection, InsightSnapshot } from "./insights/types.js";
@@ -370,6 +371,7 @@ export class GraphologyStore {
     if (version < 68) this.migrateReasoningCurationV68();
     if (version < 69) this.migrateReasoningIntakeV69();
     if (version < 70) this.migrateReasoningRuntimePolicySnapshotV70();
+    if (version < 71) this.migrateUnifiedRecallShadowV71();
     this.repairCanonicalCorpusFts();
     this.db.exec(`PRAGMA user_version=${SUPPORTED_SCHEMA_VERSION}`);
   }
@@ -498,6 +500,8 @@ export class GraphologyStore {
   private migrateReasoningCurationV68(): void { this.db.exec(cognitionReasoningCurationSchemaSql); }
   private migrateReasoningIntakeV69(): void { this.db.exec(cognitionReasoningIntakeSchemaSql); }
   private migrateReasoningRuntimePolicySnapshotV70(): void { this.db.exec(cognitionReasoningRuntimePolicySnapshotSchemaSql); }
+  /** Schema v71 adds only redacted automatic-recall decision telemetry. */
+  private migrateUnifiedRecallShadowV71(): void { this.db.exec(unifiedRecallShadowSchemaSql); }
 
   /** Schema v58 only adds durable receipts for explicitly confirmed consolidation
    * lifecycle actions. Existing evidence, episodes, and proposals are not

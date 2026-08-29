@@ -61,7 +61,13 @@ plugins: {
         conversationJournal: { enabled: true },
         contextEngine: { enabled: true },
         episodicMemory: { enabled: true },
-        unifiedRetrieval: { enabled: true, tokenBudget: 800, maxItems: 8 }
+        unifiedRetrieval: {
+          enabled: true,
+          shadowMode: true, // 记录有界、脱敏的自动召回遥测
+          tokenBudget: 800,
+          maxItems: 8,
+          diversityLambda: 0.75
+        }
       }
     }
   },
@@ -75,6 +81,27 @@ plugins: {
 mnemora standalone status
 mnemora standalone guide
 ```
+
+### 自动召回精度
+
+手动搜索可以为了探索返回较宽的候选集；自动上下文则更严格。Mnemora 在附加本地
+记录或图谱补充前，要求候选中存在非通用 query 锚点，或图谱语义分数至少为 `0.72`。
+图谱最多使用一个 seed（加一跳有证据的邻域），本地记录再经过确定性的 MMR 去重，
+避免近重复内容。因而像“这个 memory system 如何工作？”这类泛化问题，不会只因
+公司描述中包含 “memory” 就注入该公司；没有可证明相关候选时，保持空注入才是安全
+结果。
+
+`unifiedRetrieval.shadowMode` 为显式 opt-in，只保存 query hash 以及本地/图谱候选、
+抑制和附加的有界计数；不会保存 prompt、候选正文、ID、来源或证据。可与现有的
+adaptive-recall 指标一起查看：
+
+```bash
+mnemora recall metrics --scope default
+```
+
+输出中的 `unified` 是真实 ContextEngine 附加路径的遥测，不会改变检索或注入。
+设为 `diversityLambda: 1` 可保留纯分数排序；保留默认 `0.75` 则启用适度、确定性的
+多样化。
 
 ### 可选服务
 
