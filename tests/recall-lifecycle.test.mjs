@@ -63,7 +63,7 @@ test("v6.21 migration is additive and preserves an existing memory document", ()
     legacy.close(); legacy = undefined;
     const migrated = new GraphologyStore(path);
     try {
-      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 70);
+      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM kg_memory_documents WHERE id='memory:legacy'").get().value, 1);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name='mnemora_recall_usage'").get().value, 1);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM mnemora_recall_usage").get().value, 0);

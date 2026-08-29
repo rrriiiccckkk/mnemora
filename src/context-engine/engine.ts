@@ -170,7 +170,11 @@ export class MnemoraContextEngine implements ContextEngine {
         const lexicalBudget = Math.max(64, recallBudget - graphBudget);
         const plan = planRecallQuery(params.prompt, this.config.recall?.queryRouting), retrievalQuery = plan.query;
         const rawResult = retrieval.find({ scope: this.scope(), query: retrievalQuery, alternates: plan.alternates, tags: plan.tags, metadataFilters: plan.metadataFilters, mustContain: plan.mustContain, lexicalOnly: plan.lexicalOnly, scopeConstraint: plan.scopeConstraint, intent: plan.intent, intentCategory: plan.category, tokenBudget: lexicalBudget, limit: Math.min(20, this.config.unifiedRetrieval.maxItems! * 3), minConfidence: this.config.unifiedRetrieval.minConfidence, maxStalenessDays: this.config.unifiedRetrieval.maxStalenessDays });
-        const localSelection = selectInjectionCandidates({ query: retrievalQuery, alternates: plan.alternates, candidates: rawResult.candidates, maxItems: this.config.unifiedRetrieval.maxItems!, diversityLambda: this.config.unifiedRetrieval.diversityLambda! });
+        const localSelection = selectInjectionCandidates({
+          query: retrievalQuery, alternates: plan.alternates, candidates: rawResult.candidates,
+          maxItems: this.config.unifiedRetrieval.maxItems!, diversityLambda: this.config.unifiedRetrieval.diversityLambda!,
+          exactLocalConstraint: Boolean(plan.tags.length || plan.metadataFilters?.length || plan.mustContain?.length)
+        });
         const result = { ...rawResult, candidates: localSelection.candidates, empty: localSelection.candidates.length === 0 };
         // Graph recall is bounded by the same standalone budget and joins the
         // memory corpus inside this one attachment. Hybrid uses embeddings when

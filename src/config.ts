@@ -251,7 +251,14 @@ export function normalizeConfig(input: Partial<MnemoraConfig> = {}): MnemoraConf
       pprMaxIterations: clamp(input.quality?.pprMaxIterations, 20, 1, 100),
       pprTolerance: clamp(input.quality?.pprTolerance, 1e-6, 1e-12, .1),
       pprMaxNodes: clamp(input.quality?.pprMaxNodes, 10000, 1, 10000),
-      pprMaxArcs: clamp(input.quality?.pprMaxArcs, 50000, 1, 50000)
+      pprMaxArcs: clamp(input.quality?.pprMaxArcs, 50000, 1, 50000),
+      hygiene: {
+        enabled: input.quality?.hygiene?.enabled === true,
+        intervalHours: clamp(input.quality?.hygiene?.intervalHours, 168, 1, 24 * 30),
+        maxDuplicateScanNodes: clamp(input.quality?.hygiene?.maxDuplicateScanNodes, 100, 1, 500),
+        relatedToWarningRatio: clamp(input.quality?.hygiene?.relatedToWarningRatio, .4, 0, 1),
+        relatedToWarningMinimumEdges: clamp(input.quality?.hygiene?.relatedToWarningMinimumEdges, 20, 1, 10000)
+      }
     },
     ingestion: {
       maxPayloadBytes: clamp(input.ingestion?.maxPayloadBytes, 2 * 1024 * 1024, 1, 10 * 1024 * 1024),

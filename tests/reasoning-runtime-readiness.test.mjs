@@ -42,7 +42,7 @@ test("schema v70 adds policy snapshots without rebuilding existing runtime telem
     store.db.exec("DROP TABLE mnemora_reasoning_runtime_policy_snapshots; PRAGMA user_version=69");
     store.close(); store = new GraphologyStore(path);
     assert.equal(SUPPORTED_SCHEMA_VERSION, 71);
-    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 70);
+    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name='mnemora_reasoning_runtime_policy_snapshots'").get().value, 1);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_reasoning_runtime_shadow_runs WHERE scope=?").get(scope).value, 1);
   } finally { try { store?.close(); } catch {} try { rmSync(directory, { recursive: true, force: true }); } catch {} }

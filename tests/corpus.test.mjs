@@ -96,7 +96,7 @@ test("v60 corpus migration is additive over a v59 database", () => {
     const migrated = new GraphologyStore(path);
     try {
       assert.equal(SUPPORTED_SCHEMA_VERSION, 71);
-      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 70);
+      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
       assert.equal(migrated.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='mnemora_corpus_documents'").get().name, "mnemora_corpus_documents");
       assert.equal(migrated.db.prepare("SELECT name FROM kg_nodes WHERE id='concept:kept'").get().name, "Kept");
       assert.equal(migrated.db.prepare("PRAGMA foreign_key_check").all().length, 0);

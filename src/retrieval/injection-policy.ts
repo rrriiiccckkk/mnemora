@@ -27,8 +27,15 @@ export function selectInjectionCandidates(input: {
   candidates: readonly RetrievalCandidate[];
   maxItems: number;
   diversityLambda: number;
+  /** An exact local metadata or content constraint already limited candidates. */
+  exactLocalConstraint?: boolean;
 }): InjectionCandidateSelection {
   const anchors = queryAnchors([input.query, ...(input.alternates ?? [])]);
+  // A tag-only or other exact local constraint deliberately has no free-text
+  // anchor. Its candidate set was already narrowed by the retrieval SQL and
+  // rechecked in-process, so withholding it here would make valid constrained
+  // recall impossible while adding no precision protection.
+  if (!anchors.length && input.exactLocalConstraint) return { candidates: diversify(input.candidates, input.maxItems, input.diversityLambda), suppressed: 0 };
   if (!anchors.length) return { candidates: [], suppressed: input.candidates.length, reason: "no_anchor_terms" };
   const matched = input.candidates.filter(candidate => containsAnchor(`${candidate.title}\n${candidate.excerpt}`, anchors));
   if (!matched.length) return { candidates: [], suppressed: input.candidates.length, reason: "no_anchor_match" };

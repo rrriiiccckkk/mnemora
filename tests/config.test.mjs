@@ -29,7 +29,8 @@ test("automatic features are opt-in with bounded defaults", () => {
     conflictPenaltyFactor: .75,
     hubPenaltyFloor: .6,
     rankingWeights: { semantic: .35, lexical: .20, confidence: .15, recency: .10, sourceDiversity: .05, ppr: .15 },
-    pprDamping: .85, pprMaxIterations: 20, pprTolerance: 1e-6, pprMaxNodes: 10000, pprMaxArcs: 50000
+    pprDamping: .85, pprMaxIterations: 20, pprTolerance: 1e-6, pprMaxNodes: 10000, pprMaxArcs: 50000,
+    hygiene: { enabled: false, intervalHours: 168, maxDuplicateScanNodes: 100, relatedToWarningRatio: .4, relatedToWarningMinimumEdges: 20 }
   });
 });
 
@@ -186,8 +187,14 @@ test("relationship quality thresholds are clamped independently", () => {
     conflictPenaltyFactor: .75,
     hubPenaltyFloor: .6,
     rankingWeights: { semantic: .35, lexical: .20, confidence: .15, recency: .10, sourceDiversity: .05, ppr: .15 },
-    pprDamping: .85, pprMaxIterations: 20, pprTolerance: 1e-6, pprMaxNodes: 10000, pprMaxArcs: 50000
+    pprDamping: .85, pprMaxIterations: 20, pprTolerance: 1e-6, pprMaxNodes: 10000, pprMaxArcs: 50000,
+    hygiene: { enabled: false, intervalHours: 168, maxDuplicateScanNodes: 100, relatedToWarningRatio: .4, relatedToWarningMinimumEdges: 20 }
   });
+});
+
+test("graph hygiene stays opt-in and bounds every scheduled review control", () => {
+  const value = normalizeConfig({ quality: { hygiene: { enabled: true, intervalHours: 0, maxDuplicateScanNodes: 999, relatedToWarningRatio: 2, relatedToWarningMinimumEdges: 0 } } }).quality.hygiene;
+  assert.deepEqual(value, { enabled: true, intervalHours: 1, maxDuplicateScanNodes: 500, relatedToWarningRatio: 1, relatedToWarningMinimumEdges: 1 });
 });
 
 test("numeric limits are clamped", () => {

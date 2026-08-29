@@ -47,6 +47,8 @@ import { CanonicalCorpusIndexer } from "./corpus/indexer.js";
 import { isExclusiveUserMdPath, isExclusiveUserMdSource } from "./workspace-boundary.js";
 import { ArtifactRepository } from "./artifacts/repository.js";
 import { MemoryDocumentLifecycleService, type MemoryTier } from "./memory-lifecycle/service.js";
+import { GraphHygieneService, type GraphHygienePolicy } from "./hygiene/service.js";
+import { EmbeddingHealthRepository } from "./embedding-health/repository.js";
 
 export type SemanticSearchUnavailableCategory = "disabled" | "timeout" | "aborted" | "provider" | "invalid_response" | "scale_limit";
 export class SemanticSearchUnavailableError extends Error {
@@ -155,6 +157,10 @@ export class Mnemora {
   readonly personalContext: PersonalContextCompiler;
   /** User-confirmed recall feedback affects ranking salience, never truth. */
   private readonly recallFeedback: RecallFeedbackRepository;
+  /** Review-only graph diagnostics, kept outside GraphologyStore mutation paths. */
+  private readonly hygiene: GraphHygieneService;
+  /** Local categorical provider outcomes; never a live probe or provider log. */
+  private readonly embeddingHealth: EmbeddingHealthRepository;
   /** Non-destructive tier/expiry selection overlay for canonical memory documents. */
   readonly memoryLifecycle: MemoryDocumentLifecycleService;
   /** Aggregate-only record of memories that were actually attached to context. */
@@ -193,6 +199,8 @@ export class Mnemora {
     this.governance = new GovernanceService(this.governanceRepository, this.config.trustLayer?.governance);
     this.personalContext = new PersonalContextCompiler(this.store.db, this.now, { staleAfterDays: this.config.cognition?.reflection?.staleAfterDays });
     this.recallFeedback = new RecallFeedbackRepository(this.store.db, this.now);
+    this.hygiene = new GraphHygieneService(this.store, this.now);
+    this.embeddingHealth = new EmbeddingHealthRepository(this.store, this.now);
     this.memoryLifecycle = new MemoryDocumentLifecycleService(this.store.db, {
       enabled: this.config.memory?.lifecycle?.enabled === true,
       accessReinforcement: this.config.memory?.lifecycle?.accessReinforcement !== false,
@@ -645,11 +653,14 @@ export class Mnemora {
         if (result.vectors.length !== batch.length) throw new Error("embedding vectors: count mismatch");
         result.vectors.forEach((vector, index) => this.store.putEmbedding(batch[index].id, result.identity, embeddingInputVersion, vector));
         try { await this.vectors.mirrorNodes(batch.map((node, index) => ({ id: node.id, identity: result.identity, inputVersion: embeddingInputVersion, vector: result.vectors[index] })), this.runtimeSignal); } catch { /* Optional vector index is fail-open after canonical SQLite persistence. */ }
+        this.embeddingHealth.recordSuccess(this.embeddingConfig);
         embedded += batch.length;
         lastSuccessfulId = batch.at(-1)?.id;
       } catch (error) {
         failed += batch.length;
-        try { this.onEmbeddingFailure?.({ operation, category: classifyEmbeddingFailure(error), failed: batch.length }); } catch { /* logging is fail-open */ }
+        const category = classifyEmbeddingFailure(error);
+        this.embeddingHealth.recordFailure(this.embeddingConfig, category);
+        try { this.onEmbeddingFailure?.({ operation, category, failed: batch.length }); } catch { /* logging is fail-open */ }
         if (operation === "backfill") break;
       }
     }
@@ -668,11 +679,14 @@ export class Mnemora {
         const result = await requestWithTimeout(signal => this.embedder!.embed(inputs, signal), this.embeddingConfig.timeoutMs, this.runtimeSignal);
         if (result.vectors.length !== batch.length) throw new Error("embedding vectors: count mismatch");
         result.vectors.forEach((vector, index) => this.store.putMemoryChunkEmbedding(batch[index].id, result.identity, MEMORY_CHUNK_EMBEDDING_INPUT_VERSION, vector));
+        this.embeddingHealth.recordSuccess(this.embeddingConfig);
         embedded += batch.length;
         lastSuccessfulId = batch.at(-1)?.id;
       } catch (error) {
         failed += batch.length;
-        try { this.onEmbeddingFailure?.({ operation: "memory_backfill", category: classifyEmbeddingFailure(error), failed: batch.length }); } catch { /* Local observability must remain fail-open. */ }
+        const category = classifyEmbeddingFailure(error);
+        this.embeddingHealth.recordFailure(this.embeddingConfig, category);
+        try { this.onEmbeddingFailure?.({ operation: "memory_backfill", category, failed: batch.length }); } catch { /* Local observability must remain fail-open. */ }
         break;
       }
     }
@@ -746,11 +760,19 @@ export class Mnemora {
     const key = createHash("sha256").update([this.embeddingConfig.provider, this.embeddingConfig.model, embeddingInputVersion, input].join("\0")).digest("hex");
     const cached = this.queryCache.get(key);
     if (cached) { this.queryCache.delete(key); this.queryCache.set(key, cached); return cached; }
-    const raw = await requestWithTimeout((requestSignal) => this.embedder!.embed([input], requestSignal), this.embeddingConfig.timeoutMs, composeSignals(signal, this.runtimeSignal));
+    let raw: import("./embeddings.js").EmbeddingResult;
+    try {
+      raw = await requestWithTimeout((requestSignal) => this.embedder!.embed([input], requestSignal), this.embeddingConfig.timeoutMs, composeSignals(signal, this.runtimeSignal));
+    } catch (error) {
+      this.embeddingHealth.recordFailure(this.embeddingConfig, classifyEmbeddingFailure(error));
+      throw error;
+    }
     if (raw.identity.provider !== this.embeddingConfig.provider || raw.identity.model !== this.embeddingConfig.model || raw.vectors.length !== 1 || raw.vectors[0].length !== raw.identity.dimensions) {
+      this.embeddingHealth.recordFailure(this.embeddingConfig, "invalid_response");
       throw new Error("invalid embedding identity or dimensions");
     }
     const result = { identity: { ...raw.identity }, vectors: [normalizeEmbeddingVector(raw.vectors[0])] };
+    this.embeddingHealth.recordSuccess(this.embeddingConfig);
     if (this.embeddingConfig.queryCacheSize > 0) {
       this.queryCache.set(key, result);
       while (this.queryCache.size > this.embeddingConfig.queryCacheSize) this.queryCache.delete(this.queryCache.keys().next().value!);
@@ -825,7 +847,23 @@ export class Mnemora {
   }
 
   kg_stats(): KgStatsResult {
-    return this.store.stats();
+    return { ...this.store.stats(), embedding_health: this.embeddingHealth.status(this.embeddingConfig) };
+  }
+
+  /** Bounded review maintenance. It only records duplicate candidates and never merges or deletes graph data. */
+  runGraphHygiene(scope?: string, force = false) {
+    const policy = this.hygienePolicy();
+    return this.hygiene.run({ scope: normalizeScope(scope, this.config.scope?.default ?? "default"), policy, force });
+  }
+
+  private hygienePolicy(): GraphHygienePolicy {
+    const value = this.config.quality?.hygiene;
+    return {
+      intervalHours: value?.intervalHours ?? 168,
+      maxDuplicateScanNodes: value?.maxDuplicateScanNodes ?? 100,
+      relatedToWarningRatio: value?.relatedToWarningRatio ?? .4,
+      relatedToWarningMinimumEdges: value?.relatedToWarningMinimumEdges ?? 20
+    };
   }
 
   kg_profile(subject: string, scope?: string, limit?: number): ProfileProjection {
@@ -965,9 +1003,17 @@ export class Mnemora {
     } catch { return { ...result, vector_index_cleanup: "deferred" }; }
   }
 
-  kg_review(kind: "duplicates" | "anomalies" | "identity" | "schema_drift" | "semantic_patterns" = "duplicates", status: DuplicateCandidateStatus = "pending", scan = false, limit = 20, after_id?: string, candidate_id?: string, decision?: "ignored" | "rejected" | "accepted", scope?: string, approval_id?: string, repair_type?: "depends_on" | "part_of" | "instance_of" | "related_to", preview_hash?: string, confirm = false): unknown {
+  kg_review(kind: "duplicates" | "anomalies" | "identity" | "schema_drift" | "semantic_patterns" | "hygiene" = "duplicates", status: DuplicateCandidateStatus = "pending", scan = false, limit = 20, after_id?: string, candidate_id?: string, decision?: "ignored" | "rejected" | "accepted", scope?: string, approval_id?: string, repair_type?: "depends_on" | "part_of" | "instance_of" | "related_to", preview_hash?: string, confirm = false): unknown {
     const bounded = Math.min(100, Math.max(1, Math.trunc(limit)));
     const normalizedScope = normalizeScope(scope, this.config.scope?.default ?? "default");
+    if (kind === "hygiene") {
+      if (status !== "pending" || after_id || candidate_id || decision || approval_id || repair_type || preview_hash || confirm) throw new Error("hygiene review is read-only");
+      if (!scan) return this.hygiene.report(normalizedScope, this.hygienePolicy());
+      // The scheduled pass follows configuration; an operator-requested pass
+      // follows the tool's documented limit so an inspection stays bounded.
+      const policy = this.hygienePolicy();
+      return this.hygiene.run({ scope: normalizedScope, policy: { ...policy, maxDuplicateScanNodes: Math.min(policy.maxDuplicateScanNodes, bounded) }, force: true });
+    }
     // Schema-drift repair intentionally uses a preview hash instead of a
     // duplicate/conflict decision. Do not apply the legacy pair requirement
     // to that separate, confirmation-gated workflow.

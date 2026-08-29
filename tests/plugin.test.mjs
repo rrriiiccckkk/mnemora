@@ -41,7 +41,7 @@ const EXISTING_CONTRACT_HASHES = {
   kg_merge: "92e65ad4b789dfc92677b9dc92c31f8a3ec47b51199cb88d6894a7bec7ddd042",
   kg_merge_undo: "47714e80017fb7ae0116151d347734532063c96598187e15880bb69d31d9843f",
   kg_related: "98d93e7e42d40274402b3c9045021d54a15cb77bfaa6522ea65154a0edb060fd",
-  kg_review: "09744a5ab93ef99692b60064df41cff29a3b575ac7497b07415c47dddc050a4c",
+  kg_review: "35c1804374124e4baee8c42452f687ab5271458ec7514612bd9c242e948b6745",
   kg_search: "0a3878e0b315e7afcfaf5cfa0d041772619f91e20bf41d402bcf4170ebf79e6f",
   kg_sources: "b58de462214da3ea6a64d8d5b32b3ac520334173ea78237e656aaa2c19760b3a",
   kg_stats: "2d67c2b9c7e565cc65131b595a7e2b840c5cd1d541ab116e2b27b852845b6c21"
@@ -509,7 +509,7 @@ test("registered tools use official execute signature and JSON text output", asy
   const stats = result.tools.find((tool) => tool.name === "kg_stats");
   const output = await stats.execute("call-1", {});
   assert.equal(Object.keys(output).length, 1);
-  assert.deepEqual(JSON.parse(output.content[0].text), { nodes: { total: 0, by_type: {} }, edges: { total: 0, by_type: {}, by_layer: { structural: 0, semantic: 0 } }, observations: { total: 0 }, density: 0, updated_at: null });
+  assert.deepEqual(JSON.parse(output.content[0].text), { nodes: { total: 0, by_type: {} }, edges: { total: 0, by_type: {}, by_layer: { structural: 0, semantic: 0 } }, observations: { total: 0 }, density: 0, updated_at: null, embedding_health: { configured: false, state: "disabled", fallback: { hybrid: "lexical_on_unavailable", semantic: "bounded_error" } } });
 });
 
 test("kg_related filters unsupported relationship types before graph traversal", async () => {

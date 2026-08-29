@@ -69,6 +69,8 @@ export * from "./intelligence/index.js";
 export * from "./cognition/index.js";
 export * from "./recall-lifecycle/repository.js";
 export * from "./identity.js";
+export * from "./hygiene/index.js";
+export * from "./embedding-health/index.js";
 export { Mnemora } from "./tools.js";
 
 export type SearchMode = "lexical" | "semantic" | "hybrid";
@@ -313,6 +315,14 @@ export interface MnemoraConfig {
     pprTolerance?: number;
     pprMaxNodes?: number;
     pprMaxArcs?: number;
+    /** Opt-in, review-only duplicate and relationship hygiene maintenance. */
+    hygiene?: {
+      enabled?: boolean;
+      intervalHours?: number;
+      maxDuplicateScanNodes?: number;
+      relatedToWarningRatio?: number;
+      relatedToWarningMinimumEdges?: number;
+    };
   };
   ingestion?: Partial<import("./types.js").IngestionConfig>;
   query?: import("./types.js").QueryConfig;
@@ -433,7 +443,8 @@ export const defaultConfig: MnemoraConfig = {
     pprMaxIterations: 20,
     pprTolerance: 1e-6,
     pprMaxNodes: 10000,
-    pprMaxArcs: 50000
+    pprMaxArcs: 50000,
+    hygiene: { enabled: false, intervalHours: 168, maxDuplicateScanNodes: 100, relatedToWarningRatio: .4, relatedToWarningMinimumEdges: 20 }
   },
   ingestion: { maxPayloadBytes: 2 * 1024 * 1024, maxBatchItems: 50, allowedFileExtensions: [".txt", ".md"], urlMaxPayloadBytes: 2 * 1024 * 1024, urlTimeoutMs: 15000, urlMaxRedirects: 5 },
   query: { maxSteps: 8, maxDepth: 4, maxResults: 50, maxNodes: 10000, maxEdges: 50000, timeoutMs: 10000, maxResponseBytes: 1048576, auditRetentionDays: 30, maxWatches: 100, maxDigestWatches: 25, maxImportBytes: 10485760, maxImportRecords: 1000 },

@@ -19,6 +19,7 @@ import { LocalReasoningSemanticProvider } from "./cognition/reasoning-semantic-e
 import { createEmbedder } from "./embeddings.js";
 import type { CompletedTurn, ContextAssemblyInput } from "./context-engine/lifecycle.js";
 import { sessionWriteDisposition } from "./journal/session-policy.js";
+import { GraphHygieneService } from "./hygiene/service.js";
 
 type Scalar = string | number | boolean | null | undefined;
 type SdkLogger = { debug?(message: string, fields?: Record<string, unknown>): void; info?(message: string, fields?: Record<string, unknown>): void; warn?(message: string, fields?: Record<string, unknown>): void };
@@ -202,6 +203,23 @@ export class PluginRuntime {
     finally { graph.close(); }
   }
 
+  /** Opt-in review maintenance after a durable turn; no graph fact is ever changed here. */
+  runGraphHygiene(): void {
+    if (!this.config.quality?.hygiene?.enabled) return;
+    const graph = this.openGraph();
+    try {
+      const policy = this.config.quality.hygiene;
+      const result = new GraphHygieneService(graph.store).run({ scope: this.config.scope!.default!, policy: {
+        intervalHours: policy.intervalHours ?? 168,
+        maxDuplicateScanNodes: policy.maxDuplicateScanNodes ?? 100,
+        relatedToWarningRatio: policy.relatedToWarningRatio ?? .4,
+        relatedToWarningMinimumEdges: policy.relatedToWarningMinimumEdges ?? 20
+      } });
+      if (result.status !== "not_due") this.logger.info?.("graph hygiene completed", { status: result.status, duplicateCandidates: result.report.pending_duplicate_candidates, selfLinks: result.report.suspicious_self_links });
+    } catch { this.logger.warn?.("graph hygiene failed", { category: "operation_failed" }); }
+    finally { graph.close(); }
+  }
+
   /** Curation is intentionally post-commit and host-runtime only. The model
    * can create advisory records, never a strategy mutation or admission. */
   async runReasoningCuration(turn: CompletedTurn): Promise<void> {
@@ -269,6 +287,7 @@ export class PluginRuntime {
     this.runConsolidation();
     this.runReflection();
     this.runReasoningVerification();
+    this.runGraphHygiene();
     await this.runReasoningIntake(turn, receipt);
     await this.runReasoningCuration(turn);
   }

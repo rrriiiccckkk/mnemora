@@ -128,9 +128,35 @@ The `unified` section reports the real ContextEngine attachment path; it does
 not alter retrieval or injection. Set `diversityLambda: 1` to retain score-only
 ordering, or keep the default `0.75` for modest deterministic diversification.
 
+### Graph hygiene and local embedding health
+
+`kg_review` with `kind: "hygiene"` returns a scope-local, read-only report for
+`related_to` overuse and suspicious self-links. With `scan: true`, it performs
+one bounded duplicate-candidate slice; it never merges entities, deletes an
+edge, or changes evidence. Enable the same bounded review after durable turns
+only when you want the weekly schedule:
+
+```json5
+quality: {
+  hygiene: {
+    enabled: true,
+    intervalHours: 168,
+    maxDuplicateScanNodes: 100
+  }
+}
+```
+
+`kg_stats` includes `embedding_health`, an observed local status rather than a
+live provider probe. `healthy` and `degraded` are based only on bounded local
+embedding successes or categorical failures; `hybrid` search deterministically
+falls back to lexical results, while explicit `semantic` search returns a
+bounded unavailable error.
+
 ### Optional services
 
 - `embeddings.enabled`: local Ollama semantic retrieval (disabled by default).
+- `quality.hygiene.enabled`: schedules bounded, review-only duplicate scanning
+  after durable turns (disabled by default); merges remain preview/confirm.
 - `extraction.enabled`: bounded OpenAI-compatible relationship extraction
   (disabled by default).
 - `contextEngine.compaction.enabled`: source-linked model compaction

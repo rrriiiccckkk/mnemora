@@ -90,7 +90,7 @@ test("schema v67 preserves every v65 circuit field while widening its reason con
     try {
       const circuit = new ReasoningDeliveryFeedbackRepository(migrated.db, () => 30_001).circuit(state.scope, state.memory.id), table = migrated.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='mnemora_reasoning_memory_delivery_circuits'").get(), index = migrated.db.prepare("SELECT tbl_name FROM sqlite_master WHERE type='index' AND name='idx_mnemora_reasoning_memory_circuits_scope_open'").get();
       assert.equal(SUPPORTED_SCHEMA_VERSION, 71);
-      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 70);
+      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
       assert.deepEqual(circuit, { scope: state.scope, memoryId: state.memory.id, open: true, reason: "harmful_task_outcome", openedAt: 30_000, updatedAt: 30_000 });
       assert.match(String(table.sql), /verification_mismatch/);
       assert.equal(index.tbl_name, "mnemora_reasoning_memory_delivery_circuits");
@@ -146,7 +146,7 @@ test("schema v67 preserves v66 verification events while adding the terminal exp
     const migrated = new GraphologyStore(path);
     try {
       const event = new ReasoningVerificationService(migrated.db, () => 50_001).events(state.scope)[0], table = migrated.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='mnemora_reasoning_runtime_verification_events'").get();
-      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 70);
+      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
       assert.equal(event.status, "pending");
       assert.match(String(table.sql), /'expired'/);
       assert.equal(migrated.db.prepare("PRAGMA foreign_key_check").all().length, 0);

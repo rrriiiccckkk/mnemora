@@ -47,7 +47,7 @@ test("schema v41 adds the outcome ledger without rebuilding v40 data", () => {
     legacy.close(); legacy = undefined;
     const migrated = new GraphologyStore(path);
     try {
-      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 70);
+      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='mnemora_task_outcomes'").get().count, 1);
     } finally { migrated.close(); }
   } finally { try { legacy?.close(); } catch {} try { rmSync(path, { force: true }); } catch {} }

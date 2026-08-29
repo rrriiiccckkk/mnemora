@@ -2,7 +2,7 @@
   "id": "mnemora",
   "name": "Mnemora",
   "description": "Evidence-first personal memory harness for persistent OpenClaw agents.",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -458,7 +458,18 @@
           "pprMaxIterations": { "type": "number", "default": 20, "minimum": 1, "maximum": 100 },
           "pprTolerance": { "type": "number", "default": 0.000001, "minimum": 1e-12, "maximum": 0.1 },
           "pprMaxNodes": { "type": "number", "default": 10000, "minimum": 1, "maximum": 10000 },
-          "pprMaxArcs": { "type": "number", "default": 50000, "minimum": 1, "maximum": 50000 }
+          "pprMaxArcs": { "type": "number", "default": 50000, "minimum": 1, "maximum": 50000 },
+          "hygiene": {
+            "type": "object", "additionalProperties": false,
+            "description": "Opt-in bounded graph hygiene. It creates duplicate review candidates only; it never merges entities, deletes edges, or changes evidence.",
+            "properties": {
+              "enabled": { "type": "boolean", "default": false },
+              "intervalHours": { "type": "integer", "default": 168, "minimum": 1, "maximum": 720 },
+              "maxDuplicateScanNodes": { "type": "integer", "default": 100, "minimum": 1, "maximum": 500 },
+              "relatedToWarningRatio": { "type": "number", "default": 0.4, "minimum": 0, "maximum": 1 },
+              "relatedToWarningMinimumEdges": { "type": "integer", "default": 20, "minimum": 1, "maximum": 10000 }
+            }
+          }
         }
       },
       "ingestion": {

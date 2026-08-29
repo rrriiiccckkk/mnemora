@@ -137,7 +137,7 @@ const configSchema = Type.Object({
       minImportance: Type.Optional(Type.Number({ default: .5, minimum: 0, maximum: 1 }))
     }, { additionalProperties: false }))
   }, { additionalProperties: false })),
-  unifiedRetrieval: Type.Optional(Type.Object({ enabled: Type.Optional(Type.Boolean({ default: false })), shadowMode: Type.Optional(Type.Boolean({ default: false })), tokenBudget: Type.Optional(Type.Integer({ default: 800, minimum: 64, maximum: 8000 })), maxItems: Type.Optional(Type.Integer({ default: 8, minimum: 1, maximum: 20 })), minConfidence: Type.Optional(Type.Number({ default: .6, minimum: 0, maximum: 1 })), maxStalenessDays: Type.Optional(Type.Integer({ default: 36500, minimum: 1, maximum: 36500 })) }, { additionalProperties: false })),
+  unifiedRetrieval: Type.Optional(Type.Object({ enabled: Type.Optional(Type.Boolean({ default: false })), shadowMode: Type.Optional(Type.Boolean({ default: false })), tokenBudget: Type.Optional(Type.Integer({ default: 800, minimum: 64, maximum: 8000 })), maxItems: Type.Optional(Type.Integer({ default: 8, minimum: 1, maximum: 20 })), diversityLambda: Type.Optional(Type.Number({ default: .75, minimum: 0, maximum: 1 })), minConfidence: Type.Optional(Type.Number({ default: .6, minimum: 0, maximum: 1 })), maxStalenessDays: Type.Optional(Type.Integer({ default: 36500, minimum: 1, maximum: 36500 })) }, { additionalProperties: false })),
   embeddings: Type.Optional(Type.Object({ enabled: Type.Optional(Type.Boolean({ default: false })), provider: Type.Optional(Type.Literal("ollama", { default: "ollama" })), baseURL: Type.Optional(Type.String({ default: "http://127.0.0.1:11434" })), model: Type.Optional(Type.String({ default: "qwen3-embedding:4b" })), timeoutMs: Type.Optional(Type.Number({ default: 10000, minimum: 1000, maximum: 120000 })), batchSize: Type.Optional(Type.Number({ default: 16, minimum: 1, maximum: 128 })), maxInputChars: Type.Optional(Type.Number({ default: 16000, minimum: 256, maximum: 100000 })), queryCacheSize: Type.Optional(Type.Number({ default: 256, minimum: 0, maximum: 4096 })), maxVectorScanNodes: Type.Optional(Type.Number({ default: 10000, minimum: 100, maximum: 100000 })) }, { additionalProperties: false })),
   insights: Type.Optional(Type.Object({
     maxNodes: Type.Optional(Type.Number({ default: 10000, minimum: 1, maximum: 10000 })),
@@ -171,7 +171,14 @@ const configSchema = Type.Object({
     pprMaxIterations: Type.Optional(Type.Number({ default: 20, minimum: 1, maximum: 100 })),
     pprTolerance: Type.Optional(Type.Number({ default: 1e-6, minimum: 1e-12, maximum: .1 })),
     pprMaxNodes: Type.Optional(Type.Number({ default: 10000, minimum: 1, maximum: 10000 })),
-    pprMaxArcs: Type.Optional(Type.Number({ default: 50000, minimum: 1, maximum: 50000 }))
+    pprMaxArcs: Type.Optional(Type.Number({ default: 50000, minimum: 1, maximum: 50000 })),
+    hygiene: Type.Optional(Type.Object({
+      enabled: Type.Optional(Type.Boolean({ default: false })),
+      intervalHours: Type.Optional(Type.Integer({ default: 168, minimum: 1, maximum: 720 })),
+      maxDuplicateScanNodes: Type.Optional(Type.Integer({ default: 100, minimum: 1, maximum: 500 })),
+      relatedToWarningRatio: Type.Optional(Type.Number({ default: .4, minimum: 0, maximum: 1 })),
+      relatedToWarningMinimumEdges: Type.Optional(Type.Integer({ default: 20, minimum: 1, maximum: 10000 }))
+    }, { additionalProperties: false }))
   }, { additionalProperties: false })),
   ingestion: Type.Optional(Type.Object({
     maxPayloadBytes: Type.Optional(Type.Number({ default: 2097152, minimum: 1, maximum: 10485760 })),

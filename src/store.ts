@@ -982,10 +982,11 @@ export class GraphologyStore {
       : this.db.prepare("SELECT 1 FROM kg_observations WHERE source=? AND scope=? LIMIT 1").get(source, normalizeScope(scope)) != null;
   }
 
-  scanDuplicateCandidates(afterId?: string, limit = 100, options: { persistCursor?: boolean } = {}): DuplicateScanResult {
+  scanDuplicateCandidates(afterId?: string, limit = 100, options: { persistCursor?: boolean; stateKey?: string } = {}): DuplicateScanResult {
     const bounded = Math.min(500, Math.max(1, Math.trunc(limit)));
+    const stateKey = options.stateKey ?? "duplicate_scan";
     const savedCursor = options.persistCursor
-      ? (this.db.prepare("SELECT value FROM kg_maintenance_state WHERE key='duplicate_scan_cursor'").get() as { value: string } | undefined)?.value
+      ? (this.db.prepare("SELECT value FROM kg_maintenance_state WHERE key=?").get(`${stateKey}_cursor`) as { value: string } | undefined)?.value
       : undefined;
     const cursor = afterId ?? savedCursor ?? "";
     const rows = this.db.prepare("SELECT * FROM kg_nodes WHERE deleted_at IS NULL AND id>? ORDER BY id LIMIT ?").all(cursor, bounded) as NodeRow[];
@@ -994,10 +995,10 @@ export class GraphologyStore {
     const next = rows.at(-1)?.id;
     const complete = rows.length < bounded || !next || this.db.prepare("SELECT 1 FROM kg_nodes WHERE deleted_at IS NULL AND id>? LIMIT 1").get(next) == null;
     if (options.persistCursor) {
-      this.db.prepare("INSERT INTO kg_maintenance_state(key,value,updated_at) VALUES('duplicate_scan_cursor',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
-        .run(complete ? "" : next, now);
-      if (complete) this.db.prepare("INSERT INTO kg_maintenance_state(key,value,updated_at) VALUES('duplicate_scan_completed_at',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
-        .run(String(now), now);
+      this.db.prepare("INSERT INTO kg_maintenance_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
+        .run(`${stateKey}_cursor`, complete ? "" : next, now);
+      if (complete) this.db.prepare("INSERT INTO kg_maintenance_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
+        .run(`${stateKey}_completed_at`, String(now), now);
     }
     return { processed: rows.length, created: outcome.created, updated: outcome.updated, ...(complete || !next ? {} : { next_after_id: next }), complete };
   }

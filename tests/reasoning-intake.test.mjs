@@ -142,7 +142,7 @@ test("v69 intake migration restores only the new candidate table and preserves p
     const decision = decisions.confirm(input, decisions.preview(input).preview_hash);
     store.db.exec("DROP TABLE mnemora_reasoning_intake_candidates; PRAGMA user_version=68");
     store.close(); store = new GraphologyStore(path);
-    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 70);
+    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name='mnemora_reasoning_intake_candidates'").get().value, 1);
     assert.equal(new DecisionMemoryService(store.db).get(decision.id, "project:alpha").id, decision.id);
   } finally { try { store?.close(); } catch {} try { rmSync(directory, { recursive: true, force: true }); } catch {} }

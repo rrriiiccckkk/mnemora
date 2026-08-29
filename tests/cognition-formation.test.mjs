@@ -66,7 +66,7 @@ test("later additive cognition migrations preserve a v34 formation database", ()
     legacy.close(); legacy = undefined;
     const migrated = new GraphologyStore(path);
     try {
-      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 70);
+      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='mnemora_beliefs'").get().n, 1);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='mnemora_cognition_change_sets'").get().n, 1);
     } finally { migrated.close(); }

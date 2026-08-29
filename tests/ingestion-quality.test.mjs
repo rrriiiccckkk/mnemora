@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { GraphologyStore } from "../dist/store.js";
+import { SUPPORTED_SCHEMA_VERSION } from "../dist/schema.js";
 
 const entity = (name, type, confidence = .95) => ({ name, type, confidence, evidence_span: name });
 const relation = (source, target, type, confidence = .95) => ({ source, target, type, confidence, evidence_span: `${source} ${type} ${target}` });
@@ -79,7 +80,7 @@ test("node importance combines evidence quality and independent sources instead 
 
     store.db.exec("PRAGMA user_version=47");
     store.migrate();
-    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 70);
+    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
     assert.equal(store.search("Repeated")[0].node.importance, repeated);
   } finally { store.close(); }
 });

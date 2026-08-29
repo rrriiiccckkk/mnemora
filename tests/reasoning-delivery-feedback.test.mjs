@@ -113,7 +113,7 @@ test("schema v64 migration is additive and preserves prior reasoning memories", 
     const migrated = new GraphologyStore(path);
     try {
       assert.equal(SUPPORTED_SCHEMA_VERSION, 71);
-      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 70);
+      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM mnemora_reasoning_memories WHERE id=?").get(memoryId).value, 1);
       for (const table of ["mnemora_reasoning_runtime_delivery_items", "mnemora_reasoning_memory_delivery_circuits", "mnemora_reasoning_runtime_delivery_feedback_events", "mnemora_reasoning_runtime_delivery_item_corrections"]) assert.equal(migrated.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name=?").get(table).value, 1);
     } finally { migrated.close(); }

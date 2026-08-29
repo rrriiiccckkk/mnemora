@@ -57,7 +57,7 @@ test("decision memory rejects cross-scope evidence and remains readable after la
     legacy.close(); legacy = undefined;
     const migrated = new GraphologyStore(path);
     try {
-    assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 70);
+    assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='mnemora_decisions'").get().n, 1);
     } finally { migrated.close(); }
   } finally { try { legacy?.close(); } catch {} try { rmSync(path, { force: true }); } catch {} }

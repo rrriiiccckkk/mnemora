@@ -103,9 +103,31 @@ mnemora recall metrics --scope default
 设为 `diversityLambda: 1` 可保留纯分数排序；保留默认 `0.75` 则启用适度、确定性的
 多样化。
 
+### 图谱卫生与本地 embedding 健康状态
+
+通过 `kg_review` 的 `kind: "hygiene"` 可读取 scope 隔离的 `related_to` 过度使用
+与可疑自链接报告。传入 `scan: true` 时，只执行一个有界的重复实体候选扫描切片；
+不会合并实体、删除边或修改证据。只有需要每周在 durable turn 后自动执行该审查时，
+才显式开启：
+
+```json5
+quality: {
+  hygiene: {
+    enabled: true,
+    intervalHours: 168,
+    maxDuplicateScanNodes: 100
+  }
+}
+```
+
+`kg_stats` 的 `embedding_health` 是已观察到的本地状态，不会为读取状态发起 Provider
+探测。`healthy`/`degraded` 只取决于有界 embedding 成功或类别化失败；`hybrid` 搜索会
+确定性地退回词法结果，显式 `semantic` 搜索则返回有界的不可用错误。
+
 ### 可选服务
 
 - `embeddings.enabled`：使用本地 Ollama 的语义检索，默认关闭。
+- `quality.hygiene.enabled`：在 durable turn 后调度有界、只审查的重复实体扫描，默认关闭；实体合并仍需 preview/confirm。
 - `extraction.enabled`：有边界的 OpenAI-compatible 关系抽取，默认关闭。
 - `contextEngine.compaction.enabled`：带来源的模型压缩，默认关闭。
 - `cognition.admission.mode: "enforce"`：确定性候选策略；Belief 和 enforcement 仍需各自显式开启。

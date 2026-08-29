@@ -358,6 +358,8 @@ export interface KgStatsResult {
   observations: { total: number };
   density: number;
   updated_at: number | null;
+  /** Mnemora's public projection adds local provider health; Store totals stay usable alone. */
+  embedding_health?: import("./embedding-health/repository.js").EmbeddingHealthStatus;
 }
 
 export interface KgContextResult {

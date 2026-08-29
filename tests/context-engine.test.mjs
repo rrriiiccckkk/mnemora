@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { GraphologyStore } from "../dist/store.js";
+import { SUPPORTED_SCHEMA_VERSION } from "../dist/schema.js";
 import { Mnemora } from "../dist/tools.js";
 import { ConversationEventRepository } from "../dist/journal/repository.js";
 import { SummaryRepository } from "../dist/context-engine/summary-repository.js";
@@ -21,7 +22,7 @@ const event = (repo, input) => repo.append({ scope: "project-a", sessionId: "ses
 test("v29 summary DAG preserves recoverable source events and rejects cycles or incomplete tool pairs", () => {
   const store = new GraphologyStore(":memory:");
   try {
-    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 70);
+    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
     const journal = new ConversationEventRepository(store.db, policy), summaries = new SummaryRepository(store.db, policy);
     const first = event(journal, "first durable fact"), second = event(journal, "second durable fact");
     const summary = summaries.create({ scope: "project-a", sessionId: "session-a", eventIds: [first.id, second.id], content: "first and second", maxChars: 100 });
@@ -98,7 +99,7 @@ test("v6.3 schema migration is additive and preserves existing journal evidence"
     store.db.exec("DROP TABLE mnemora_compaction_runs");
     store.db.exec("PRAGMA user_version=48");
     store.close(); store = new GraphologyStore(dbPath);
-    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 70);
+    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM mnemora_compaction_runs").get().n, 0);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM mnemora_conversation_events").get().n, 1);
   } finally { try { store?.close(); } catch {} try { rmSync(directory, { recursive: true, force: true }); } catch {} }
@@ -110,7 +111,7 @@ test("v6.7 replay-flood migration is additive and preserves journal evidence", (
     store = new GraphologyStore(dbPath);
     new ConversationEventRepository(store.db, policy).append({ scope: "default", sessionId: "s", kind: "user_message", role: "user", parts: [{ type: "text", text: "existing evidence" }] });
     store.db.exec("DROP TABLE mnemora_replay_flood_guards; PRAGMA user_version=49"); store.close(); store = new GraphologyStore(dbPath);
-    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 70);
+    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM mnemora_replay_flood_guards").get().n, 0);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM mnemora_conversation_events").get().n, 1);
   } finally { try { store?.close(); } catch {} try { rmSync(directory, { recursive: true, force: true }); } catch {} }
@@ -122,7 +123,7 @@ test("v6.11 replay cleanup migration is additive and preserves existing journal 
     store = new GraphologyStore(dbPath);
     new ConversationEventRepository(store.db, policy).append({ scope: "default", sessionId: "s", kind: "user_message", role: "user", parts: [{ type: "text", text: "existing evidence" }] });
     store.db.exec("DROP INDEX idx_mnemora_replay_flood_guards_scope_seen; PRAGMA user_version=50"); store.close(); store = new GraphologyStore(dbPath);
-    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 70);
+    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='index' AND name='idx_mnemora_replay_flood_guards_scope_seen'").get().n, 1);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM mnemora_conversation_events").get().n, 1);
   } finally { try { store?.close(); } catch {} try { rmSync(directory, { recursive: true, force: true }); } catch {} }
