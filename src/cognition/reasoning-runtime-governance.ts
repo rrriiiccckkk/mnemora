@@ -12,6 +12,7 @@ export interface ReasoningDeliveryConfig { enabled: boolean; scopes: string[]; a
 export interface ReasoningRuntimeGovernanceConfig extends ReasoningRuntimeTelemetryConfig { delivery: ReasoningDeliveryConfig; semantic?: { enabled: boolean; timeoutMs: number; minScore: number; maxCandidates: number; }; }
 export interface ReasoningRuntimeCalibration { id: string; scope: string; policyHash: string; status: "ready" | "rejected"; createdAt: number; expiresAt: number; metrics: { runs: number; triggered: number; selected: number; emptyRate: number; errorRate: number; p95Ms: number; }; }
 export interface ReasoningRuntimeCanaryStatus { version: "reasoning-runtime-canary-v1"; scope: string; configured: boolean; active: boolean; circuitOpen: boolean; reason: string; calibration?: ReasoningRuntimeCalibration; recentDeliveries: number; harmfulFeedback: number; }
+export interface ReasoningRuntimePolicySnapshot { version: "reasoning-runtime-policy-snapshot-v1"; scope: string; policyHash: string; observedAt: number; config: ReasoningRuntimeGovernanceConfig; }
 export interface ReasoningDeliveryResult { appendSystemContext: string; deliveryRunId: string; deliveryItemRefs: string[]; }
 
 type CalibrationPreview = { version: "reasoning-runtime-calibration-preview-v1"; scope: string; policyHash: string; status: "ready" | "rejected"; metrics: ReasoningRuntimeCalibration["metrics"]; preview_hash: string; };
@@ -20,6 +21,34 @@ type CalibrationPreview = { version: "reasoning-runtime-calibration-preview-v1";
 export class ReasoningRuntimeGovernanceRepository {
   private readonly telemetry: ReasoningRuntimeTelemetryRepository;
   constructor(private readonly db: DatabaseSyncInstance, private readonly now: () => number = Date.now) { this.telemetry = new ReasoningRuntimeTelemetryRepository(db, now); }
+
+  /** A runtime writes only normalized policy controls. This lets the local
+   * operator use the exact live settings without reading host configuration. */
+  observePolicy(scope: string, config: ReasoningRuntimeGovernanceConfig): ReasoningRuntimePolicySnapshot {
+    const normalized = normalizeScope(scope), safe = canonicalPolicy(config), policyHash = reasoningRuntimePolicyHash(safe), observedAt = this.now();
+    this.db.prepare("INSERT INTO mnemora_reasoning_runtime_policy_snapshots(scope,policy_hash,policy_json,observed_at) VALUES(?,?,?,?) ON CONFLICT(scope) DO UPDATE SET policy_hash=excluded.policy_hash,policy_json=excluded.policy_json,observed_at=excluded.observed_at").run(normalized, policyHash, JSON.stringify(safe), observedAt);
+    return { version: "reasoning-runtime-policy-snapshot-v1", scope: normalized, policyHash, observedAt, config: safe };
+  }
+
+  policySnapshot(scope: string): ReasoningRuntimePolicySnapshot | undefined {
+    const normalized = normalizeScope(scope), row = this.db.prepare("SELECT policy_hash,policy_json,observed_at FROM mnemora_reasoning_runtime_policy_snapshots WHERE scope=?").get(normalized) as Record<string, unknown> | undefined;
+    const config = row ? parsePolicy(row.policy_json) : undefined;
+    if (!row || !config || typeof row.policy_hash !== "string" || row.policy_hash !== reasoningRuntimePolicyHash(config) || !Number.isSafeInteger(Number(row.observed_at))) return undefined;
+    return { version: "reasoning-runtime-policy-snapshot-v1", scope: normalized, policyHash: row.policy_hash, observedAt: Number(row.observed_at), config };
+  }
+
+  diagnostics(scope: string) {
+    const normalized = normalizeScope(scope), snapshot = this.policySnapshot(normalized), metrics = this.telemetry.metrics(normalized), readiness = snapshot ? this.telemetry.readiness(normalized, snapshot.config.readiness) : undefined, denominator = Math.max(1, metrics.triggered), exclusions = { query: metrics.unmatched, taskType: metrics.taskTypeExcluded, quality: metrics.qualityExcluded }, dominant = (Object.entries(exclusions).sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))[0] ?? ["none", 0]) as ["query" | "taskType" | "quality" | "none", number], feedback = new ReasoningDeliveryFeedbackRepository(this.db, this.now).summary(normalized);
+    return {
+      version: "reasoning-runtime-diagnostics-v1" as const,
+      scope: normalized,
+      policy: snapshot ? { status: "observed" as const, policyHash: snapshot.policyHash, observedAt: snapshot.observedAt } : { status: "not_observed" as const },
+      readiness: snapshot ? readiness! : { ready: false, reasons: ["policy_not_observed"], metrics, deliveryEnabled: false },
+      retrieval: { candidatesPerTriggeredRun: ratio(metrics.candidates, denominator), selectedPerTriggeredRun: ratio(metrics.selected, denominator), semanticCandidatesPerTriggeredRun: ratio(metrics.semanticCandidates, denominator), queryMissesPerTriggeredRun: ratio(metrics.unmatched, denominator), taskTypeExclusionsPerTriggeredRun: ratio(metrics.taskTypeExcluded, denominator), dominantExclusion: dominant[1] ? dominant[0] : "none" },
+      delivery: { configured: snapshot ? deliveryConfigured(normalized, snapshot.config.delivery) : false, ...(snapshot ? { canary: this.status(normalized, snapshot.config) } : {}), feedback },
+      efficacy: { status: "not_measured" as const, requirement: "operator_declared_randomized_dataset" as const }
+    };
+  }
 
   previewCalibration(scope: string, config: ReasoningRuntimeGovernanceConfig): CalibrationPreview {
     const normalized = normalizeScope(scope), readiness = this.telemetry.readiness(normalized, config.readiness), metrics = { runs: readiness.metrics.runs, triggered: readiness.metrics.triggered, selected: readiness.metrics.selected, emptyRate: readiness.metrics.emptyRate, errorRate: readiness.metrics.errorRate, p95Ms: readiness.metrics.p95Ms }, value = { version: "reasoning-runtime-calibration-preview-v1" as const, scope: normalized, policyHash: reasoningRuntimePolicyHash(config), status: readiness.ready ? "ready" as const : "rejected" as const, metrics };
@@ -112,10 +141,31 @@ export class ReasoningGovernedDeliveryService {
   }
 }
 
-export function reasoningRuntimePolicyHash(config: ReasoningRuntimeGovernanceConfig): string { return digest({ version: "reasoning-runtime-policy-v1", tokenBudget: config.tokenBudget, maxItems: config.maxItems, minConfidence: config.minConfidence, highRiskMinConfidence: config.highRiskMinConfidence, minEvidenceQuality: config.minEvidenceQuality, highRiskMinEvidenceQuality: config.highRiskMinEvidenceQuality, maxStalenessDays: config.maxStalenessDays, excludeConflicted: config.excludeConflicted, readiness: config.readiness, adapter: config.delivery.adapter, maxConsecutiveDeliveries: config.delivery.maxConsecutiveDeliveries, itemRetentionDays: config.delivery.itemRetentionDays, semantic: config.semantic ?? { enabled: false } }); }
+export function reasoningRuntimePolicyHash(config: ReasoningRuntimeGovernanceConfig): string { const safe = canonicalPolicy(config); return digest({ version: "reasoning-runtime-policy-v1", tokenBudget: safe.tokenBudget, maxItems: safe.maxItems, minConfidence: safe.minConfidence, highRiskMinConfidence: safe.highRiskMinConfidence, minEvidenceQuality: safe.minEvidenceQuality, highRiskMinEvidenceQuality: safe.highRiskMinEvidenceQuality, maxStalenessDays: safe.maxStalenessDays, excludeConflicted: safe.excludeConflicted, readiness: safe.readiness, adapter: safe.delivery.adapter, maxConsecutiveDeliveries: safe.delivery.maxConsecutiveDeliveries, itemRetentionDays: safe.delivery.itemRetentionDays, semantic: safe.semantic ?? { enabled: false } }); }
 function fitPresentation(context: CompiledReasoningContext, tokenBudget: number, adapter: "openclaw", planned: Array<{ id: string; memoryId: string }>): { content: string; tokens: number; items: number } | undefined { const registry = new ReasoningAgentAdapterRegistry(); for (let count = context.items.length; count > 0; count--) { const selected = context.items.slice(0, count).map((item, index) => ({ ...item, deliveryItemRef: planned[index] ? createMnemoraContextRef({ scope: context.scope, kind: "reasoning-delivery-item", id: planned[index].id }) : undefined })), rendered = registry.render(adapter, { ...context, items: selected, estimatedTokens: selected.reduce((sum, item) => sum + item.estimatedTokens, 0) }); if (rendered.estimatedTokens <= tokenBudget) return { content: rendered.content, tokens: rendered.estimatedTokens, items: selected.length }; } return undefined; }
 function deliveryConfigured(scope: string, config: ReasoningDeliveryConfig): boolean { return config.enabled && config.scopes.length > 0 && config.scopes.includes(scope); }
 function calibration(row: Record<string, unknown>): ReasoningRuntimeCalibration { return { id: String(row.id), scope: normalizeScope(row.scope), policyHash: String(row.policy_hash), status: row.status === "ready" ? "ready" : "rejected", createdAt: Number(row.created_at), expiresAt: Number(row.expires_at), metrics: { runs: integer(row.total_runs, 5000), triggered: integer(row.triggered_runs, 5000), selected: integer(row.selected_count, 100000), emptyRate: unit(row.empty_rate), errorRate: unit(row.error_rate), p95Ms: integer(row.p95_ms, 30000) } }; }
 function integer(value: unknown, maximum: number): number { const number = Number(value); return Number.isFinite(number) ? Math.min(maximum, Math.max(0, Math.trunc(number))) : 0; }
 function unit(value: unknown): number { const number = Number(value); return Number.isFinite(number) ? Math.min(1, Math.max(0, number)) : 0; }
+function ratio(value: number, total: number): number { return total ? Number((value / total).toFixed(4)) : 0; }
 function digest(value: unknown): string { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
+
+function canonicalPolicy(config: ReasoningRuntimeGovernanceConfig): ReasoningRuntimeGovernanceConfig {
+  return {
+    tokenBudget: integer(config.tokenBudget, 1600), maxItems: integer(config.maxItems, 12), minConfidence: unit(config.minConfidence), highRiskMinConfidence: unit(config.highRiskMinConfidence), minEvidenceQuality: unit(config.minEvidenceQuality), highRiskMinEvidenceQuality: unit(config.highRiskMinEvidenceQuality), maxStalenessDays: integer(config.maxStalenessDays, 3650), excludeConflicted: config.excludeConflicted !== false, retentionDays: integer(config.retentionDays, 365),
+    readiness: { minimumRuns: integer(config.readiness?.minimumRuns, 5000), maxErrorRate: unit(config.readiness?.maxErrorRate), maxEmptyRate: unit(config.readiness?.maxEmptyRate), maxP95Ms: integer(config.readiness?.maxP95Ms, 30000) },
+    delivery: { enabled: config.delivery?.enabled === true, scopes: scopeList(config.delivery?.scopes), adapter: "openclaw", calibrationMaxAgeHours: integer(config.delivery?.calibrationMaxAgeHours, 720), maxConsecutiveDeliveries: integer(config.delivery?.maxConsecutiveDeliveries, 10), itemRetentionDays: integer(config.delivery?.itemRetentionDays, 365) },
+    semantic: { enabled: config.semantic?.enabled === true, timeoutMs: integer(config.semantic?.timeoutMs, 15000), minScore: unit(config.semantic?.minScore), maxCandidates: integer(config.semantic?.maxCandidates, 50) }
+  };
+}
+
+function parsePolicy(value: unknown): ReasoningRuntimeGovernanceConfig | undefined {
+  try {
+    const parsed = JSON.parse(String(value)) as Record<string, unknown>;
+    if (!record(parsed) || !record(parsed.readiness) || !record(parsed.delivery) || !record(parsed.semantic) || !finiteFields(parsed, ["tokenBudget", "maxItems", "minConfidence", "highRiskMinConfidence", "minEvidenceQuality", "highRiskMinEvidenceQuality", "maxStalenessDays", "retentionDays"]) || !finiteFields(parsed.readiness, ["minimumRuns", "maxErrorRate", "maxEmptyRate", "maxP95Ms"]) || !finiteFields(parsed.delivery, ["calibrationMaxAgeHours", "maxConsecutiveDeliveries", "itemRetentionDays"]) || !finiteFields(parsed.semantic, ["timeoutMs", "minScore", "maxCandidates"]) || typeof parsed.excludeConflicted !== "boolean" || typeof parsed.delivery.enabled !== "boolean" || typeof parsed.semantic.enabled !== "boolean" || !Array.isArray(parsed.delivery.scopes) || parsed.delivery.scopes.some(value => typeof value !== "string")) return undefined;
+    return canonicalPolicy(parsed as unknown as ReasoningRuntimeGovernanceConfig);
+  } catch { return undefined; }
+}
+function record(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
+function finiteFields(value: Record<string, unknown>, fields: string[]): boolean { return fields.every(field => Number.isFinite(Number(value[field]))); }
+function scopeList(value: unknown): string[] { if (!Array.isArray(value)) return []; const scopes = new Set<string>(); for (const item of value) { if (typeof item !== "string") continue; try { scopes.add(normalizeScope(item)); } catch {} } return [...scopes].sort().slice(0, 20); }

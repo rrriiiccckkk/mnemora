@@ -11,7 +11,7 @@ import type { ContextEngine, ContextEngineFactoryContext } from "openclaw/plugin
 import { ConsolidationService } from "./consolidation/service.js";
 import { ReflectionService } from "./cognition/reflection.js";
 import { ReasoningRuntimeShadowService, type ReasoningRuntimeTelemetryConfig } from "./cognition/reasoning-runtime-telemetry.js";
-import { ReasoningGovernedDeliveryService, type ReasoningRuntimeGovernanceConfig } from "./cognition/reasoning-runtime-governance.js";
+import { ReasoningGovernedDeliveryService, ReasoningRuntimeGovernanceRepository, type ReasoningRuntimeGovernanceConfig } from "./cognition/reasoning-runtime-governance.js";
 import { ReasoningVerificationService } from "./cognition/reasoning-verification.js";
 import { ReasoningCurationService, type ReasoningFormationConfig, type ReasoningReviewConfig } from "./cognition/reasoning-curation.js";
 import { ReasoningIntakeService, type ReasoningIntakeConfig } from "./cognition/reasoning-intake.js";
@@ -301,6 +301,10 @@ export class PluginRuntime {
       const signal = input.signal ?? this.shutdown.signal;
       const embeddingConfig = this.config.embeddings as EmbeddingConfig;
       const semantic = config.semantic?.enabled && embeddingConfig.enabled ? new LocalReasoningSemanticProvider(graph.store.db, createEmbedder(embeddingConfig), { minScore: config.semantic.minScore, maxVectorScan: embeddingConfig.maxVectorScanNodes }) : undefined;
+      // The snapshot contains only normalized policy controls. It lets the
+      // local operator calibrate the exact live runtime without reading host
+      // configuration, and never records this request or any retrieved item.
+      new ReasoningRuntimeGovernanceRepository(graph.store.db).observePolicy(this.config.scope!.default!, config);
       if (!this.reasoningDeliveryEnabled) {
         const shadow = new ReasoningRuntimeShadowService(graph.store.db, config as ReasoningRuntimeTelemetryConfig);
         if (semantic) await shadow.captureWithSemantic({ scope: this.config.scope!.default!, query: input.query, signal }, semantic, config.semantic!.timeoutMs, config.semantic!.maxCandidates); else shadow.capture({ scope: this.config.scope!.default!, query: input.query, signal });

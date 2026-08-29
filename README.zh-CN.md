@@ -157,6 +157,16 @@ cognition: {
 
 每次投递的策略都会被包裹为 `non_authoritative_reference`，并获得一条短期回执。operator 可以把回执标为 helpful/neutral/harmful；或由 operator 确认的任务 outcome 显式引用回执，形成确定性反馈。harmful 信号只会抑制该 scope 下的这一条策略。`effectiveStatus` 只表示最新回执信号，不代表可以重新投递；memory circuit 必须由 operator 显式 reset 才会关闭，处于关闭前状态的 item 会标出 `requiresOperatorReset`。reset 会新增一条仅追加的 item correction，保留原有 harmful 历史。它不会把策略变成 belief、事实或图谱边，也不会自动关闭整个 canary。
 
+配置过的 scope 已在 shadow 模式运行后，应先查看一份 readiness 报告再创建 calibration。报告会使用最新的 live runtime policy snapshot，因此 operator 无需在 CLI 中重建插件配置。snapshot 只保存有界的策略控制项和聚合计数，绝不保存 prompt、策略正文、memory ID、证据、来源或 Provider 凭据。
+
+```bash
+mnemora cognition reasoning runtime-diagnostics --scope project:alpha
+mnemora cognition reasoning runtime-calibrate --scope project:alpha
+# 使用返回的 preview hash 加 --confirm 再执行一次，然后才可开启精确 scope 的 canary。
+```
+
+在 scope 尚未进入 live runtime 前，diagnostics 会返回 `policy_not_observed`，不能让该 scope 变为 ready。只有 operator 确认 calibration 且精确 scope 的 canary 都存在时，delivery 才可能开启。
+
 ```bash
 mnemora cognition reasoning runtime-delivery-items --scope project:alpha
 mnemora cognition reasoning runtime-feedback-summary --scope project:alpha

@@ -212,6 +212,22 @@ an append-only delivery-item correction, preserving the historic harmful
 signal. This never changes a strategy into a belief, fact, or graph edge, and
 does not automatically disable the whole canary.
 
+After the configured scope has run in shadow mode, inspect one readiness report
+before creating a calibration. The report uses the latest live runtime policy
+snapshot, so the operator does not need to reconstruct plugin settings in the
+CLI. It stores only bounded policy controls and aggregate counters—never the
+prompt, strategy text, memory IDs, evidence, sources, or provider credentials.
+
+```bash
+mnemora cognition reasoning runtime-diagnostics --scope project:alpha
+mnemora cognition reasoning runtime-calibrate --scope project:alpha
+# Re-run with the returned preview hash and --confirm, then enable the exact-scope canary.
+```
+
+Before a scope has run in the live runtime, diagnostics returns
+`policy_not_observed` and cannot make it ready. Delivery remains disabled until
+both an operator-confirmed calibration and an exact-scope canary exist.
+
 ```bash
 mnemora cognition reasoning runtime-delivery-items --scope project:alpha
 mnemora cognition reasoning runtime-feedback-summary --scope project:alpha

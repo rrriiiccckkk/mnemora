@@ -30,8 +30,12 @@ outcome, belief, graph fact, profile attribute, or strategy.
 Use real shadow telemetry to determine whether a scope should receive any
 ReasoningMemory delivery.  This phase does not turn delivery on globally.
 
+- Persist only the normalized, non-sensitive policy observed by a live
+  ContextEngine scope. The local operator can therefore calibrate the exact
+  runtime policy without reading OpenClaw configuration or reconstructing it
+  from environment variables.
 - Measure candidate retrieval, language/task-type matching, latency, adoption,
-  and outcome-linked quality with scope-local diagnostics.
+  and outcome-linked quality with one scope-local diagnostics report.
 - Require explicit calibration and a per-scope canary before delivery.
 - Retain deterministic verification, per-memory circuits, rollback, and the
   no-efficacy-claim boundary until randomized operator evidence exists.

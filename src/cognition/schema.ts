@@ -275,6 +275,18 @@ CREATE TABLE IF NOT EXISTS mnemora_reasoning_runtime_delivery_runs (
 CREATE INDEX IF NOT EXISTS idx_mnemora_reasoning_runtime_delivery_scope_created ON mnemora_reasoning_runtime_delivery_runs(scope,created_at DESC,id DESC);
 `;
 
+/** Schema v70 records only the normalized runtime policy observed by a live
+ * ContextEngine scope. It contains no prompt, memory, evidence, or provider
+ * configuration, and lets the operator CLI calibrate the exact live policy. */
+export const cognitionReasoningRuntimePolicySnapshotSchemaSql = `
+CREATE TABLE IF NOT EXISTS mnemora_reasoning_runtime_policy_snapshots (
+ scope TEXT PRIMARY KEY,
+ policy_hash TEXT NOT NULL CHECK(length(policy_hash)=64),
+ policy_json TEXT NOT NULL CHECK(json_valid(policy_json) AND length(policy_json)<=8192),
+ observed_at INTEGER NOT NULL
+);
+`;
+
 /** Schema v62 records short-lived delivery-to-strategy links separately from
  * aggregate canary telemetry. It stores no query, host session, or strategy
  * text, and an open memory circuit only suppresses future delivery. */
@@ -450,4 +462,4 @@ CREATE TABLE IF NOT EXISTS mnemora_reasoning_intake_candidates (
 );
 CREATE INDEX IF NOT EXISTS idx_mnemora_reasoning_intake_scope_status ON mnemora_reasoning_intake_candidates(scope,status,created_at DESC,id DESC);
 `;
-export const cognitionOptionalRestoreTables=["mnemora_cognition_candidates","mnemora_cognition_evidence_links","mnemora_cognition_admissions","mnemora_cognition_audits","mnemora_cognition_enforcements","mnemora_cognition_pre_admissions","mnemora_cognition_change_sets","mnemora_beliefs","mnemora_belief_evidence","mnemora_belief_transitions","mnemora_decisions","mnemora_decision_evidence","mnemora_decision_episodes","mnemora_decision_transitions","mnemora_decision_evidence_reviews","mnemora_task_outcomes","mnemora_task_outcome_events","mnemora_reasoning_memories","mnemora_reasoning_memory_events","mnemora_reasoning_memory_outcomes","mnemora_reasoning_memory_governance_events","mnemora_reasoning_reflection_proposals","mnemora_reasoning_runtime_shadow_runs","mnemora_reasoning_runtime_calibrations","mnemora_reasoning_runtime_canaries","mnemora_reasoning_runtime_canary_events","mnemora_reasoning_runtime_delivery_runs","mnemora_reasoning_runtime_delivery_items","mnemora_reasoning_memory_delivery_circuits","mnemora_reasoning_runtime_delivery_feedback_events","mnemora_reasoning_runtime_delivery_item_corrections","mnemora_reasoning_runtime_verification_events","mnemora_reasoning_curation_runs","mnemora_reasoning_formation_proposals","mnemora_reasoning_review_proposals","mnemora_reasoning_intake_candidates","mnemora_reasoning_memory_embeddings","mnemora_reflection_jobs","mnemora_reflection_candidates","mnemora_recall_feedback"] as const;
+export const cognitionOptionalRestoreTables=["mnemora_cognition_candidates","mnemora_cognition_evidence_links","mnemora_cognition_admissions","mnemora_cognition_audits","mnemora_cognition_enforcements","mnemora_cognition_pre_admissions","mnemora_cognition_change_sets","mnemora_beliefs","mnemora_belief_evidence","mnemora_belief_transitions","mnemora_decisions","mnemora_decision_evidence","mnemora_decision_episodes","mnemora_decision_transitions","mnemora_decision_evidence_reviews","mnemora_task_outcomes","mnemora_task_outcome_events","mnemora_reasoning_memories","mnemora_reasoning_memory_events","mnemora_reasoning_memory_outcomes","mnemora_reasoning_memory_governance_events","mnemora_reasoning_reflection_proposals","mnemora_reasoning_runtime_shadow_runs","mnemora_reasoning_runtime_calibrations","mnemora_reasoning_runtime_canaries","mnemora_reasoning_runtime_canary_events","mnemora_reasoning_runtime_delivery_runs","mnemora_reasoning_runtime_policy_snapshots","mnemora_reasoning_runtime_delivery_items","mnemora_reasoning_memory_delivery_circuits","mnemora_reasoning_runtime_delivery_feedback_events","mnemora_reasoning_runtime_delivery_item_corrections","mnemora_reasoning_runtime_verification_events","mnemora_reasoning_curation_runs","mnemora_reasoning_formation_proposals","mnemora_reasoning_review_proposals","mnemora_reasoning_intake_candidates","mnemora_reasoning_memory_embeddings","mnemora_reflection_jobs","mnemora_reflection_candidates","mnemora_recall_feedback"] as const;

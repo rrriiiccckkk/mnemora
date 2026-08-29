@@ -15,7 +15,7 @@ test("task outcomes are previewed, evidence-linked, immutable, and scope-bound",
   let now = 10_000;
   const store = new GraphologyStore(":memory:");
   try {
-    assert.equal(SUPPORTED_SCHEMA_VERSION, 69);
+    assert.equal(SUPPORTED_SCHEMA_VERSION, 70);
     const event = new ConversationEventRepository(store.db, policy).append({ scope: "project:a", sessionId: "s", kind: "user_message", role: "user", parts: [{ type: "text", text: "run safe migration" }] });
     const task = new EpisodeRepository(store.db).create({ scope: "project:a", kind: "task", summary: "Run safe migration", sourceEventIds: [event.id], importance: .8, confidence: .9 });
     const taskRef = createMnemoraContextRef({ scope: "project:a", kind: "episode", id: task.id });
@@ -47,7 +47,7 @@ test("schema v41 adds the outcome ledger without rebuilding v40 data", () => {
     legacy.close(); legacy = undefined;
     const migrated = new GraphologyStore(path);
     try {
-      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 69);
+      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, 70);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='mnemora_task_outcomes'").get().count, 1);
     } finally { migrated.close(); }
   } finally { try { legacy?.close(); } catch {} try { rmSync(path, { force: true }); } catch {} }

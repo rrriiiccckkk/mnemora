@@ -11,7 +11,7 @@ export interface ReasoningRuntimeTelemetryConfig extends ReasoningQualityPolicy 
   tokenBudget: number; maxItems: number; retentionDays: number;
   readiness: { minimumRuns: number; maxErrorRate: number; maxEmptyRate: number; maxP95Ms: number; };
 }
-export interface ReasoningShadowMetrics { version: "reasoning-shadow-metrics-v1"; scope: string; runs: number; triggered: number; selected: number; qualityExcluded: number; semanticCandidates: number; unmatched: number; taskTypeExcluded: number; empty: number; failures: number; triggerRate: number; emptyRate: number; errorRate: number; p95Ms: number; }
+export interface ReasoningShadowMetrics { version: "reasoning-shadow-metrics-v1"; scope: string; runs: number; triggered: number; candidates: number; selected: number; qualityExcluded: number; semanticCandidates: number; unmatched: number; taskTypeExcluded: number; empty: number; failures: number; triggerRate: number; emptyRate: number; errorRate: number; p95Ms: number; }
 export interface ReasoningRuntimeReadiness { version: "reasoning-runtime-readiness-v1"; scope: string; ready: boolean; reasons: string[]; metrics: ReasoningShadowMetrics; thresholds: ReasoningRuntimeTelemetryConfig["readiness"]; deliveryEnabled: false; }
 
 export class ReasoningRuntimeTelemetryRepository {
@@ -27,10 +27,10 @@ export class ReasoningRuntimeTelemetryRepository {
   }
   prune(retentionDays: number): number { const cutoff = this.now() - Math.max(1, Math.min(365, Math.trunc(retentionDays))) * 86_400_000; return Number(this.db.prepare("DELETE FROM mnemora_reasoning_runtime_shadow_runs WHERE created_at<?").run(cutoff).changes); }
   metrics(scope: string, limit = 500): ReasoningShadowMetrics {
-    const normalized = normalizeScope(scope), rows = this.db.prepare("SELECT status,triggered,selected_count,quality_excluded,semantic_candidates,unmatched,task_type_excluded,empty_result,duration_ms FROM mnemora_reasoning_runtime_shadow_runs WHERE scope=? ORDER BY created_at DESC,id DESC LIMIT ?").all(normalized, Math.min(5000, Math.max(1, Math.trunc(limit)))) as Array<Record<string, unknown>>;
-    const runs = rows.length, triggered = sum(rows, "triggered"), selected = sum(rows, "selected_count"), qualityExcluded = sum(rows, "quality_excluded"), semanticCandidates = sum(rows, "semantic_candidates"), unmatched = sum(rows, "unmatched"), taskTypeExcluded = sum(rows, "task_type_excluded"), empty = sum(rows, "empty_result"), failures = rows.filter(row => row.status === "failed").length;
+    const normalized = normalizeScope(scope), rows = this.db.prepare("SELECT status,triggered,candidate_count,selected_count,quality_excluded,semantic_candidates,unmatched,task_type_excluded,empty_result,duration_ms FROM mnemora_reasoning_runtime_shadow_runs WHERE scope=? ORDER BY created_at DESC,id DESC LIMIT ?").all(normalized, Math.min(5000, Math.max(1, Math.trunc(limit)))) as Array<Record<string, unknown>>;
+    const runs = rows.length, triggered = sum(rows, "triggered"), candidates = sum(rows, "candidate_count"), selected = sum(rows, "selected_count"), qualityExcluded = sum(rows, "quality_excluded"), semanticCandidates = sum(rows, "semantic_candidates"), unmatched = sum(rows, "unmatched"), taskTypeExcluded = sum(rows, "task_type_excluded"), empty = sum(rows, "empty_result"), failures = rows.filter(row => row.status === "failed").length;
     const durations = rows.map(row => Number(row.duration_ms)).sort((a, b) => a - b), p95Ms = durations.length ? durations[Math.min(durations.length - 1, Math.ceil(durations.length * .95) - 1)] : 0;
-    return { version: "reasoning-shadow-metrics-v1", scope: normalized, runs, triggered, selected, qualityExcluded, semanticCandidates, unmatched, taskTypeExcluded, empty, failures, triggerRate: ratio(triggered, runs), emptyRate: ratio(empty, Math.max(1, triggered)), errorRate: ratio(failures, runs), p95Ms };
+    return { version: "reasoning-shadow-metrics-v1", scope: normalized, runs, triggered, candidates, selected, qualityExcluded, semanticCandidates, unmatched, taskTypeExcluded, empty, failures, triggerRate: ratio(triggered, runs), emptyRate: ratio(empty, Math.max(1, triggered)), errorRate: ratio(failures, runs), p95Ms };
   }
   readiness(scope: string, thresholds: ReasoningRuntimeTelemetryConfig["readiness"]): ReasoningRuntimeReadiness {
     const metrics = this.metrics(scope), reasons: string[] = [];
