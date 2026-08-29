@@ -14,6 +14,7 @@ import { ReasoningRuntimeShadowService, type ReasoningRuntimeTelemetryConfig } f
 import { ReasoningGovernedDeliveryService, type ReasoningRuntimeGovernanceConfig } from "./cognition/reasoning-runtime-governance.js";
 import { ReasoningVerificationService } from "./cognition/reasoning-verification.js";
 import { ReasoningCurationService, type ReasoningFormationConfig, type ReasoningReviewConfig } from "./cognition/reasoning-curation.js";
+import { ReasoningIntakeService, type ReasoningIntakeConfig } from "./cognition/reasoning-intake.js";
 import { LocalReasoningSemanticProvider } from "./cognition/reasoning-semantic-embeddings.js";
 import { createEmbedder } from "./embeddings.js";
 import type { CompletedTurn, ContextAssemblyInput } from "./context-engine/lifecycle.js";
@@ -70,6 +71,7 @@ export class PluginRuntime {
   readonly reasoningVerificationEnabled: boolean;
   readonly reasoningFormationEnabled: boolean;
   readonly reasoningReviewEnabled: boolean;
+  readonly reasoningIntakeEnabled: boolean;
   private contextEngineSlotBound = false;
   readonly consolidationEnabled: boolean;
   readonly reflectionEnabled: boolean;
@@ -107,6 +109,7 @@ export class PluginRuntime {
     this.reasoningVerificationEnabled = this.config.cognition?.reasoningRuntime?.verification?.enabled === true;
     this.reasoningFormationEnabled = this.config.cognition?.reasoningCuration?.formation?.enabled === true;
     this.reasoningReviewEnabled = this.config.cognition?.reasoningCuration?.review?.enabled === true;
+    this.reasoningIntakeEnabled = this.config.cognition?.reasoningCuration?.intake?.enabled === true;
     this.consolidationEnabled = this.config.consolidation?.enabled === true;
     this.reflectionEnabled = this.config.cognition?.reflection?.enabled === true;
     const autoExtract = this.extract !== undefined;
@@ -125,6 +128,7 @@ export class PluginRuntime {
       ...(this.reasoningVerificationEnabled ? { reasoningRuntimeVerification: true } : {}),
       ...(this.reasoningFormationEnabled ? { reasoningCurationFormation: true } : {}),
       ...(this.reasoningReviewEnabled ? { reasoningCurationReview: true } : {}),
+      ...(this.reasoningIntakeEnabled ? { reasoningCurationIntake: true } : {}),
       ...(this.config.unifiedRetrieval?.enabled ? { unifiedRetrieval: true, recallTokenBudget: this.config.unifiedRetrieval.tokenBudget } : {}),
       ...(autoExtract ? { extractionTimeoutMs: this.config.extraction?.timeoutMs } : {})
     });
@@ -218,6 +222,29 @@ export class PluginRuntime {
     } finally { graph.close(); }
   }
 
+  /** Intake is opt-in and candidate-only. A completed turn is the durable
+   * replay boundary; no model suggestion can bypass later human confirmation. */
+  async runReasoningIntake(turn: CompletedTurn, receipt: JournalTurnReceipt): Promise<void> {
+    if (!this.reasoningIntakeEnabled) return;
+    const graph = this.openGraph();
+    try {
+      const config = this.config.cognition!.reasoningCuration!.intake! as ReasoningIntakeConfig;
+      const result = await new ReasoningIntakeService(graph.store.db).capture({
+        scope: receipt.scope,
+        receipt,
+        turn,
+        runtime: turn.runtimeLlm,
+        config,
+        signal: turn.signal ?? this.shutdown.signal
+      });
+      if (result.status === "succeeded") {
+        if (result.proposed) this.logger.info?.("reasoning intake completed", { proposed: result.proposed, skipped: result.skipped });
+      } else this.logger.warn?.("reasoning intake skipped", { category: result.category });
+    } catch {
+      this.logger.warn?.("reasoning intake failed", { category: "operation_failed" });
+    } finally { graph.close(); }
+  }
+
   async processCompletedTurn(turn: CompletedTurn, receipt: JournalTurnReceipt): Promise<void> {
     if (this.isExcludedAgent(turn.agentId)) {
       this.logger.debug?.("automatic turn processing skipped for excluded agent", { agentId: turn.agentId! });
@@ -242,6 +269,7 @@ export class PluginRuntime {
     this.runConsolidation();
     this.runReflection();
     this.runReasoningVerification();
+    await this.runReasoningIntake(turn, receipt);
     await this.runReasoningCuration(turn);
   }
 

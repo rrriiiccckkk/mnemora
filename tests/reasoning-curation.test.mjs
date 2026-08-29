@@ -119,8 +119,8 @@ test("schema v68 adds isolated curation tables without changing existing reasoni
     const memory = reasoning.propose(input, reasoning.preview(input).preview_hash);
     store.db.exec("DROP TABLE mnemora_reasoning_review_proposals; DROP TABLE mnemora_reasoning_formation_proposals; DROP TABLE mnemora_reasoning_curation_runs; PRAGMA user_version=67");
     store.close(); store = new GraphologyStore(path);
-    assert.equal(SUPPORTED_SCHEMA_VERSION, 68);
-    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 68);
+    assert.equal(SUPPORTED_SCHEMA_VERSION, 69);
+    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 69);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_reasoning_memories WHERE id=?").get(memory.id).value, 1);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name='mnemora_reasoning_curation_runs'").get().value, 1);
   } finally { try { store?.close(); } catch {} try { rmSync(directory, { recursive: true, force: true }); } catch {} }

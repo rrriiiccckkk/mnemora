@@ -29,7 +29,7 @@ const embedder = { async embed(inputs) { return { identity: { provider: "ollama"
 test("reasoning semantic index bridges English runtime queries to Chinese strategies without cross-scope leakage", async () => {
   const store = new GraphologyStore(":memory:");
   try {
-    assert.equal(SUPPORTED_SCHEMA_VERSION, 68);
+    assert.equal(SUPPORTED_SCHEMA_VERSION, 69);
     const telemetryColumns = store.db.prepare("PRAGMA table_info(mnemora_reasoning_runtime_shadow_runs)").all().map(row => row.name);
     assert.equal(telemetryColumns.includes("semantic_candidates") && telemetryColumns.includes("unmatched") && telemetryColumns.includes("task_type_excluded"), true);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='mnemora_reasoning_memory_embeddings'").get().n, 1);

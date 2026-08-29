@@ -12,7 +12,7 @@ test("consolidation is scope-bound, proposal-only, idempotent, and absent from o
   let now = 200 * 86400000;
   const store = new GraphologyStore(":memory:");
   try {
-    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 68);
+    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 69);
     const events = new ConversationEventRepository(store.db, policy);
     const a = events.append({ scope: "a", sessionId: "s", kind: "user_message", role: "user", parts: [{ type: "text", text: "same pattern" }], createdAt: now - 100 * 86400000 });
     const b = events.append({ scope: "a", sessionId: "s", kind: "assistant_message", role: "assistant", parts: [{ type: "text", text: "same pattern" }], createdAt: now - 99 * 86400000 });

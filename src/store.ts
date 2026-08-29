@@ -16,7 +16,7 @@ import { artifactSchemaSql } from "./artifacts/schema.js";
 import { episodeSchemaSql } from "./episodes/schema.js";
 import { providerMigrationSchemaSql } from "./integrations/migration-schema.js";
 import { consolidationOptionalRestoreTables, consolidationSchemaSql } from "./consolidation/schema.js";
-import { cognitionBeliefSchemaSql, cognitionDecisionReviewSchemaSql, cognitionDecisionSchemaSql, cognitionEnforcementSchemaSql, cognitionIntegritySchemaSql, cognitionOptionalRestoreTables, cognitionOutcomeSchemaSql, cognitionPreAdmissionSchemaSql, cognitionReasoningCurationSchemaSql, cognitionReasoningDeliveryCorrectionSchemaSql, cognitionReasoningDeliveryFeedbackSchemaSql, cognitionReasoningGovernanceSchemaSql, cognitionReasoningReflectionSchemaSql, cognitionReasoningRuntimeGovernanceSchemaSql, cognitionReasoningRuntimeTelemetrySchemaSql, cognitionReasoningSchemaSql, cognitionReasoningSemanticSchemaSql, cognitionReasoningVerificationEventsSchemaSql, cognitionReflectionSchemaSql, cognitionSchemaSql } from "./cognition/schema.js";
+import { cognitionBeliefSchemaSql, cognitionDecisionReviewSchemaSql, cognitionDecisionSchemaSql, cognitionEnforcementSchemaSql, cognitionIntegritySchemaSql, cognitionOptionalRestoreTables, cognitionOutcomeSchemaSql, cognitionPreAdmissionSchemaSql, cognitionReasoningCurationSchemaSql, cognitionReasoningDeliveryCorrectionSchemaSql, cognitionReasoningDeliveryFeedbackSchemaSql, cognitionReasoningGovernanceSchemaSql, cognitionReasoningIntakeSchemaSql, cognitionReasoningReflectionSchemaSql, cognitionReasoningRuntimeGovernanceSchemaSql, cognitionReasoningRuntimeTelemetrySchemaSql, cognitionReasoningSchemaSql, cognitionReasoningSemanticSchemaSql, cognitionReasoningVerificationEventsSchemaSql, cognitionReflectionSchemaSql, cognitionSchemaSql } from "./cognition/schema.js";
 import { identityHash, legacyNormalizeSlug, normalizeSlug } from "./slug.js";
 import { cosineSimilarity, decodeEmbedding, encodeEmbedding, type EmbeddingIdentity } from "./embeddings.js";
 import { duplicatePairKey, entityFingerprint, scoreDuplicatePair } from "./resolution.js";
@@ -368,6 +368,7 @@ export class GraphologyStore {
     if (version < 66) this.migrateReasoningVerificationEventsV66();
     if (version < 67) this.migrateReasoningVerificationExpiryV67();
     if (version < 68) this.migrateReasoningCurationV68();
+    if (version < 69) this.migrateReasoningIntakeV69();
     this.repairCanonicalCorpusFts();
     this.db.exec(`PRAGMA user_version=${SUPPORTED_SCHEMA_VERSION}`);
   }
@@ -494,6 +495,7 @@ export class GraphologyStore {
   /** Schema v68 is additive review work only. It cannot create or alter a
    * strategy during migration, and it does not backfill model proposals. */
   private migrateReasoningCurationV68(): void { this.db.exec(cognitionReasoningCurationSchemaSql); }
+  private migrateReasoningIntakeV69(): void { this.db.exec(cognitionReasoningIntakeSchemaSql); }
 
   /** Schema v58 only adds durable receipts for explicitly confirmed consolidation
    * lifecycle actions. Existing evidence, episodes, and proposals are not

@@ -18,6 +18,7 @@ const configs = [
   ["reasoning delivery", { scope: { default: "project:ops" }, cognition: { reasoningRuntime: { delivery: { enabled: true, scopes: ["project:ops"] } } } }, ["gateway_stop"]],
   ["reasoning verification", { scope: { default: "project:ops" }, cognition: { reasoningRuntime: { verification: { enabled: true, maxJobsPerRun: 1 } } } }, ["gateway_stop"]],
   ["reasoning curation", { cognition: { reasoningCuration: { formation: { enabled: true, maxJobsPerTurn: 1 }, review: { enabled: true, intervalHours: 24 } } } }, ["gateway_stop"]],
+  ["reasoning intake", { cognition: { reasoningCuration: { intake: { enabled: true, maxCandidatesPerTurn: 1 } } } }, ["gateway_stop"]],
   ["legacy extract configuration", { llm: { apiKey: "secret" }, extraction: { enabled: true, autoExtract: true } }, ["gateway_stop"]],
   ["journal configuration", { conversationJournal: { enabled: true } }, ["gateway_stop"]],
   ["all legacy hook settings", { llm: { apiKey: "secret" }, extraction: { enabled: true, autoExtract: true }, recall: { autoRecall: true } }, ["gateway_stop"]]

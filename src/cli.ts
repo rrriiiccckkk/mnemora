@@ -20,6 +20,7 @@ import { DecisionMemoryService, type DecisionMaker } from "./cognition/decisions
 import { TaskOutcomeService, type OutcomeImpact, type OutcomeVerdict } from "./cognition/outcomes.js";
 import { ReasoningMemoryService, type ReasoningMemoryKind } from "./cognition/reasoning.js";
 import { ReasoningCurationService } from "./cognition/reasoning-curation.js";
+import { ReasoningIntakeService } from "./cognition/reasoning-intake.js";
 import { ReasoningRetrievalService } from "./cognition/reasoning-retrieval.js";
 import { ReasoningReflectionService } from "./cognition/reasoning-reflection.js";
 import { ReasoningAgentAdapterRegistry, ReasoningContextCompiler } from "./cognition/reasoning-adapters.js";
@@ -288,6 +289,26 @@ async function cognitionCommand(graph: Mnemora, raw: string[]): Promise<unknown>
       if (action === "metrics") return reflections.metrics(scope);
       if (action === "preview") return reflections.preview(scope);
       if (action === "run") { const preview = reflections.preview(scope); if (options.confirm !== true) return { status: "confirm_required", operation: "cognition.reasoning.reflection.run", preview_hash: preview.preview_hash }; if (option(options, "preview-hash") !== preview.preview_hash) return { status: "preview_confirmation_required", preview_hash: preview.preview_hash }; return reflections.run(scope, preview.preview_hash); }
+      throw new CliError("invalid_arguments");
+    }
+    if (operation === "intake") {
+      const action = takeArgument(positional), intake = new ReasoningIntakeService(graph.store.db);
+      if (action === "candidates") { requireNone(positional); return intake.list(scope, limit); }
+      if (action === "show") return intake.get(requiredArgument(positional, "candidate_id"), scope) ?? { status: "not_found" };
+      if (action === "confirm") {
+        const id = requiredArgument(positional, "candidate_id"); requireNone(positional); const preview = intake.confirmationPreview(id, scope);
+        if (options.confirm !== true) return preview;
+        if (preview.status !== "preview") return preview;
+        if (option(options, "preview-hash") !== preview.preview_hash) return { status: "preview_confirmation_required", preview_hash: preview.preview_hash };
+        return intake.confirm(id, scope, option(options, "preview-hash") ?? "");
+      }
+      if (action === "discard") {
+        const id = requiredArgument(positional, "candidate_id"); requireNone(positional); const preview = intake.discardPreview(id, scope);
+        if (options.confirm !== true) return preview;
+        if (preview.status !== "preview") return preview;
+        if (option(options, "preview-hash") !== preview.preview_hash) return { status: "preview_confirmation_required", preview_hash: preview.preview_hash };
+        return intake.discard(id, scope, option(options, "preview-hash") ?? "");
+      }
       throw new CliError("invalid_arguments");
     }
     if (operation === "curation") {

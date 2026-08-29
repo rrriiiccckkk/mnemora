@@ -85,13 +85,13 @@ mnemora standalone guide
 - `cognition.reasoningRuntime.shadowMode`：只记录安全的策略检索聚合遥测；ReasoningMemory 投递仍默认关闭，必须由 operator 校准并为精确 scope 显式开启 canary。
 - `cognition.reasoningRuntime.semantic.enabled`：只有同时开启 `embeddings.enabled` 时，才启用独立的本地 ReasoningMemory 语义索引。默认关闭；Provider 失败时自动退回确定性词法检索。
 - `cognition.reasoningRuntime.verification.enabled`：在 durable completed turn 后运行有界、本地、确定性的策略验证。默认关闭；不会开启投递，也不会让策略成为权威事实。
-- `cognition.reasoningCuration`：可选地在 durable turn 后使用 host 公开提供的 runtime LLM，生成可审阅的策略候选并定期审查已有策略。两条路径默认关闭；都不能自动创建、准入、保留或退役策略。
+- `cognition.reasoningCuration`：可选地在 durable turn 后使用 host 公开提供的 runtime LLM，生成来源关联的决策/结果候选、策略候选并定期审查已有策略。全部默认关闭；不会自动创建用户事实、准入策略或改变投递状态。
 
 所有模型或网络调用都有输入/输出上限、超时和取消处理。默认安装不会开启额外自动写入、严格验证、模型压缩或外部 Provider。
 
-### 受治理的策略积累与审查
+### 受治理的推理 intake、积累与审查
 
-`AGENTS.md` 适合人工编写、相对静态的指令。Mnemora 的可选 curation
+人工编写、相对静态的指令文件适合保存这类内容。Mnemora 的可选 curation
 路径则用于有来源、会演化的操作策略：它把已确认 outcome、有界的模型候选、
 审查状态与后续每一次人工决定一起保存在本地数据库中。
 
@@ -102,11 +102,17 @@ mnemora standalone guide
 ```json5
 cognition: {
   reasoningCuration: {
+    intake: { enabled: true }, // 每个 turn 最多两个决策/结果候选
     formation: { enabled: true }, // 每个 turn 最多一个有 outcome 支撑的候选
     review: { enabled: true, intervalHours: 168 } // 每周一次咨询性审查
   }
 }
 ```
+
+Intake 会先创建有来源的 `pending_review` 候选，不会自行创建 decision、outcome、
+belief、事实、profile 或策略。operator 审阅后只能确认或丢弃；确认产生的 decision
+仍是 `operator_confirmed`，不会被自动断言为用户事实。确认的 outcome 才会在后续
+durable turn 中成为 formation 的输入。
 
 Formation 只从置信度足够的、人工确认过的 TaskOutcome 开始。模型输出会以
 `pending_review` 保存，不会直接成为 ReasoningMemory。operator 必须先提升候选，
@@ -114,6 +120,11 @@ Formation 只从置信度足够的、人工确认过的 TaskOutcome 开始。模
 或 `needs_review`；最终仍由人处理。`retire` 是可追溯的生命周期状态，不会破坏性删除。
 
 ```bash
+mnemora cognition reasoning intake candidates --scope project:alpha
+mnemora cognition reasoning intake confirm <candidate-id> --scope project:alpha
+# 使用返回的 preview hash，再加 --preview-hash <hash> --confirm 执行。
+mnemora cognition reasoning intake discard <candidate-id> --scope project:alpha
+
 mnemora cognition reasoning curation formations --scope project:alpha
 mnemora cognition reasoning curation promote <formation-proposal-id> --scope project:alpha
 # 使用返回的 preview hash，再加 --preview-hash <hash> --confirm 执行。

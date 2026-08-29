@@ -94,10 +94,15 @@ export class TaskOutcomeService {
     return { scope, taskRef, verdict: input.verdict, impact: input.impact, confidence, summary: text(input.summary, 2048), evidenceRefs, supersedesId };
   }
   private taskReference(value: unknown, scope: string): MnemoraContextRef {
-    const reference = authorizeMnemoraContextRef(value, { scope, kinds: ["episode", "decision"] });
+    // A captured user turn can be the precise task anchor for an
+    // operator-confirmed intake candidate. It remains an evidence reference,
+    // not a new task object or a model-created episode.
+    const reference = authorizeMnemoraContextRef(value, { scope, kinds: ["episode", "decision", "conversation-event"] });
     const exists = reference.kind === "episode"
       ? this.db.prepare("SELECT 1 FROM mnemora_episodes WHERE id=? AND scope=? AND deleted_at IS NULL").get(reference.id, scope)
-      : this.db.prepare("SELECT 1 FROM mnemora_decisions WHERE id=? AND scope=?").get(reference.id, scope);
+      : reference.kind === "decision"
+        ? this.db.prepare("SELECT 1 FROM mnemora_decisions WHERE id=? AND scope=?").get(reference.id, scope)
+        : this.db.prepare("SELECT 1 FROM mnemora_conversation_events WHERE id=? AND scope=? AND deleted_at IS NULL AND context_domain='user_chat'").get(reference.id, scope);
     if (!exists) throw new Error("invalid_task_outcome_task");
     return reference;
   }

@@ -1,21 +1,21 @@
 # Governed Reasoning Curation
 
-Reasoning curation lets a persistent agent accumulate reusable procedural
-advice without treating an LLM as a memory authority. It is intentionally a
-separate module from `ReasoningMemoryService`:
+Reasoning intake and curation let a persistent agent accumulate reusable
+procedural advice without treating an LLM as a memory authority. They are
+intentionally separate from `ReasoningMemoryService`:
 
 ```text
-explicit Decision / confirmed TaskOutcome
+completed turn -> candidate review -> confirmed Decision / TaskOutcome
   -> bounded LLM curation proposal
   -> human promotion or review resolution
   -> existing ReasoningMemory proposal / admission lifecycle
 ```
 
-The curation module never creates a belief, graph fact, profile attribute, or
-admitted strategy. It never changes a strategy's confidence, utility, or
-delivery state. It uses only the public `RuntimeCompletion` capability exposed
-by the ContextEngine lifecycle; it does not accept an API key or call a
-provider directly.
+The module never creates a belief, graph fact, profile attribute, admitted
+strategy, or user assertion from a model response. It never changes a
+strategy's confidence, utility, or delivery state. It uses only the public
+`RuntimeCompletion` capability exposed by the ContextEngine lifecycle; it does
+not accept an API key or call a provider directly.
 
 ## Activation
 
@@ -28,6 +28,13 @@ next qualifying completed turn.
 ```json5
 cognition: {
   reasoningCuration: {
+    intake: {
+      enabled: true,
+      maxCandidatesPerTurn: 2,
+      timeoutMs: 15000,
+      maxInputChars: 8000,
+      maxOutputChars: 2000
+    },
     formation: {
       enabled: true,
       maxJobsPerTurn: 1,
@@ -55,6 +62,28 @@ failed run record and retries no earlier than one hour later. Leases prevent a
 crashed worker or replay from issuing duplicate requests.
 
 ## Formation
+
+### Intake
+
+Intake sees only the final user/assistant pair of a durable captured turn. It
+creates at most `maxCandidatesPerTurn` decision or task-outcome candidates and
+links them to those exact local events. A deterministic user-message signal
+gate prevents an assistant-only completion claim from becoming an outcome
+candidate. The model output is advisory; it is never treated as a user fact.
+
+```bash
+mnemora cognition reasoning intake candidates --scope project:alpha
+mnemora cognition reasoning intake confirm <candidate-id> --scope project:alpha
+# Repeat with --preview-hash <hash> --confirm.
+mnemora cognition reasoning intake discard <candidate-id> --scope project:alpha
+```
+
+Confirmation is preview-first. A decision created this way is deliberately
+recorded as `assistant` / `operator_confirmed`, not `user_explicit`. An outcome
+uses the source user event as its task anchor, avoiding automatic episode or
+fact creation. A discarded candidate leaves no durable decision or outcome.
+
+### Formation
 
 Formation scans only confirmed, non-superseded TaskOutcomes in the current
 scope whose confidence meets `minOutcomeConfidence`. It creates at most
@@ -96,8 +125,7 @@ and audit history instead of deleting data.
 
 ## Storage and compatibility
 
-Schema 68 adds only three curation tables: a leased run ledger, formation
-proposals, and review proposals. The migration does not call a model, backfill
-proposals, or alter any existing strategy, outcome, belief, fact, graph edge,
-profile, or delivery circuit. Existing installations retain their v1.6
-behavior until either new `enabled` flag is set.
+Schema 69 adds one isolated candidate table. The migration does not call a
+model, backfill candidates, or alter any existing strategy, outcome, belief,
+fact, graph edge, profile, or delivery circuit. Existing installations retain
+their v1.7 behavior until the new intake `enabled` flag is set.

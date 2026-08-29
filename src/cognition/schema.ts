@@ -430,4 +430,24 @@ CREATE TABLE IF NOT EXISTS mnemora_reasoning_review_proposals (
 );
 CREATE INDEX IF NOT EXISTS idx_mnemora_reasoning_review_scope_status ON mnemora_reasoning_review_proposals(scope,status,created_at DESC,id DESC);
 `;
-export const cognitionOptionalRestoreTables=["mnemora_cognition_candidates","mnemora_cognition_evidence_links","mnemora_cognition_admissions","mnemora_cognition_audits","mnemora_cognition_enforcements","mnemora_cognition_pre_admissions","mnemora_cognition_change_sets","mnemora_beliefs","mnemora_belief_evidence","mnemora_belief_transitions","mnemora_decisions","mnemora_decision_evidence","mnemora_decision_episodes","mnemora_decision_transitions","mnemora_decision_evidence_reviews","mnemora_task_outcomes","mnemora_task_outcome_events","mnemora_reasoning_memories","mnemora_reasoning_memory_events","mnemora_reasoning_memory_outcomes","mnemora_reasoning_memory_governance_events","mnemora_reasoning_reflection_proposals","mnemora_reasoning_runtime_shadow_runs","mnemora_reasoning_runtime_calibrations","mnemora_reasoning_runtime_canaries","mnemora_reasoning_runtime_canary_events","mnemora_reasoning_runtime_delivery_runs","mnemora_reasoning_runtime_delivery_items","mnemora_reasoning_memory_delivery_circuits","mnemora_reasoning_runtime_delivery_feedback_events","mnemora_reasoning_runtime_delivery_item_corrections","mnemora_reasoning_runtime_verification_events","mnemora_reasoning_curation_runs","mnemora_reasoning_formation_proposals","mnemora_reasoning_review_proposals","mnemora_reasoning_memory_embeddings","mnemora_reflection_jobs","mnemora_reflection_candidates","mnemora_recall_feedback"] as const;
+/** Schema v69 stores non-authoritative turn-derived candidates separately from
+ * decisions and outcomes. A human confirmation is the only write path into
+ * either durable ledger. */
+export const cognitionReasoningIntakeSchemaSql = `
+CREATE TABLE IF NOT EXISTS mnemora_reasoning_intake_candidates (
+ id TEXT PRIMARY KEY,
+ scope TEXT NOT NULL,
+ receipt_id TEXT NOT NULL CHECK(length(receipt_id)>0 AND length(receipt_id)<=256),
+ kind TEXT NOT NULL CHECK(kind IN ('decision','task_outcome')),
+ task_ref TEXT NOT NULL CHECK(length(task_ref)>0 AND length(task_ref)<=1024),
+ payload_json TEXT NOT NULL CHECK(json_valid(payload_json) AND length(payload_json)<=8192),
+ evidence_refs_json TEXT NOT NULL CHECK(json_valid(evidence_refs_json) AND length(evidence_refs_json)<=8192),
+ candidate_hash TEXT NOT NULL CHECK(length(candidate_hash)=64),
+ status TEXT NOT NULL CHECK(status IN ('pending_review','confirmed','discarded')),
+ created_at INTEGER NOT NULL,
+ reviewed_at INTEGER,
+ UNIQUE(scope,candidate_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_mnemora_reasoning_intake_scope_status ON mnemora_reasoning_intake_candidates(scope,status,created_at DESC,id DESC);
+`;
+export const cognitionOptionalRestoreTables=["mnemora_cognition_candidates","mnemora_cognition_evidence_links","mnemora_cognition_admissions","mnemora_cognition_audits","mnemora_cognition_enforcements","mnemora_cognition_pre_admissions","mnemora_cognition_change_sets","mnemora_beliefs","mnemora_belief_evidence","mnemora_belief_transitions","mnemora_decisions","mnemora_decision_evidence","mnemora_decision_episodes","mnemora_decision_transitions","mnemora_decision_evidence_reviews","mnemora_task_outcomes","mnemora_task_outcome_events","mnemora_reasoning_memories","mnemora_reasoning_memory_events","mnemora_reasoning_memory_outcomes","mnemora_reasoning_memory_governance_events","mnemora_reasoning_reflection_proposals","mnemora_reasoning_runtime_shadow_runs","mnemora_reasoning_runtime_calibrations","mnemora_reasoning_runtime_canaries","mnemora_reasoning_runtime_canary_events","mnemora_reasoning_runtime_delivery_runs","mnemora_reasoning_runtime_delivery_items","mnemora_reasoning_memory_delivery_circuits","mnemora_reasoning_runtime_delivery_feedback_events","mnemora_reasoning_runtime_delivery_item_corrections","mnemora_reasoning_runtime_verification_events","mnemora_reasoning_curation_runs","mnemora_reasoning_formation_proposals","mnemora_reasoning_review_proposals","mnemora_reasoning_intake_candidates","mnemora_reasoning_memory_embeddings","mnemora_reflection_jobs","mnemora_reflection_candidates","mnemora_recall_feedback"] as const;

@@ -256,8 +256,9 @@ function applicabilityOf(value: unknown): ReasoningApplicability {
 }
 function taskSummary(db: DatabaseSyncInstance, scope: string, taskRef: string): Record<string, unknown> {
   try {
-    const ref = authorizeMnemoraContextRef(taskRef, { scope, kinds: ["episode", "decision"] });
+    const ref = authorizeMnemoraContextRef(taskRef, { scope, kinds: ["episode", "decision", "conversation-event"] });
     if (ref.kind === "decision") { const row = db.prepare("SELECT objective,scenario,chosen_action,rationale,constraints_json FROM mnemora_decisions WHERE id=? AND scope=?").get(ref.id, scope) as Row | undefined; return { ref: ref.canonical, kind: "decision", objective: text(row?.objective, 512), scenario: text(row?.scenario, 512), chosenAction: text(row?.chosen_action, 512), rationale: text(row?.rationale, 1024), constraints: json(row?.constraints_json, 20) }; }
+    if (ref.kind === "conversation-event") { const row = db.prepare("SELECT role,normalized_text,context_domain FROM mnemora_conversation_events WHERE id=? AND scope=? AND deleted_at IS NULL").get(ref.id, scope) as Row | undefined; return { ref: ref.canonical, kind: "conversation_event", role: text(row?.role, 32), contextDomain: text(row?.context_domain, 32), summary: text(row?.normalized_text, 2048) }; }
     const row = db.prepare("SELECT kind,title,summary,importance,confidence FROM mnemora_episodes WHERE id=? AND scope=? AND deleted_at IS NULL").get(ref.id, scope) as Row | undefined; return { ref: ref.canonical, kind: "episode", episodeKind: text(row?.kind, 80), title: text(row?.title, 512), summary: text(row?.summary, 2048), importance: Number(row?.importance), confidence: Number(row?.confidence) };
   } catch { return { ref: taskRef, kind: "unknown" }; }
 }

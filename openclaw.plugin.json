@@ -2,7 +2,7 @@
   "id": "mnemora",
   "name": "Mnemora",
   "description": "Evidence-first personal memory harness for persistent OpenClaw agents.",
-  "version": "1.7.1",
+  "version": "1.8.0",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -36,7 +36,27 @@
           "contextCompiler": { "type": "object", "additionalProperties": false, "properties": { "enabled": { "type": "boolean", "default": false, "description": "Enable the bounded Personal Context Compiler for explicit local CLI/API use; it never appends a prompt message or relies on an undocumented ContextEngine sidecar." }, "tokenBudget": { "type": "integer", "default": 600, "minimum": 64, "maximum": 1600 }, "maxItems": { "type": "integer", "default": 8, "minimum": 1, "maximum": 20 } } },
           "reflection": { "type": "object", "additionalProperties": false, "properties": { "enabled": { "type": "boolean", "default": false, "description": "Run bounded local reflection after completed turns; it creates review candidates only and never writes beliefs or facts." }, "maxJobsPerRun": { "type": "integer", "default": 4, "minimum": 1, "maximum": 20 }, "staleAfterDays": { "type": "integer", "default": 90, "minimum": 1, "maximum": 3650 } } },
           "graduation": { "type": "object", "additionalProperties": false, "properties": { "enabled": { "type": "boolean", "default": false, "description": "Enable only local C8 graduation readiness reporting. It never enables memory writes, recall injection, or ContextEngine behavior." } } },
-          "reasoningCuration": { "type": "object", "additionalProperties": false, "description": "Opt-in, host-runtime LLM curation for ReasoningMemory. It creates only non-authoritative formation or review proposals; a human must still promote, admit, retain, or retire every strategy.", "properties": { "formation": { "type": "object", "additionalProperties": false, "properties": { "enabled": { "type": "boolean", "default": false, "description": "After a durable ContextEngine turn, inspect at most a bounded number of explicit confirmed outcomes and create strategy candidates for human review. It never creates or admits a strategy." }, "maxJobsPerTurn": { "type": "integer", "default": 1, "minimum": 1, "maximum": 3 }, "minOutcomeConfidence": { "type": "number", "default": 0.75, "minimum": 0, "maximum": 1 }, "timeoutMs": { "type": "integer", "default": 15000, "minimum": 1000, "maximum": 120000 }, "maxInputChars": { "type": "integer", "default": 8000, "minimum": 1000, "maximum": 32000 }, "maxOutputChars": { "type": "integer", "default": 2000, "minimum": 512, "maximum": 16000 } } }, "review": { "type": "object", "additionalProperties": false, "properties": { "enabled": { "type": "boolean", "default": false, "description": "Opportunistically ask the host runtime to review existing strategies after completed turns. Recommendations are advisory; only an operator can retain or retire a strategy." }, "intervalHours": { "type": "integer", "default": 168, "minimum": 1, "maximum": 720 }, "maxItems": { "type": "integer", "default": 12, "minimum": 1, "maximum": 20 }, "timeoutMs": { "type": "integer", "default": 15000, "minimum": 1000, "maximum": 120000 }, "maxInputChars": { "type": "integer", "default": 12000, "minimum": 1000, "maximum": 32000 }, "maxOutputChars": { "type": "integer", "default": 4000, "minimum": 512, "maximum": 16000 } } } } },
+          "reasoningCuration": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Opt-in host-runtime curation. Intake, formation, and review produce non-authoritative proposals only; a human controls every durable decision, outcome, or strategy transition.",
+            "properties": {
+              "intake": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "Create source-linked decision or task-outcome candidates from durable completed turns. Candidates require a human confirmation and never become user facts automatically.",
+                "properties": {
+                  "enabled": { "type": "boolean", "default": false },
+                  "maxCandidatesPerTurn": { "type": "integer", "default": 2, "minimum": 1, "maximum": 2 },
+                  "timeoutMs": { "type": "integer", "default": 15000, "minimum": 1000, "maximum": 120000 },
+                  "maxInputChars": { "type": "integer", "default": 8000, "minimum": 1000, "maximum": 32000 },
+                  "maxOutputChars": { "type": "integer", "default": 2000, "minimum": 512, "maximum": 16000 }
+                }
+              },
+              "formation": { "type": "object", "additionalProperties": false, "properties": { "enabled": { "type": "boolean", "default": false, "description": "After a durable ContextEngine turn, inspect at most a bounded number of explicit confirmed outcomes and create strategy candidates for human review. It never creates or admits a strategy." }, "maxJobsPerTurn": { "type": "integer", "default": 1, "minimum": 1, "maximum": 3 }, "minOutcomeConfidence": { "type": "number", "default": 0.75, "minimum": 0, "maximum": 1 }, "timeoutMs": { "type": "integer", "default": 15000, "minimum": 1000, "maximum": 120000 }, "maxInputChars": { "type": "integer", "default": 8000, "minimum": 1000, "maximum": 32000 }, "maxOutputChars": { "type": "integer", "default": 2000, "minimum": 512, "maximum": 16000 } } },
+              "review": { "type": "object", "additionalProperties": false, "properties": { "enabled": { "type": "boolean", "default": false, "description": "Opportunistically ask the host runtime to review existing strategies after completed turns. Recommendations are advisory; only an operator can retain or retire a strategy." }, "intervalHours": { "type": "integer", "default": 168, "minimum": 1, "maximum": 720 }, "maxItems": { "type": "integer", "default": 12, "minimum": 1, "maximum": 20 }, "timeoutMs": { "type": "integer", "default": 15000, "minimum": 1000, "maximum": 120000 }, "maxInputChars": { "type": "integer", "default": 12000, "minimum": 1000, "maximum": 32000 }, "maxOutputChars": { "type": "integer", "default": 4000, "minimum": 512, "maximum": 16000 } } }
+            }
+          },
           "reasoningRuntime": {
             "type": "object", "additionalProperties": false,
             "description": "Opt-in, per-scope ReasoningMemory. Shadow telemetry is aggregate-only; delivery stays disabled until an exact-scope canary is explicitly calibrated and enabled.",

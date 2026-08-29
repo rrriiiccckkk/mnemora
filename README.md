@@ -118,17 +118,18 @@ mnemora standalone guide
   deterministic verifier after durable completed turns. It is disabled by
   default and never enables delivery or makes strategy output authoritative.
 - `cognition.reasoningCuration`: optionally uses the public host runtime model
-  after durable turns to form reviewable strategy candidates and periodically
-  review existing strategies. Both paths are disabled by default; neither can
-  create, admit, retain, or retire a strategy automatically.
+  after durable turns to create source-linked decision/outcome candidates,
+  form reviewable strategy candidates, and periodically review existing
+  strategies. All paths are disabled by default; none can create a user fact,
+  admit a strategy, or change delivery automatically.
 
 Every model or network call has input/output bounds, timeout, and cancellation
 handling. Default installation never enables an extra automatic write path,
 strict verification, model compaction, or external provider.
 
-### Governed strategy curation
+### Governed reasoning intake and curation
 
-`AGENTS.md` is appropriate for hand-authored, static instructions. Mnemora's
+A hand-authored instruction file is appropriate for static instructions. Mnemora's
 optional curation path is for source-linked, evolving procedural advice: it
 keeps the confirmed outcome, the bounded model proposal, review status, and
 every later human decision together in the local database.
@@ -140,20 +141,32 @@ its public runtime LLM; it never reads host-private model state or credentials.
 ```json5
 cognition: {
   reasoningCuration: {
+    intake: { enabled: true }, // up to two decision/outcome candidates per turn
     formation: { enabled: true }, // one outcome-backed candidate at most per turn
     review: { enabled: true, intervalHours: 168 } // weekly advisory review
   }
 }
 ```
 
-Formation starts only from explicit, confirmed TaskOutcomes with adequate
-confidence. Its model output is stored as `pending_review`, not as a
-ReasoningMemory. Promote a candidate, then perform the existing separate
-admission step before it is eligible for retrieval. Periodic review can only
-recommend `retain`, `retire`, or `needs_review`; an operator must resolve it.
-`retire` is a reversible lifecycle state, not a destructive deletion.
+Intake first creates a source-linked `pending_review` candidate. It never
+creates a decision, outcome, belief, fact, profile, or strategy by itself.
+Review a candidate, then confirm or discard it. A confirmed decision remains
+`operator_confirmed`, never an automatically asserted user fact. A confirmed
+outcome can then feed formation on a later durable turn.
+
+Formation starts only from confirmed TaskOutcomes with adequate confidence.
+Its model output is also stored as `pending_review`, not as a ReasoningMemory.
+Promote a candidate, then perform the existing separate admission step before
+it is eligible for retrieval. Periodic review can only recommend `retain`,
+`retire`, or `needs_review`; an operator must resolve it. `retire` is a
+reversible lifecycle state, not a destructive deletion.
 
 ```bash
+mnemora cognition reasoning intake candidates --scope project:alpha
+mnemora cognition reasoning intake confirm <candidate-id> --scope project:alpha
+# Repeat the returned command with --preview-hash <hash> --confirm.
+mnemora cognition reasoning intake discard <candidate-id> --scope project:alpha
+
 mnemora cognition reasoning curation formations --scope project:alpha
 mnemora cognition reasoning curation promote <formation-proposal-id> --scope project:alpha
 # Repeat the returned command with --preview-hash <hash> --confirm.
