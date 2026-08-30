@@ -154,7 +154,7 @@ const configSchema = Type.Object({
   }, { additionalProperties: false })),
   quality: Type.Optional(Type.Object({
     edgeMinConfidence: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
-    relatedToMinConfidence: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
+    relatedToMinConfidence: Type.Optional(Type.Number({ default: .85, minimum: 0, maximum: 1 })),
     edgeTypeMinConfidence: Type.Optional(Type.Object({}, { additionalProperties: Type.Number({ minimum: 0, maximum: 1 }) })),
     singleValuedEdgeTypes: Type.Optional(Type.Array(Type.Union([
       Type.Literal("works_at"), Type.Literal("invested_in"), Type.Literal("supplies"), Type.Literal("supplies_product"), Type.Literal("supplied_to"), Type.Literal("competes_with"),

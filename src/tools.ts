@@ -537,7 +537,7 @@ export class Mnemora {
       const admittedExtraction = preAdmissionEnforced && formation?.preAdmission
         ? scaleAutomaticExtractionConfidence(extracted, formation.preAdmission.confidenceMultiplier)
         : extracted;
-      const result = this.store.ingestWithCompletedRecord(admittedExtraction.entities, admittedExtraction.relations, source, fingerprint, inputFingerprint, INGESTION_FINGERPRINT_VERSION, this.config.extraction?.minConfidenceToStore ?? 0, { edgeMinConfidence: this.config.quality?.edgeMinConfidence ?? 0, relatedToMinConfidence: this.config.quality?.relatedToMinConfidence ?? .8, edgeTypeMinConfidence: this.config.quality?.edgeTypeMinConfidence ?? {} }, scope);
+      const result = this.store.ingestWithCompletedRecord(admittedExtraction.entities, admittedExtraction.relations, source, fingerprint, inputFingerprint, INGESTION_FINGERPRINT_VERSION, this.config.extraction?.minConfidenceToStore ?? 0, { edgeMinConfidence: this.config.quality?.edgeMinConfidence ?? 0, relatedToMinConfidence: this.config.quality?.relatedToMinConfidence ?? .85, edgeTypeMinConfidence: this.config.quality?.edgeTypeMinConfidence ?? {} }, scope);
       const embedded = await this.embedNodes(result.entities.map(({ node }) => node), "ingest");
       const warnings: IngestionItemResult["warnings"] = embedded.failed ? [{ category: "embedding_failed", count: embedded.failed }] : [];
       if (this.sourceAnchoring && result.observations.length) {

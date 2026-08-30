@@ -240,7 +240,7 @@ export function normalizeConfig(input: Partial<MnemoraConfig> = {}): MnemoraConf
     unifiedRetrieval: { enabled: input.unifiedRetrieval?.enabled === true, shadowMode: input.unifiedRetrieval?.shadowMode === true, tokenBudget: clamp(input.unifiedRetrieval?.tokenBudget, 800, 64, 8000), maxItems: clamp(input.unifiedRetrieval?.maxItems, 8, 1, 20), minConfidence: clamp(input.unifiedRetrieval?.minConfidence, .6, 0, 1), maxStalenessDays: clamp(input.unifiedRetrieval?.maxStalenessDays, 36500, 1, 36500), diversityLambda: clamp(input.unifiedRetrieval?.diversityLambda, .75, 0, 1) },
     quality: {
       edgeMinConfidence: clamp(input.quality?.edgeMinConfidence, 0, 0, 1),
-      relatedToMinConfidence: clamp(input.quality?.relatedToMinConfidence, 0.8, 0, 1),
+      relatedToMinConfidence: clamp(input.quality?.relatedToMinConfidence, .85, 0, 1),
       edgeTypeMinConfidence,
       singleValuedEdgeTypes,
       recencyHalfLifeDays: clamp(input.quality?.recencyHalfLifeDays, 90, 1, 3650),

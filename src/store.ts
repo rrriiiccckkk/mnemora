@@ -890,7 +890,7 @@ export class GraphologyStore {
     return rows.map(mapNode);
   }
 
-  ingest(entities: ExtractedEntity[], relations: ExtractedRelation[], source = "manual", minConfidenceToStore = 0, quality: RelationshipQualityPolicy = { edgeMinConfidence: 0, relatedToMinConfidence: .8, edgeTypeMinConfidence: {} }, scope = "default"): IngestResult {
+  ingest(entities: ExtractedEntity[], relations: ExtractedRelation[], source = "manual", minConfidenceToStore = 0, quality: RelationshipQualityPolicy = { edgeMinConfidence: 0, relatedToMinConfidence: .85, edgeTypeMinConfidence: {} }, scope = "default"): IngestResult {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const result = this.ingestInTransaction(entities, relations, source, minConfidenceToStore, quality, scope);
@@ -924,7 +924,7 @@ export class GraphologyStore {
     return this.db.prepare("SELECT fingerprint,source FROM kg_ingestion_records WHERE input_fingerprint=? AND scope=? AND status='completed' ORDER BY completed_at DESC LIMIT 1").get(inputFingerprint, normalizeScope(scope)) as { fingerprint: string; source: string } | undefined;
   }
 
-  ingestWithCompletedRecord(entities: ExtractedEntity[], relations: ExtractedRelation[], source: string, fingerprint: string, inputFingerprint: string, fingerprintVersion: string, minConfidenceToStore = 0, quality: RelationshipQualityPolicy = { edgeMinConfidence: 0, relatedToMinConfidence: .8, edgeTypeMinConfidence: {} }, scope = "default"): IngestResult {
+  ingestWithCompletedRecord(entities: ExtractedEntity[], relations: ExtractedRelation[], source: string, fingerprint: string, inputFingerprint: string, fingerprintVersion: string, minConfidenceToStore = 0, quality: RelationshipQualityPolicy = { edgeMinConfidence: 0, relatedToMinConfidence: .85, edgeTypeMinConfidence: {} }, scope = "default"): IngestResult {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const normalizedScope = normalizeScope(scope);
@@ -1189,7 +1189,7 @@ export class GraphologyStore {
       const target = this.getNodeById(edge.target_id);
       if (!source || !target) continue;
       const admission = validateRelationship(source, target, edge.type, 1, 0);
-      if (!admission.accepted && admission.reason !== "below_edge_confidence") {
+      if (!admission.accepted && admission.reason !== "below_edge_confidence" && admission.reason !== "missing_related_to_evidence") {
         items.push({ edge, reason: admission.reason, evidence: this.evidenceForEdge(edge.id, 3) });
         if (items.length === limit) break;
       }
@@ -1560,7 +1560,7 @@ export class GraphologyStore {
       const sourceNode = this.resolveRelationEndpoint(relation.source, byName);
       const targetNode = this.resolveRelationEndpoint(relation.target, byName);
       if (!sourceNode || !targetNode || !relationshipDefinitions[relation.type]) continue;
-      const admission = validateRelationship(sourceNode, targetNode, relation.type, relation.confidence, relationshipMinimum(relation.type, quality));
+      const admission = validateRelationship(sourceNode, targetNode, relation.type, relation.confidence, relationshipMinimum(relation.type, quality), relation.evidence_span);
       if (!admission.accepted) {
         skipped_relations.push({ relation, reason: admission.reason });
         continue;

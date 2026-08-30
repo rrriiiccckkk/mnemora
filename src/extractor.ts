@@ -45,7 +45,7 @@ export class DeepSeekExtractor implements Extractor {
     const content = json.choices?.[0]?.message?.content;
     if (!content) throw new Error("LLM extraction returned no content");
     try {
-      return normalizeExtraction(JSON.parse(content));
+      return retainSourceGroundedFallbackRelations(normalizeExtraction(JSON.parse(content)), text);
     } catch (error) {
       if (error instanceof SyntaxError) throw new InvalidResponseError();
       throw error;
@@ -208,6 +208,17 @@ function normalizeRelation(value: unknown): ExtractionResult["relations"] {
   }];
 }
 
+/** `related_to` is the extractor's last-resort predicate. A provider must
+ * quote a contiguous span from the supplied source before it can persist it.
+ * The store also requires a non-empty span for any direct ingestion path. */
+function retainSourceGroundedFallbackRelations(result: ExtractionResult, sourceText: string): ExtractionResult {
+  const source = sourceText.normalize("NFKC");
+  return {
+    ...result,
+    relations: result.relations.filter((relation) => relation.type !== "related_to" || (relation.evidence_span.trim().length > 0 && source.includes(relation.evidence_span.normalize("NFKC"))))
+  };
+}
+
 function normalizedTemporalFields(value: Record<string, unknown>): Partial<TemporalEvidence> {
   const hasTemporalField = ["valid_from", "valid_to", "temporal_confidence"].some((key) => Object.hasOwn(value, key));
   if (!hasTemporalField) return {};
@@ -277,7 +288,7 @@ const extractionSystemPrompt = `You extract named entities and relationships fro
 - owns: an entity owns another entity
 - partners_with: two entities partner or collaborate
 - in_portfolio: an entity is part of a portfolio
-- related_to: an explicit relationship supported by direct evidence when no specific type fits
+- related_to: an explicit relationship supported by a direct quoted span when no specific type fits; otherwise omit the edge
 
 ## JSON Schema (strict - field names MUST match)
 Each entity must include name, type, description, aliases, confidence (a number from 0 to 1), evidence_span, valid_from, valid_to, and temporal_confidence.
@@ -290,7 +301,7 @@ Each relation must include source, target, type, confidence (a number from 0 to 
 - Calibrate confidence: use 0.90-0.95 only for an explicit, unambiguous statement with a direct quote; use 0.70-0.85 for a direct statement with limited detail; use 0.50-0.65 only when the fact is explicit but scope is incomplete. Do not assign the same confidence by default.
 - Set temporal fields only when the text explicitly states validity dates. Use YYYY-MM-DD or ISO 8601 with timezone; never infer dates. Otherwise use null
 - Co-occurrence alone is not a relationship; never create an edge merely because two entities appear in the same text
-- Use related_to only for an explicit relationship that cannot map to a more specific supported relation type
+- related_to is a last resort. If a specific semantic relationship cannot be identified from a direct quoted span, do not emit an edge. Co-occurrence, vague association, and inferred relevance are never related_to.
 - Do NOT convert questions, hypotheticals, plans, or guesses into facts
 - If no explicit facts exist, return {"entities":[],"relations":[]}
 - For chains like "A supplies product X to B", prefer: A supplies_product X and X supplied_to B`;

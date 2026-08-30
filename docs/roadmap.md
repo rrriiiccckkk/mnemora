@@ -70,6 +70,35 @@ making automatic graph mutation a default behavior.
   state. Do not add a remote dependency or make gateway availability a hidden
   prerequisite for core local memory access.
 
+## v1.12 — Related-Edge Admission and Topology Assessment
+
+Stop low-information `related_to` edges from accumulating, then measure the
+cost of changing their topology role before changing production ranking.
+
+- Require retained evidence for every new `related_to` relation. Automatic
+  extraction must provide a contiguous quote from its input; vague association
+  and co-occurrence produce no edge.
+- Raise the default fallback-edge confidence floor to `0.85`. Explicit
+  operator configuration remains authoritative and existing evidence is never
+  rewritten.
+- Add a bounded, scope-local hygiene comparison for the current PPR weight,
+  a 0.3× downweighted policy, and full exclusion. Report weak components,
+  isolated nodes, and representative seed top-k Jaccard change without
+  changing live PPR or traversal.
+
+## v1.13 — Related-Edge Topology and Legacy Review
+
+Apply a topology policy only after the v1.12 report shows that it preserves
+useful connectivity.
+
+- Select either the measured downweight or full exclusion for default PPR and
+  bounded traversal; retain explicit relation inspection in either case.
+- Produce preview-only refinement candidates for recurring legacy
+  `related_to` patterns. No historic edge is automatically relabelled,
+  deleted, or promoted into a new predicate.
+- Keep domain-vocabulary evolution as a separate reviewed proposal path, not
+  as an automatic schema or topology mutation.
+
 ## Non-negotiable boundaries
 
 - Never automate personality formation.

@@ -61,6 +61,29 @@ test("hygiene reports scope-local related_to overuse and self-links without leak
   } finally { store.close(); }
 });
 
+test("hygiene evaluates related_to topology without changing the live PPR projection", () => {
+  const store = new GraphologyStore(":memory:"), hygiene = new GraphHygieneService(store, () => 1_700_000_000_000);
+  try {
+    node(store, "company:a", "Alpha"); node(store, "company:b", "Beta"); node(store, "company:c", "Gamma"); node(store, "company:d", "Delta");
+    edge(store, "edge:a-b", "company:a", "company:b", "work", "related_to");
+    edge(store, "edge:b-c", "company:b", "company:c", "work", "depends_on");
+    edge(store, "edge:c-d", "company:c", "company:d", "work", "uses");
+    const before = store.qualityGraphSnapshot(["company:a"], { maxNodes: 10, maxArcs: 20 }, 1_700_000_000_000);
+    const report = hygiene.report("work", policy).related_to_topology;
+    const after = store.qualityGraphSnapshot(["company:a"], { maxNodes: 10, maxArcs: 20 }, 1_700_000_000_000);
+    assert.equal(report.status, "ok");
+    assert.equal(report.node_count, 4);
+    assert.equal(report.structural_edge_count, 2);
+    assert.equal(report.related_to_edges, 1);
+    assert.equal(report.policies.baseline.weak_components, 2);
+    assert.equal(report.policies.baseline.isolated_nodes, 1);
+    assert.equal(report.policies.excluded.weak_components, 3);
+    assert.equal(report.policies.excluded.isolated_nodes, 2);
+    assert.equal(report.top_k_comparison.excludes_seed, true);
+    assert.deepEqual(after, before);
+  } finally { store.close(); }
+});
+
 test("manual hygiene review honors the caller's bounded scan limit", () => {
   const graph = new Mnemora({ config: { dbPath: ":memory:", quality: { hygiene: { maxDuplicateScanNodes: 10 } } } });
   try {

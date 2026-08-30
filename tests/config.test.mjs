@@ -22,7 +22,7 @@ test("automatic features are opt-in with bounded defaults", () => {
   assert.deepEqual(reasoningCuration, { intake: { enabled: false, maxCandidatesPerTurn: 2, timeoutMs: 15000, maxInputChars: 8000, maxOutputChars: 2000 }, formation: { enabled: false, maxJobsPerTurn: 1, minOutcomeConfidence: .75, timeoutMs: 15000, maxInputChars: 8000, maxOutputChars: 2000 }, review: { enabled: false, intervalHours: 168, maxItems: 12, timeoutMs: 15000, maxInputChars: 12000, maxOutputChars: 4000 } });
   assert.deepEqual(config.quality, {
     edgeMinConfidence: 0,
-    relatedToMinConfidence: 0.8,
+    relatedToMinConfidence: .85,
     edgeTypeMinConfidence: {},
     singleValuedEdgeTypes: [],
     recencyHalfLifeDays: 90,

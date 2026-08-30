@@ -1,7 +1,7 @@
 import { isSemanticRelationship, relationshipDefinitions, semanticVocabularyRecommendation, type RelationshipType } from "./relationships.js";
 import type { KgNode } from "./types.js";
 
-export type RelationshipSkipReason = "self_loop" | "invalid_endpoint_types" | "below_edge_confidence";
+export type RelationshipSkipReason = "self_loop" | "invalid_endpoint_types" | "below_edge_confidence" | "missing_related_to_evidence";
 export interface RelationshipQualityPolicy {
   edgeMinConfidence: number;
   relatedToMinConfidence: number;
@@ -15,7 +15,8 @@ export function validateRelationship(
   target: KgNode,
   type: RelationshipType,
   confidence: number,
-  minimumConfidence = 0
+  minimumConfidence = 0,
+  evidenceSpan?: string
 ): { accepted: true; endpoint_match: boolean } | { accepted: false; reason: RelationshipSkipReason } {
   if (source.id === target.id) return { accepted: false, reason: "self_loop" };
   const definition = relationshipDefinitions[type];
@@ -28,6 +29,9 @@ export function validateRelationship(
   if (!endpointMatch && !isSemanticRelationship(type)) {
     return { accepted: false, reason: "invalid_endpoint_types" };
   }
+  // A generic association has no useful semantics unless its direct evidence
+  // is retained. Existing rows are reviewed without this ingestion-only gate.
+  if (type === "related_to" && evidenceSpan != null && !evidenceSpan.trim()) return { accepted: false, reason: "missing_related_to_evidence" };
   if (confidence < minimumConfidence) return { accepted: false, reason: "below_edge_confidence" };
   return { accepted: true, endpoint_match: endpointMatch };
 }

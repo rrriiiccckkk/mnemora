@@ -105,10 +105,12 @@ mnemora recall metrics --scope default
 
 ### 图谱卫生与本地 embedding 健康状态
 
-通过 `kg_review` 的 `kind: "hygiene"` 可读取 scope 隔离的 `related_to` 过度使用
-与可疑自链接报告。传入 `scan: true` 时，只执行一个有界的重复实体候选扫描切片；
-不会合并实体、删除边或修改证据。只有需要每周在 durable turn 后自动执行该审查时，
-才显式开启：
+通过 `kg_review` 的 `kind: "hygiene"` 可读取 scope 隔离的 `related_to` 过度使用、
+可疑自链接与三档拓扑评估。评估对比当前 PPR 权重、0.3× 降权和完全移除，并报告
+连通性及代表性 top-k 的变化；它绝不会修改实际 PPR 或遍历策略。新的 `related_to`
+必须保留直接证据，默认置信度阈值为 `0.85`。传入 `scan: true` 时，只执行一个有界的
+重复实体候选扫描切片；不会合并实体、删除边或修改证据。只有需要每周在 durable turn
+后自动执行该审查时，才显式开启：
 
 ```json5
 quality: {

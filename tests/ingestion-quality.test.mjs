@@ -67,6 +67,19 @@ test("related_to uses a stricter confidence threshold than specific relationship
   }
 });
 
+test("related_to requires retained evidence even for direct structured ingestion", () => {
+  const store = new GraphologyStore(":memory:");
+  try {
+    const result = store.ingest(
+      [entity("NVIDIA", "company"), entity("CUDA", "technology")],
+      [{ source: "NVIDIA", target: "CUDA", type: "related_to", confidence: .95, evidence_span: "" }],
+      "fixture:missing-related-evidence"
+    );
+    assert.deepEqual(result.skipped_relations.map(item => item.reason), ["missing_related_to_evidence"]);
+    assert.equal(result.relations.length, 0);
+  } finally { store.close(); }
+});
+
 test("node importance combines evidence quality and independent sources instead of only mention count", () => {
   const store = new GraphologyStore(":memory:");
   try {

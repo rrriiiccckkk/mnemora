@@ -131,10 +131,14 @@ ordering, or keep the default `0.75` for modest deterministic diversification.
 ### Graph hygiene and local embedding health
 
 `kg_review` with `kind: "hygiene"` returns a scope-local, read-only report for
-`related_to` overuse and suspicious self-links. With `scan: true`, it performs
-one bounded duplicate-candidate slice; it never merges entities, deletes an
-edge, or changes evidence. Enable the same bounded review after durable turns
-only when you want the weekly schedule:
+`related_to` overuse, suspicious self-links, and a three-policy topology
+assessment. The assessment compares the live PPR multiplier with a 0.3×
+downweight and exclusion; it reports connectivity and representative top-k
+change but never changes PPR or traversal. New `related_to` edges require
+retained direct evidence and default to a `0.85` confidence floor. With
+`scan: true`, hygiene performs one bounded duplicate-candidate slice; it never
+merges entities, deletes an edge, or changes evidence. Enable the same bounded
+review after durable turns only when you want the weekly schedule:
 
 ```json5
 quality: {

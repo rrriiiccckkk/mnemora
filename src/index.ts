@@ -432,7 +432,7 @@ export const defaultConfig: MnemoraConfig = {
   },
   quality: {
     edgeMinConfidence: 0,
-    relatedToMinConfidence: 0.8,
+    relatedToMinConfidence: 0.85,
     edgeTypeMinConfidence: {},
     singleValuedEdgeTypes: [],
     recencyHalfLifeDays: 90,

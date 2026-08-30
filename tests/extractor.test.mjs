@@ -30,13 +30,26 @@ test("extraction prompt forbids related_to from representing co-occurrence", asy
   try {
     await new DeepSeekExtractor({ apiKey: "secret", baseURL: "https://example.test", model: "test" }).extract("A and B were mentioned.");
     assert.match(request.messages[0].content, /co-occurrence alone is not a relationship/i);
-    assert.match(request.messages[0].content, /related_to.*explicit relationship/i);
+    assert.match(request.messages[0].content, /related_to.*direct quoted span/i);
+    assert.match(request.messages[0].content, /do not emit an edge/i);
     assert.match(request.messages[0].content, /Do not create entities for filenames, scripts/i);
     assert.match(request.messages[0].content, /Calibrate confidence/i);
     assert.doesNotMatch(request.messages[0].content, /"confidence":0\.9/);
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("DeepSeekExtractor drops related_to without a direct source quote", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({
+    entities: [],
+    relations: [{ source: "A", target: "B", type: "related_to", confidence: .95, evidence_span: "invented relation" }]
+  }) } }] }) });
+  try {
+    const result = await new DeepSeekExtractor({ apiKey: "secret", baseURL: "https://example.test", model: "test" }).extract("A and B were both mentioned.");
+    assert.deepEqual(result.relations, []);
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test("DeepSeekExtractor does not include provider response bodies in errors", async () => {
