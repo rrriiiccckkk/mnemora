@@ -41,7 +41,7 @@ test("schema v70 adds policy snapshots without rebuilding existing runtime telem
     new ReasoningRuntimeTelemetryRepository(store.db).record({ scope, status: "succeeded", triggered: true, highRisk: false, candidateCount: 1, selectedCount: 1, qualityExcluded: 0, empty: false, estimatedTokens: 1, durationMs: 1 });
     store.db.exec("DROP TABLE mnemora_reasoning_runtime_policy_snapshots; PRAGMA user_version=69");
     store.close(); store = new GraphologyStore(path);
-    assert.equal(SUPPORTED_SCHEMA_VERSION, 71);
+    assert.equal(SUPPORTED_SCHEMA_VERSION, 72);
     assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name='mnemora_reasoning_runtime_policy_snapshots'").get().value, 1);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_reasoning_runtime_shadow_runs WHERE scope=?").get(scope).value, 1);

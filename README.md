@@ -150,6 +150,15 @@ quality: {
 }
 ```
 
+The diagnostic does **not** automatically change that topology. When a legacy
+`related_to` quote itself states a direct structural fact, run the separate
+operator review flow with `kind: "related_edge_refinements"` and `scan: true`.
+It proposes only `depends_on`, `part_of`, or `instance_of` replacements from
+same-scope evidence at confidence `≥ 0.85`. A preview plus matching explicit
+confirmation copies the evidence, retires just that reviewed fallback edge,
+and writes an audit receipt. It never uses an LLM, broad co-occurrence, or an
+automatic graph mutation.
+
 `kg_stats` includes `embedding_health`, an observed local status rather than a
 live provider probe. `healthy` and `degraded` are based only on bounded local
 embedding successes or categorical failures; `hybrid` search deterministically

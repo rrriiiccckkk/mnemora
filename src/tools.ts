@@ -49,6 +49,7 @@ import { ArtifactRepository } from "./artifacts/repository.js";
 import { MemoryDocumentLifecycleService, type MemoryTier } from "./memory-lifecycle/service.js";
 import { GraphHygieneService, type GraphHygienePolicy } from "./hygiene/service.js";
 import { EmbeddingHealthRepository } from "./embedding-health/repository.js";
+import { RelatedEdgeRefinementService } from "./related-edge-refinement/service.js";
 
 export type SemanticSearchUnavailableCategory = "disabled" | "timeout" | "aborted" | "provider" | "invalid_response" | "scale_limit";
 export class SemanticSearchUnavailableError extends Error {
@@ -159,6 +160,8 @@ export class Mnemora {
   private readonly recallFeedback: RecallFeedbackRepository;
   /** Review-only graph diagnostics, kept outside GraphologyStore mutation paths. */
   private readonly hygiene: GraphHygieneService;
+  /** Preview/confirm refinement of legacy weak edges; it owns no live recall policy. */
+  private readonly relatedEdgeRefinements: RelatedEdgeRefinementService;
   /** Local categorical provider outcomes; never a live probe or provider log. */
   private readonly embeddingHealth: EmbeddingHealthRepository;
   /** Non-destructive tier/expiry selection overlay for canonical memory documents. */
@@ -200,6 +203,7 @@ export class Mnemora {
     this.personalContext = new PersonalContextCompiler(this.store.db, this.now, { staleAfterDays: this.config.cognition?.reflection?.staleAfterDays });
     this.recallFeedback = new RecallFeedbackRepository(this.store.db, this.now);
     this.hygiene = new GraphHygieneService(this.store, this.now);
+    this.relatedEdgeRefinements = new RelatedEdgeRefinementService(this.store.db, this.now);
     this.embeddingHealth = new EmbeddingHealthRepository(this.store, this.now);
     this.memoryLifecycle = new MemoryDocumentLifecycleService(this.store.db, {
       enabled: this.config.memory?.lifecycle?.enabled === true,
@@ -1003,7 +1007,7 @@ export class Mnemora {
     } catch { return { ...result, vector_index_cleanup: "deferred" }; }
   }
 
-  kg_review(kind: "duplicates" | "anomalies" | "identity" | "schema_drift" | "semantic_patterns" | "hygiene" = "duplicates", status: DuplicateCandidateStatus = "pending", scan = false, limit = 20, after_id?: string, candidate_id?: string, decision?: "ignored" | "rejected" | "accepted", scope?: string, approval_id?: string, repair_type?: "depends_on" | "part_of" | "instance_of" | "related_to", preview_hash?: string, confirm = false): unknown {
+  kg_review(kind: "duplicates" | "anomalies" | "identity" | "schema_drift" | "semantic_patterns" | "related_edge_refinements" | "hygiene" = "duplicates", status: DuplicateCandidateStatus = "pending", scan = false, limit = 20, after_id?: string, candidate_id?: string, decision?: "ignored" | "rejected" | "accepted", scope?: string, approval_id?: string, repair_type?: "depends_on" | "part_of" | "instance_of" | "related_to", preview_hash?: string, confirm = false): unknown {
     const bounded = Math.min(100, Math.max(1, Math.trunc(limit)));
     const normalizedScope = normalizeScope(scope, this.config.scope?.default ?? "default");
     if (kind === "hygiene") {
@@ -1042,6 +1046,19 @@ export class Mnemora {
       }
       if (candidate_id || decision) throw new Error("semantic_pattern_decision_required");
       return this.store.reviewSemanticPatterns(normalizedScope, bounded);
+    }
+    if (kind === "related_edge_refinements") {
+      if (status !== "pending" || approval_id || repair_type) throw new Error("invalid_related_edge_refinement_review");
+      if (after_id && !scan) throw new Error("related_edge_refinement_scan_required_for_cursor");
+      if (scan && (candidate_id || decision)) throw new Error("related_edge_refinement_scan_only");
+      if (candidate_id && (decision === "accepted" || decision === "rejected")) {
+        return confirm
+          ? this.relatedEdgeRefinements.confirm(candidate_id, decision, preview_hash ?? "", normalizedScope)
+          : this.relatedEdgeRefinements.preview(candidate_id, decision, normalizedScope);
+      }
+      if (candidate_id || decision) throw new Error("related_edge_refinement_decision_required");
+      const scan_result = scan ? this.relatedEdgeRefinements.scan({ scope: normalizedScope, afterEdgeId: after_id, limit: bounded }) : undefined;
+      return { ...this.relatedEdgeRefinements.list(normalizedScope, bounded), ...(scan_result ? { scan: scan_result } : {}) };
     }
     if (kind === "anomalies") {
       if (decision === "accepted") throw new Error("invalid_conflict_decision");

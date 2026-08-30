@@ -39,6 +39,7 @@ import { recallLifecycleOptionalRestoreTables, recallLifecycleSchemaSql } from "
 import { corpusOptionalRestoreTables, corpusSchemaSql } from "./corpus/schema.js";
 import { memoryLifecycleSchemaSql } from "./memory-lifecycle/schema.js";
 import { unifiedRecallShadowSchemaSql } from "./retrieval/schema.js";
+import { relatedEdgeRefinementOptionalRestoreTables, relatedEdgeRefinementSchemaSql } from "./related-edge-refinement/schema.js";
 import { openMnemoraDatabase } from "./sqlite.js";
 import type { AutoRunClaim, AutoRunFinishStatus, CommunitySummary, ConflictCandidate, ConflictCandidateStatus, DuplicateCandidate, DuplicateCandidateStatus, DuplicateScanResult, EvidenceSummary, ExtractedEntity, ExtractedRelation, InsightKind, KgContextResult, KgEdge, KgForgetResult, KgInsight, KgMemoryChunk, KgMemoryDocument, KgMemoryExpiryReview, KgMemoryLifecycleAudit, KgMemoryLifecycleConfirm, KgMemoryLifecyclePreview, KgMemorySearchResult, KgNode, KgObservation, KgRelatedResult, KgScopeSummary, KgSearchResult, KgSourceSummary, KgStatsResult, LegacyIdentityAuditResult, MemoryLifecycleAction, MergeResult, MergeUndoResult, NodeType, QualityCleanupResult, QualityEvidenceSummary, RankedNode, RelatedSemanticLabelResult, RelationshipAnomaly, SchemaDriftCandidate, SchemaDriftRepairResult, SchemaDriftScanResult, SemanticPatternCandidate, SemanticPatternReviewResult, StoredEmbedding } from "./types.js";
 import type { GraphProjection, InsightSnapshot } from "./insights/types.js";
@@ -106,7 +107,7 @@ export class GraphologyStore {
     try {
       const sourceTables = new Set((this.db.prepare(`SELECT name FROM ${attached}.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'kg_nodes_fts%' AND name NOT LIKE 'kg_memory_documents_fts%' AND name NOT LIKE 'kg_memory_chunks_fts%' AND name NOT LIKE 'mnemora_corpus_chunks_fts%'`).all() as Array<{ name: string }>).map(row => row.name));
       const targetTables = (this.db.prepare("SELECT name FROM main.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'kg_nodes_fts%' AND name NOT LIKE 'kg_memory_documents_fts%' AND name NOT LIKE 'kg_memory_chunks_fts%' AND name NOT LIKE 'mnemora_corpus_chunks_fts%' ORDER BY name").all() as Array<{ name: string }>).map(row => row.name);
-      const optionalNewTables = new Set(["kg_scopes", "kg_memory_documents", "kg_memory_chunks", "kg_memory_lifecycle_audits", "kg_memory_import_previews", "kg_memory_import_audits", "kg_entity_identities", "kg_schema_quarantine", ...semanticOptionalRestoreTables, ...trustOptionalRestoreTables, ...integrationOptionalRestoreTables, ...profileOptionalRestoreTables, ...governanceOptionalRestoreTables, ...consolidationOptionalRestoreTables, ...cognitionOptionalRestoreTables, ...recallLifecycleOptionalRestoreTables, ...corpusOptionalRestoreTables]);
+      const optionalNewTables = new Set(["kg_scopes", "kg_memory_documents", "kg_memory_chunks", "kg_memory_lifecycle_audits", "kg_memory_import_previews", "kg_memory_import_audits", "kg_entity_identities", "kg_schema_quarantine", ...semanticOptionalRestoreTables, ...relatedEdgeRefinementOptionalRestoreTables, ...trustOptionalRestoreTables, ...integrationOptionalRestoreTables, ...profileOptionalRestoreTables, ...governanceOptionalRestoreTables, ...consolidationOptionalRestoreTables, ...cognitionOptionalRestoreTables, ...recallLifecycleOptionalRestoreTables, ...corpusOptionalRestoreTables]);
       if (targetTables.some(name => !optionalNewTables.has(name) && !sourceTables.has(name))) throw new Error("incompatible_schema");
       this.db.exec("BEGIN IMMEDIATE");
       for (const name of targetTables) {
@@ -372,6 +373,7 @@ export class GraphologyStore {
     if (version < 69) this.migrateReasoningIntakeV69();
     if (version < 70) this.migrateReasoningRuntimePolicySnapshotV70();
     if (version < 71) this.migrateUnifiedRecallShadowV71();
+    if (version < 72) this.migrateRelatedEdgeRefinementsV72();
     this.repairCanonicalCorpusFts();
     this.db.exec(`PRAGMA user_version=${SUPPORTED_SCHEMA_VERSION}`);
   }
@@ -502,6 +504,9 @@ export class GraphologyStore {
   private migrateReasoningRuntimePolicySnapshotV70(): void { this.db.exec(cognitionReasoningRuntimePolicySnapshotSchemaSql); }
   /** Schema v71 adds only redacted automatic-recall decision telemetry. */
   private migrateUnifiedRecallShadowV71(): void { this.db.exec(unifiedRecallShadowSchemaSql); }
+  /** Schema v72 adds only review candidates and receipts. It never classifies,
+   * changes, or retires a historic relationship during migration. */
+  private migrateRelatedEdgeRefinementsV72(): void { this.db.exec(relatedEdgeRefinementSchemaSql); }
 
   /** Schema v58 only adds durable receipts for explicitly confirmed consolidation
    * lifecycle actions. Existing evidence, episodes, and proposals are not
@@ -2448,6 +2453,11 @@ export class GraphologyStore {
         // confirmed hard forget must remove those references before deleting
         // their endpoint, otherwise their foreign keys make deletion fail.
         this.db.prepare("DELETE FROM kg_schema_drift_candidates WHERE source_entity_id = ? OR target_entity_id = ?").run(entityId, entityId);
+        // Related-edge refinements are likewise review records. Their receipt
+        // may reference both the legacy and the confirmed replacement edge.
+        const refinementWhere = "source_entity_id=? OR target_entity_id=? OR proposed_source_entity_id=? OR proposed_target_entity_id=?";
+        this.db.prepare(`DELETE FROM kg_related_edge_refinement_receipts WHERE candidate_id IN (SELECT id FROM kg_related_edge_refinement_candidates WHERE ${refinementWhere})`).run(entityId, entityId, entityId, entityId);
+        this.db.prepare(`DELETE FROM kg_related_edge_refinement_candidates WHERE ${refinementWhere}`).run(entityId, entityId, entityId, entityId);
         for (const edge of edgeIds) deleted_observations += this.db.prepare("DELETE FROM kg_observations WHERE edge_id = ?").run(edge.id).changes;
         deleted_observations += this.db.prepare("DELETE FROM kg_observations WHERE source_entity_id = ?").run(entityId).changes;
         deleted_edges += this.db.prepare("DELETE FROM kg_edges WHERE source_id = ? OR target_id = ?").run(entityId, entityId).changes;

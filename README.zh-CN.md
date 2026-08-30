@@ -122,6 +122,12 @@ quality: {
 }
 ```
 
+该诊断**不会**自动改变拓扑策略。若某条历史 `related_to` 的原始证据直接表达了结构事实，
+可通过 `kg_review` 的 `kind: "related_edge_refinements"` 并传入 `scan: true` 发起单独的
+人工审查。它只会基于同 scope、置信度 `≥ 0.85` 的直接证据，提出 `depends_on`、`part_of`
+或 `instance_of` 候选。必须先 preview，再用匹配的显式 confirm 才会复制证据、仅退休被审查
+的那一条 fallback 边并写入审计回执；不会调用 LLM、不会依据宽泛共现，也不会自动改图。
+
 `kg_stats` 的 `embedding_health` 是已观察到的本地状态，不会为读取状态发起 Provider
 探测。`healthy`/`degraded` 只取决于有界 embedding 成功或类别化失败；`hybrid` 搜索会
 确定性地退回词法结果，显式 `semantic` 搜索则返回有界的不可用错误。

@@ -86,18 +86,24 @@ cost of changing their topology role before changing production ranking.
   isolated nodes, and representative seed top-k Jaccard change without
   changing live PPR or traversal.
 
-## v1.13 — Related-Edge Topology and Legacy Review
+## v1.13 — Related-Edge Legacy Refinement
 
-Apply a topology policy only after the v1.12 report shows that it preserves
-useful connectivity.
+The v1.12 production assessment showed that complete exclusion fragments the
+current structural projection, while uniform downweighting does not change its
+top-k order. Preserve `related_to` as a compatibility bridge for now, and
+improve its information content through bounded, explicit review.
 
-- Select either the measured downweight or full exclusion for default PPR and
-  bounded traversal; retain explicit relation inspection in either case.
-- Produce preview-only refinement candidates for recurring legacy
-  `related_to` patterns. No historic edge is automatically relabelled,
-  deleted, or promoted into a new predicate.
-- Keep domain-vocabulary evolution as a separate reviewed proposal path, not
-  as an automatic schema or topology mutation.
+- Add an operator-invoked, scope-local scan for high-confidence legacy
+  `related_to` edges whose retained quote contains an ordered, direct
+  `depends_on`, `part_of`, or `instance_of` cue. Co-occurrence and vague
+  association make no candidate.
+- Require preview and matching confirmation before creating a structural
+  replacement. Confirmation copies source-linked evidence, retires only the
+  reviewed legacy edge, and records an audit receipt. Scanning and previewing
+  never mutate graph data; no model call or automatic relabelling is added.
+- Keep PPR and traversal policy unchanged. Domain-vocabulary evolution remains
+  a separate, reviewed proposal path rather than an automatic schema or
+  topology mutation.
 
 ## Non-negotiable boundaries
 
