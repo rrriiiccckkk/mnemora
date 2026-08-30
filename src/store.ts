@@ -40,6 +40,7 @@ import { corpusOptionalRestoreTables, corpusSchemaSql } from "./corpus/schema.js
 import { memoryLifecycleSchemaSql } from "./memory-lifecycle/schema.js";
 import { unifiedRecallShadowSchemaSql } from "./retrieval/schema.js";
 import { relatedEdgeRefinementOptionalRestoreTables, relatedEdgeRefinementSchemaSql } from "./related-edge-refinement/schema.js";
+import { relatedEdgeSemanticOptionalRestoreTables, relatedEdgeSemanticSchemaSql } from "./related-edge-semantics/schema.js";
 import { openMnemoraDatabase } from "./sqlite.js";
 import type { AutoRunClaim, AutoRunFinishStatus, CommunitySummary, ConflictCandidate, ConflictCandidateStatus, DuplicateCandidate, DuplicateCandidateStatus, DuplicateScanResult, EvidenceSummary, ExtractedEntity, ExtractedRelation, InsightKind, KgContextResult, KgEdge, KgForgetResult, KgInsight, KgMemoryChunk, KgMemoryDocument, KgMemoryExpiryReview, KgMemoryLifecycleAudit, KgMemoryLifecycleConfirm, KgMemoryLifecyclePreview, KgMemorySearchResult, KgNode, KgObservation, KgRelatedResult, KgScopeSummary, KgSearchResult, KgSourceSummary, KgStatsResult, LegacyIdentityAuditResult, MemoryLifecycleAction, MergeResult, MergeUndoResult, NodeType, QualityCleanupResult, QualityEvidenceSummary, RankedNode, RelatedSemanticLabelResult, RelationshipAnomaly, SchemaDriftCandidate, SchemaDriftRepairResult, SchemaDriftScanResult, SemanticPatternCandidate, SemanticPatternReviewResult, StoredEmbedding } from "./types.js";
 import type { GraphProjection, InsightSnapshot } from "./insights/types.js";
@@ -107,7 +108,7 @@ export class GraphologyStore {
     try {
       const sourceTables = new Set((this.db.prepare(`SELECT name FROM ${attached}.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'kg_nodes_fts%' AND name NOT LIKE 'kg_memory_documents_fts%' AND name NOT LIKE 'kg_memory_chunks_fts%' AND name NOT LIKE 'mnemora_corpus_chunks_fts%'`).all() as Array<{ name: string }>).map(row => row.name));
       const targetTables = (this.db.prepare("SELECT name FROM main.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'kg_nodes_fts%' AND name NOT LIKE 'kg_memory_documents_fts%' AND name NOT LIKE 'kg_memory_chunks_fts%' AND name NOT LIKE 'mnemora_corpus_chunks_fts%' ORDER BY name").all() as Array<{ name: string }>).map(row => row.name);
-      const optionalNewTables = new Set(["kg_scopes", "kg_memory_documents", "kg_memory_chunks", "kg_memory_lifecycle_audits", "kg_memory_import_previews", "kg_memory_import_audits", "kg_entity_identities", "kg_schema_quarantine", ...semanticOptionalRestoreTables, ...relatedEdgeRefinementOptionalRestoreTables, ...trustOptionalRestoreTables, ...integrationOptionalRestoreTables, ...profileOptionalRestoreTables, ...governanceOptionalRestoreTables, ...consolidationOptionalRestoreTables, ...cognitionOptionalRestoreTables, ...recallLifecycleOptionalRestoreTables, ...corpusOptionalRestoreTables]);
+      const optionalNewTables = new Set(["kg_scopes", "kg_memory_documents", "kg_memory_chunks", "kg_memory_lifecycle_audits", "kg_memory_import_previews", "kg_memory_import_audits", "kg_entity_identities", "kg_schema_quarantine", ...semanticOptionalRestoreTables, ...relatedEdgeRefinementOptionalRestoreTables, ...relatedEdgeSemanticOptionalRestoreTables, ...trustOptionalRestoreTables, ...integrationOptionalRestoreTables, ...profileOptionalRestoreTables, ...governanceOptionalRestoreTables, ...consolidationOptionalRestoreTables, ...cognitionOptionalRestoreTables, ...recallLifecycleOptionalRestoreTables, ...corpusOptionalRestoreTables]);
       if (targetTables.some(name => !optionalNewTables.has(name) && !sourceTables.has(name))) throw new Error("incompatible_schema");
       this.db.exec("BEGIN IMMEDIATE");
       for (const name of targetTables) {
@@ -374,6 +375,7 @@ export class GraphologyStore {
     if (version < 70) this.migrateReasoningRuntimePolicySnapshotV70();
     if (version < 71) this.migrateUnifiedRecallShadowV71();
     if (version < 72) this.migrateRelatedEdgeRefinementsV72();
+    if (version < 73) this.migrateRelatedEdgeSemanticsV73();
     this.repairCanonicalCorpusFts();
     this.db.exec(`PRAGMA user_version=${SUPPORTED_SCHEMA_VERSION}`);
   }
@@ -507,6 +509,9 @@ export class GraphologyStore {
   /** Schema v72 adds only review candidates and receipts. It never classifies,
    * changes, or retires a historic relationship during migration. */
   private migrateRelatedEdgeRefinementsV72(): void { this.db.exec(relatedEdgeRefinementSchemaSql); }
+  /** Schema v73 adds source-linked semantic review metadata only. Accepted
+   * labels never alter a fallback edge, topology, observation, or PPR weight. */
+  private migrateRelatedEdgeSemanticsV73(): void { this.db.exec(relatedEdgeSemanticSchemaSql); }
 
   /** Schema v58 only adds durable receipts for explicitly confirmed consolidation
    * lifecycle actions. Existing evidence, episodes, and proposals are not
@@ -2458,6 +2463,9 @@ export class GraphologyStore {
         const refinementWhere = "source_entity_id=? OR target_entity_id=? OR proposed_source_entity_id=? OR proposed_target_entity_id=?";
         this.db.prepare(`DELETE FROM kg_related_edge_refinement_receipts WHERE candidate_id IN (SELECT id FROM kg_related_edge_refinement_candidates WHERE ${refinementWhere})`).run(entityId, entityId, entityId, entityId);
         this.db.prepare(`DELETE FROM kg_related_edge_refinement_candidates WHERE ${refinementWhere}`).run(entityId, entityId, entityId, entityId);
+        const semanticWhere = "source_entity_id=? OR target_entity_id=?";
+        this.db.prepare(`DELETE FROM kg_related_edge_semantic_reviews WHERE candidate_id IN (SELECT id FROM kg_related_edge_semantic_candidates WHERE ${semanticWhere})`).run(entityId, entityId);
+        this.db.prepare(`DELETE FROM kg_related_edge_semantic_candidates WHERE ${semanticWhere}`).run(entityId, entityId);
         for (const edge of edgeIds) deleted_observations += this.db.prepare("DELETE FROM kg_observations WHERE edge_id = ?").run(edge.id).changes;
         deleted_observations += this.db.prepare("DELETE FROM kg_observations WHERE source_entity_id = ?").run(entityId).changes;
         deleted_edges += this.db.prepare("DELETE FROM kg_edges WHERE source_id = ? OR target_id = ?").run(entityId, entityId).changes;
@@ -2975,6 +2983,14 @@ export class GraphologyStore {
     if (!predicates.size) return [];
     const normalizedScope = scope == null ? undefined : normalizeScope(scope);
     const statement = this.db.prepare("SELECT * FROM kg_edges WHERE deleted_at IS NULL AND type=? AND (source_id=? OR target_id=?) AND (? IS NULL OR EXISTS (SELECT 1 FROM kg_observations so WHERE so.edge_id=kg_edges.id AND so.scope=?)) ORDER BY id LIMIT ?");
+    const acceptedLegacyLabel = this.db.prepare(`SELECT c.id AS candidate_id,c.proposed_type,c.legacy_edge_id,c.source_entity_id,c.target_entity_id,
+      o.id AS observation_id,o.source,o.quote,o.confidence,o.valid_from,o.valid_to,o.temporal_confidence,o.created_at
+      FROM kg_related_edge_semantic_candidates c
+        JOIN kg_related_edge_semantic_reviews r ON r.candidate_id=c.id AND r.scope=c.scope AND r.decision='accepted'
+        JOIN kg_edges e ON e.id=c.legacy_edge_id AND e.deleted_at IS NULL AND e.type='related_to'
+        JOIN kg_observations o ON o.id=c.evidence_observation_id AND o.edge_id=e.id AND o.scope=c.scope
+      WHERE c.proposed_type=? AND (c.source_entity_id=? OR c.target_entity_id=?) AND (? IS NULL OR c.scope=?)
+      ORDER BY c.id LIMIT ?`);
     const labels: RelatedSemanticLabelResult[] = [];
     for (const predicate of [...predicates].filter(isSemanticRelationship).sort()) {
       for (const row of statement.all(predicate, nodeId, nodeId, normalizedScope ?? null, normalizedScope ?? null, Math.min(100, Math.max(1, Math.trunc(limit)))) as EdgeRow[]) {
@@ -2995,6 +3011,21 @@ export class GraphologyStore {
         // evidence but ranks below an otherwise equal dictionary match.
         const score = confidence * (endpoint_match ? 1 : .75);
         labels.push({ id: edge.id, predicate: edge.type, domain, source, target, evidence, legacy: metadata?.layer !== "semantic", endpoint_match, score });
+        if (labels.length >= limit) return labels;
+      }
+      for (const row of acceptedLegacyLabel.all(predicate, nodeId, nodeId, normalizedScope ?? null, normalizedScope ?? null, Math.min(100, Math.max(1, Math.trunc(limit)))) as Array<{
+        candidate_id: string; proposed_type: RelationshipType; legacy_edge_id: string; source_entity_id: string; target_entity_id: string;
+        observation_id: string; source: string; quote: string; confidence: number; valid_from: number | null; valid_to: number | null; temporal_confidence: number | null; created_at: number;
+      }>) {
+        const source = this.getNodeById(row.source_entity_id), target = this.getNodeById(row.target_entity_id);
+        if (!source || !target || !isSemanticRelationship(row.proposed_type)) continue;
+        const requestedDirection = effectiveDirection(row.proposed_type, direction);
+        if (requestedDirection === "out" && row.source_entity_id !== nodeId) continue;
+        if (requestedDirection === "in" && row.target_entity_id !== nodeId) continue;
+        const recommendation = semanticVocabularyRecommendation(row.proposed_type, source.type, target.type);
+        const evidence: EvidenceSummary[] = [{ observation_id: row.observation_id, source: row.source, quote: row.quote, confidence: clamp01(Number(row.confidence)), valid_from: row.valid_from, valid_to: row.valid_to, temporal_confidence: row.temporal_confidence, created_at: Number(row.created_at) }];
+        const score = evidence[0]!.confidence * (recommendation.endpoint_match ? 1 : .75);
+        labels.push({ id: `related-edge-semantic:${row.candidate_id}`, predicate: row.proposed_type, domain: recommendation.domain, source, target, evidence, legacy: true, endpoint_match: recommendation.endpoint_match, score });
         if (labels.length >= limit) return labels;
       }
     }

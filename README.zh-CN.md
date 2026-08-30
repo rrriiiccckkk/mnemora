@@ -128,6 +128,11 @@ quality: {
 或 `instance_of` 候选。必须先 preview，再用匹配的显式 confirm 才会复制证据、仅退休被审查
 的那一条 fallback 边并写入审计回执；不会调用 LLM、不会依据宽泛共现，也不会自动改图。
 
+若原文是直接的语义陈述、但仍需保留连通骨架，可改用 `kind: "related_edge_semantics"`。
+它会从既有词表中提出 `uses`、`develops`、`works_at`、`supplies` 等标签；preview/confirm
+接受后，仅让该标签可被显式语义关系查询返回。原 `related_to` 边会保留，PPR、遍历、
+observation 与图权重都不会改变。
+
 `kg_stats` 的 `embedding_health` 是已观察到的本地状态，不会为读取状态发起 Provider
 探测。`healthy`/`degraded` 只取决于有界 embedding 成功或类别化失败；`hybrid` 搜索会
 确定性地退回词法结果，显式 `semantic` 搜索则返回有界的不可用错误。

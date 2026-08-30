@@ -159,6 +159,13 @@ confirmation copies the evidence, retires just that reviewed fallback edge,
 and writes an audit receipt. It never uses an LLM, broad co-occurrence, or an
 automatic graph mutation.
 
+For a direct semantic statement that should remain a topology bridge, use
+`kind: "related_edge_semantics"` instead. Its scan proposes labels from the
+existing vocabulary—such as `uses`, `develops`, `works_at`, and `supplies`—and
+an accepted preview/confirm decision makes that label available only to an
+explicit semantic relationship query. It retains the original `related_to`
+edge and does not alter PPR, traversal, observations, or graph weights.
+
 `kg_stats` includes `embedding_health`, an observed local status rather than a
 live provider probe. `healthy` and `degraded` are based only on bounded local
 embedding successes or categorical failures; `hybrid` search deterministically

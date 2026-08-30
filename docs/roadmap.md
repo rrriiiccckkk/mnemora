@@ -105,6 +105,23 @@ improve its information content through bounded, explicit review.
   a separate, reviewed proposal path rather than an automatic schema or
   topology mutation.
 
+## v1.14 — Related-Edge Semantic Enrichment
+
+Make a reviewed legacy fallback edge explainable to an explicit semantic query
+without treating a label as a topology fact.
+
+- Add an operator-invoked, scope-local scan for high-confidence `related_to`
+  evidence that directly states one of the existing semantic predicates, such
+  as `uses`, `develops`, `works_at`, or `supplies`.
+- An accepted preview/confirm decision creates a source-linked semantic label
+  projection for that exact legacy edge. It does not create a replacement
+  edge, retire the fallback edge, alter an observation, or change PPR or
+  traversal. Rejection remains inert.
+- Preserve the distinction between a direct relationship cue and a broad
+  association: labels are unavailable until an operator confirms the exact
+  same-scope evidence. Broader ontology expansion remains a separate proposal
+  rather than an inferred graph mutation.
+
 ## Non-negotiable boundaries
 
 - Never automate personality formation.
