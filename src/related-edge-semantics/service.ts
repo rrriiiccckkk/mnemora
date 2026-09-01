@@ -1,10 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSyncInstance } from "@photostructure/sqlite";
-import type { RelationshipType } from "../relationships.js";
 import { normalizeScope } from "../scope.js";
 import { GraphReviewLifecycleRepository, type GraphReviewInvalidationReason } from "../graph-review/lifecycle.js";
+import { SemanticVocabularyRepository } from "../semantic-vocabulary/repository.js";
 
-export type RelatedEdgeSemanticType = Exclude<RelationshipType, "depends_on" | "part_of" | "instance_of" | "related_to">;
+/** Built-in labels and operator-approved vocabulary labels share this narrow
+ * projection path. Neither form is a graph edge type. */
+export type RelatedEdgeSemanticType = string;
 type Decision = "accepted" | "rejected";
 
 export interface RelatedEdgeSemanticCandidate {
@@ -77,7 +79,11 @@ const semanticPatterns: Array<{ type: RelatedEdgeSemanticType; rationale: string
  * acceptance creates a narrow, source-backed read projection only. */
 export class RelatedEdgeSemanticService {
   private readonly lifecycle: GraphReviewLifecycleRepository;
-  constructor(private readonly db: DatabaseSyncInstance, private readonly now: () => number = Date.now, lifecycle?: GraphReviewLifecycleRepository) { this.lifecycle = lifecycle ?? new GraphReviewLifecycleRepository(db, now); }
+  private readonly vocabulary: SemanticVocabularyRepository;
+  constructor(private readonly db: DatabaseSyncInstance, private readonly now: () => number = Date.now, lifecycle?: GraphReviewLifecycleRepository, vocabulary?: SemanticVocabularyRepository) {
+    this.lifecycle = lifecycle ?? new GraphReviewLifecycleRepository(db, now);
+    this.vocabulary = vocabulary ?? new SemanticVocabularyRepository(db, now);
+  }
 
   scan(input: { scope: string; afterEdgeId?: string; limit?: number }): RelatedEdgeSemanticScanResult {
     const scope = normalizeScope(input.scope), after = boundedId(input.afterEdgeId), limit = boundedLimit(input.limit);
@@ -92,9 +98,11 @@ export class RelatedEdgeSemanticService {
       ORDER BY e.id LIMIT ?`).all(scope, minimumConfidence, after, limit) as LegacyRow[];
     let candidates_created = 0, candidates_updated = 0;
     for (const row of rows) {
-      const proposal = classify(row);
+      const proposal = classify(row) ?? this.vocabulary.classify({
+        scope, source_name: row.source_name, source_type: row.source_type, target_name: row.target_name, target_type: row.target_type, quote: row.quote
+      });
       if (!proposal) continue;
-      const id = candidateId(scope, row.id, row.observation_id, proposal.type);
+      const id = candidateId(scope, row.id, row.observation_id, proposal.predicate);
       const existing = this.db.prepare("SELECT status FROM kg_related_edge_semantic_candidates WHERE id=?").get(id) as { status?: string } | undefined;
       const now = this.now(), evidenceHash = hash(row.quote);
       this.db.prepare(`INSERT INTO kg_related_edge_semantic_candidates(
@@ -102,7 +110,7 @@ export class RelatedEdgeSemanticService {
       ) VALUES(?,?,?,?,?,?,?,?,?,?,'pending',?,?) ON CONFLICT(scope,legacy_edge_id,evidence_observation_id,proposed_type)
       DO UPDATE SET evidence_hash=excluded.evidence_hash,rationale=excluded.rationale,confidence=excluded.confidence,updated_at=excluded.updated_at
         WHERE kg_related_edge_semantic_candidates.status='pending'`)
-        .run(id, scope, row.id, row.source_id, row.target_id, proposal.type, row.observation_id, evidenceHash, proposal.rationale, clamp01(row.confidence), now, now);
+        .run(id, scope, row.id, row.source_id, row.target_id, proposal.predicate, row.observation_id, evidenceHash, proposal.rationale, clamp01(row.confidence), now, now);
       if (!existing) candidates_created++; else if (existing.status === "pending") candidates_updated++;
     }
     return { scanned: rows.length, candidates_created, candidates_updated, ...(rows.length === limit ? { next_edge_id: rows[rows.length - 1]!.id } : {}) };
@@ -175,11 +183,11 @@ export class RelatedEdgeSemanticService {
   }
 }
 
-function classify(row: LegacyRow): { type: RelatedEdgeSemanticType; rationale: string } | undefined {
+function classify(row: LegacyRow): { predicate: RelatedEdgeSemanticType; rationale: string } | undefined {
   const quote = row.quote.normalize("NFKC");
   for (const pattern of semanticPatterns) {
     if (!typeMatches(pattern.source, row.source_type) || !typeMatches(pattern.target, row.target_type)) continue;
-    if (matchesOrderedCue(quote, row.source_name, row.target_name, pattern.cue)) return { type: pattern.type, rationale: pattern.rationale };
+    if (matchesOrderedCue(quote, row.source_name, row.target_name, pattern.cue)) return { predicate: pattern.type, rationale: pattern.rationale };
   }
   return undefined;
 }
@@ -203,7 +211,7 @@ function mapCandidate(row: CandidateRow): RelatedEdgeSemanticCandidate {
   return {
     id: row.id, scope: row.scope, legacy_edge_id: row.legacy_edge_id,
     source: { id: row.source_entity_id, name: row.source_name, type: row.source_type }, target: { id: row.target_entity_id, name: row.target_name, type: row.target_type },
-    proposed_type: row.proposed_type as RelatedEdgeSemanticType, rationale: row.rationale, confidence: clamp01(row.confidence), evidence_hash: row.evidence_hash,
+    proposed_type: row.proposed_type, rationale: row.rationale, confidence: clamp01(row.confidence), evidence_hash: row.evidence_hash,
     status: invalidationReason(row.invalidation_reason) ? "invalidated" : row.status === "accepted" ? "accepted" : row.status === "rejected" ? "rejected" : "pending",
     ...(invalidationReason(row.invalidation_reason) ? { invalidation: { reason: invalidationReason(row.invalidation_reason)!, invalidated_at: Number(row.invalidated_at ?? 0) } } : {}),
     evidence: { observation_id: row.evidence_observation_id, source: row.evidence_source, quote: row.evidence_quote.slice(0, quoteLimit), confidence: clamp01(row.evidence_confidence) },

@@ -15,7 +15,7 @@ test("task outcomes are previewed, evidence-linked, immutable, and scope-bound",
   let now = 10_000;
   const store = new GraphologyStore(":memory:");
   try {
-    assert.equal(SUPPORTED_SCHEMA_VERSION, 74);
+    assert.equal(SUPPORTED_SCHEMA_VERSION, 75);
     const event = new ConversationEventRepository(store.db, policy).append({ scope: "project:a", sessionId: "s", kind: "user_message", role: "user", parts: [{ type: "text", text: "run safe migration" }] });
     const task = new EpisodeRepository(store.db).create({ scope: "project:a", kind: "task", summary: "Run safe migration", sourceEventIds: [event.id], importance: .8, confidence: .9 });
     const taskRef = createMnemoraContextRef({ scope: "project:a", kind: "episode", id: task.id });

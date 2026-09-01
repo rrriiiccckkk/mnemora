@@ -133,6 +133,15 @@ quality: {
 接受后，仅让该标签可被显式语义关系查询返回。原 `related_to` 边会保留，PPR、遍历、
 observation 与图权重都不会改变。
 
+`kind: "semantic_vocabulary"` 是独立的、由审查驱动的领域中性词表路径；目前只包含
+`located_in`、`member_of`、`created_by`、`authored_by` 与 `based_on` 五个小型种子标签。
+有界扫描只收集同 scope、置信度 `>= 0.85` 的直接 fallback 证据；候选至少需要 3 条
+observation、且来自 2 个来源，才能进入 preview/confirm。接受词表项不会给任何边打标签，
+也不会修改图数据；它只允许之后的 `related_edge_semantics` 扫描为匹配的单条边提出候选，
+而每条边仍要各自 preview/confirm。只可通过精确谓词显式查看已接受的动态标签，例如
+`kg_related(..., semantic_predicates: ["based_on"])`。动态标签绝不会成为遍历边、PPR
+输入或自动上下文附加内容。
+
 使用 `kg_review` 的 `kind: "worklist"` 可以在同一 scope 内分页查看只读的待处理
 自链接、已拒绝候选，以及已变为 `invalidated` 的待处理候选。`invalidated` 是持久化的
 审查元数据：候选所依赖的精确 fallback 边或证据已不再匹配，因此不能再 preview 或

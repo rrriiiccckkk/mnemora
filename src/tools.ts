@@ -53,9 +53,10 @@ import { RelatedEdgeRefinementService } from "./related-edge-refinement/service.
 import { RelatedEdgeSemanticService } from "./related-edge-semantics/service.js";
 import { GraphReviewLifecycleRepository } from "./graph-review/lifecycle.js";
 import { GraphReviewWorklistService, type GraphReviewWorklistStatus } from "./graph-review/worklist.js";
+import { SemanticVocabularyRepository } from "./semantic-vocabulary/repository.js";
 
 export type SemanticSearchUnavailableCategory = "disabled" | "timeout" | "aborted" | "provider" | "invalid_response" | "scale_limit";
-export type ReviewStatus = DuplicateCandidateStatus | "invalidated";
+export type ReviewStatus = DuplicateCandidateStatus | "accepted" | "invalidated";
 export class SemanticSearchUnavailableError extends Error {
   constructor(readonly category: SemanticSearchUnavailableCategory, readonly count?: number) {
     super(`semantic search unavailable: ${category}${count == null ? "" : ` (${count})`}`);
@@ -168,6 +169,8 @@ export class Mnemora {
   private readonly relatedEdgeRefinements: RelatedEdgeRefinementService;
   /** Source-backed semantic labels for fallback edges; it never changes topology. */
   private readonly relatedEdgeSemantics: RelatedEdgeSemanticService;
+  /** Review-only vocabulary candidates may classify later explicit label proposals. */
+  private readonly semanticVocabulary: SemanticVocabularyRepository;
   /** Invalidation overlays make stale review proposals visible without touching graph facts. */
   private readonly graphReviewLifecycle: GraphReviewLifecycleRepository;
   /** Bounded read model joining graph-remediation proposals and self-link findings. */
@@ -214,8 +217,9 @@ export class Mnemora {
     this.recallFeedback = new RecallFeedbackRepository(this.store.db, this.now);
     this.hygiene = new GraphHygieneService(this.store, this.now);
     this.graphReviewLifecycle = new GraphReviewLifecycleRepository(this.store.db, this.now);
+    this.semanticVocabulary = new SemanticVocabularyRepository(this.store.db, this.now);
     this.relatedEdgeRefinements = new RelatedEdgeRefinementService(this.store.db, this.now, this.graphReviewLifecycle);
-    this.relatedEdgeSemantics = new RelatedEdgeSemanticService(this.store.db, this.now, this.graphReviewLifecycle);
+    this.relatedEdgeSemantics = new RelatedEdgeSemanticService(this.store.db, this.now, this.graphReviewLifecycle, this.semanticVocabulary);
     this.graphReviewWorklist = new GraphReviewWorklistService(this.store.db, this.graphReviewLifecycle);
     this.embeddingHealth = new EmbeddingHealthRepository(this.store, this.now);
     this.memoryLifecycle = new MemoryDocumentLifecycleService(this.store.db, {
@@ -859,8 +863,8 @@ export class Mnemora {
     return ranked;
   }
 
-  kg_related(entity: string, depth = 1, edge_types?: RelationshipType[], direction?: Direction, scope?: string): KgRelatedResult {
-    return this.store.related(entity, depth, edge_types, direction, normalizeScope(scope, this.config.scope?.default ?? "default"));
+  kg_related(entity: string, depth = 1, edge_types?: RelationshipType[], direction?: Direction, scope?: string, semantic_predicates?: string[]): KgRelatedResult {
+    return this.store.related(entity, depth, edge_types, direction, normalizeScope(scope, this.config.scope?.default ?? "default"), semantic_predicates);
   }
 
   kg_stats(): KgStatsResult {
@@ -1020,7 +1024,7 @@ export class Mnemora {
     } catch { return { ...result, vector_index_cleanup: "deferred" }; }
   }
 
-  kg_review(kind: "duplicates" | "anomalies" | "identity" | "schema_drift" | "semantic_patterns" | "related_edge_refinements" | "related_edge_semantics" | "hygiene" | "worklist" = "duplicates", status: ReviewStatus = "pending", scan = false, limit = 20, after_id?: string, candidate_id?: string, decision?: "ignored" | "rejected" | "accepted", scope?: string, approval_id?: string, repair_type?: "depends_on" | "part_of" | "instance_of" | "related_to", preview_hash?: string, confirm = false): unknown {
+  kg_review(kind: "duplicates" | "anomalies" | "identity" | "schema_drift" | "semantic_patterns" | "semantic_vocabulary" | "related_edge_refinements" | "related_edge_semantics" | "hygiene" | "worklist" = "duplicates", status: ReviewStatus = "pending", scan = false, limit = 20, after_id?: string, candidate_id?: string, decision?: "ignored" | "rejected" | "accepted", scope?: string, approval_id?: string, repair_type?: "depends_on" | "part_of" | "instance_of" | "related_to", preview_hash?: string, confirm = false): unknown {
     const bounded = Math.min(100, Math.max(1, Math.trunc(limit)));
     const normalizedScope = normalizeScope(scope, this.config.scope?.default ?? "default");
     if (kind === "worklist") {
@@ -1066,6 +1070,19 @@ export class Mnemora {
       }
       if (candidate_id || decision) throw new Error("semantic_pattern_decision_required");
       return this.store.reviewSemanticPatterns(normalizedScope, bounded);
+    }
+    if (kind === "semantic_vocabulary") {
+      if ((status !== "pending" && status !== "accepted" && status !== "rejected") || approval_id || repair_type) throw new Error("invalid_semantic_vocabulary_review");
+      if (after_id && !scan) throw new Error("semantic_vocabulary_scan_required_for_cursor");
+      if (scan && (candidate_id || decision)) throw new Error("semantic_vocabulary_scan_only");
+      if (candidate_id && (decision === "accepted" || decision === "rejected")) {
+        return confirm
+          ? this.semanticVocabulary.confirm(candidate_id, decision, preview_hash ?? "", normalizedScope)
+          : this.semanticVocabulary.preview(candidate_id, decision, normalizedScope);
+      }
+      if (candidate_id || decision) throw new Error("semantic_vocabulary_decision_required");
+      const scan_result = scan ? this.semanticVocabulary.scan({ scope: normalizedScope, afterEdgeId: after_id, limit: bounded }) : undefined;
+      return { ...this.semanticVocabulary.list(normalizedScope, status, bounded), ...(scan_result ? { scan: scan_result } : {}) };
     }
     if (kind === "related_edge_refinements") {
       if (status !== "pending" || approval_id || repair_type) throw new Error("invalid_related_edge_refinement_review");

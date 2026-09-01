@@ -333,8 +333,9 @@ export interface RelatedEdgeResult {
 /** A domain label is evidence-backed, but not a graph-topology arc. */
 export interface RelatedSemanticLabelResult {
   id: string;
-  predicate: RelationshipType;
-  domain: "investment" | "code" | "unknown";
+  /** An explicit built-in predicate or operator-approved neutral label. */
+  predicate: string;
+  domain: "investment" | "code" | "neutral" | "unknown";
   source: KgNode;
   target: KgNode;
   evidence: EvidenceSummary[];

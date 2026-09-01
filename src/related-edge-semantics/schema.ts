@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS kg_related_edge_semantic_candidates (
   legacy_edge_id TEXT NOT NULL REFERENCES kg_edges(id),
   source_entity_id TEXT NOT NULL REFERENCES kg_nodes(id),
   target_entity_id TEXT NOT NULL REFERENCES kg_nodes(id),
-  proposed_type TEXT NOT NULL CHECK(proposed_type IN ('works_at','invested_in','supplies','supplies_product','supplied_to','competes_with','uses','develops','owns','partners_with','in_portfolio')),
+  proposed_type TEXT NOT NULL CHECK(length(proposed_type)>=1 AND length(proposed_type)<=64),
   evidence_observation_id TEXT NOT NULL REFERENCES kg_observations(id),
   evidence_hash TEXT NOT NULL CHECK(length(evidence_hash)=64),
   rationale TEXT NOT NULL,

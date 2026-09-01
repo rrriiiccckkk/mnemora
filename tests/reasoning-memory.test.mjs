@@ -34,7 +34,7 @@ function fixture(store, scope = "project:ops") {
 test("reasoning memory requires local lineage, remains proposed until admission, and never writes beliefs", () => {
   const store = new GraphologyStore(":memory:");
   try {
-    assert.equal(SUPPORTED_SCHEMA_VERSION, 74);
+    assert.equal(SUPPORTED_SCHEMA_VERSION, 75);
     const { eventRef, taskRef, outcomeRef } = fixture(store), service = new ReasoningMemoryService(store.db, () => 200);
     const input = { scope: "project:ops", kind: "failure_guard", strategy: "Validate rollback and a recovery plan before any production schema mutation.", applicability: { taskTypes: ["database_migration"], riskLevels: ["high"] }, contraindications: ["Do not delay an emergency rollback."], sourceTaskRefs: [taskRef], outcomeRefs: [outcomeRef], evidenceRefs: [eventRef], confidence: .8 };
     const preview = service.preview(input);

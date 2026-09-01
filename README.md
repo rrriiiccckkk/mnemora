@@ -166,6 +166,18 @@ an accepted preview/confirm decision makes that label available only to an
 explicit semantic relationship query. It retains the original `related_to`
 edge and does not alter PPR, traversal, observations, or graph weights.
 
+`kind: "semantic_vocabulary"` is the separate, review-driven path for the
+small domain-neutral seed vocabulary: `located_in`, `member_of`, `created_by`,
+`authored_by`, and `based_on`. Its bounded scan collects only direct,
+same-scope fallback evidence at confidence `>= 0.85`; a proposal needs at
+least three observations from two sources before preview/confirm. Accepting a
+vocabulary entry does not label an edge or change graph data. It merely allows
+a later `related_edge_semantics` scan to propose matching, per-edge labels,
+which still require their own preview and confirmation. Inspect an accepted
+label only with its exact predicate—for example
+`kg_related(..., semantic_predicates: ["based_on"])`. Dynamic labels never
+become traversal arcs, PPR inputs, or automatic context attachments.
+
 Use `kg_review` with `kind: "worklist"` to page through one scope-local,
 read-only queue of pending self-link findings, rejected proposals, or pending
 proposals that have become `invalidated`. An invalidation is durable metadata:
