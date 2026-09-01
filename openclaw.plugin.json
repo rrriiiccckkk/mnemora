@@ -2,7 +2,7 @@
   "id": "mnemora",
   "name": "Mnemora",
   "description": "Evidence-first personal memory harness for persistent OpenClaw agents.",
-  "version": "1.16.0",
+  "version": "1.16.1",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

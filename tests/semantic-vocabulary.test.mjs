@@ -42,11 +42,12 @@ test("frequent operator-approved vocabulary classifies future explicit labels wi
     const classified = graph.kg_review("related_edge_semantics", "pending", true, 20, undefined, undefined, undefined, "work");
     assert.equal(classified.items.filter(item => item.proposed_type === "based_on").length, 3);
     const labelCandidate = classified.items.find(item => item.proposed_type === "based_on");
+    assert.ok(labelCandidate, "an accepted vocabulary produces a reviewable per-edge label candidate");
     const labelPreview = graph.kg_review("related_edge_semantics", "pending", false, 20, undefined, labelCandidate.id, "accepted", "work");
     assert.equal(labelPreview.eligible, true, "the accepted vocabulary still requires a valid per-edge review");
     assert.equal(graph.kg_review("related_edge_semantics", "pending", false, 20, undefined, labelCandidate.id, "accepted", "work", undefined, undefined, labelPreview.preview_hash, true).confirmed, true);
-    assert.deepEqual(graph.kg_related("System One", 1, undefined, "out", "work", ["based_on"]).semantic_labels.map(item => [item.predicate, item.domain, item.source.name, item.target.name]), [["based_on", "neutral", "System One", "Runtime One"]]);
-    assert.deepEqual(graph.kg_related("System One", 1, undefined, "out", "work").semantic_labels, [], "custom labels require an explicit predicate");
+    assert.deepEqual(graph.kg_related(labelCandidate.source.id, 1, undefined, "out", "work", ["based_on"]).semantic_labels.map(item => [item.predicate, item.domain, item.source.name, item.target.name]), [["based_on", "neutral", labelCandidate.source.name, labelCandidate.target.name]]);
+    assert.deepEqual(graph.kg_related(labelCandidate.source.id, 1, undefined, "out", "work").semantic_labels, [], "custom labels require an explicit predicate");
     assert.equal(graph.store.getEdgeById(first.relations[0].edge.id)?.type, "related_to");
   } finally { graph.close(); }
 });
