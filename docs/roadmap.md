@@ -122,6 +122,46 @@ without treating a label as a topology fact.
   same-scope evidence. Broader ontology expansion remains a separate proposal
   rather than an inferred graph mutation.
 
+## v1.15 — Graph Review Lifecycle Integrity
+
+Finish the operational lifecycle around review records before adding more
+graph semantics.
+
+- Provide one bounded review worklist for pending, rejected, and invalidated
+  graph-remediation candidates, including the existing suspicious self-link
+  finding.
+- Mark a candidate invalid when its exact legacy edge or evidence is retired
+  or removed, instead of leaving it indefinitely previewable-but-ineligible.
+- Keep every graph-changing action preview/confirm only. Scanning, lifecycle
+  maintenance, and status reporting must never delete an edge automatically.
+
+## v1.16 — Review-Driven Vocabulary Evolution
+
+Use real accepted and rejected review outcomes to evolve the soft semantic
+vocabulary, rather than expanding an ontology speculatively.
+
+- Propose domain-neutral labels only from observed, frequent, evidence-backed
+  patterns; likely candidates include `located_in`, `member_of`,
+  `created_by`, `authored_by`, and `based_on`.
+- A human-approved vocabulary entry may improve explicit semantic inspection
+  and future proposal classification. It does not create a graph edge, rewrite
+  a historic relation, become a PPR arc, or authorize automatic extraction.
+- Preserve a small structural topology. New labels remain semantic projections
+  unless a later, separately measured decision promotes a relationship type.
+
+## Post-v1.16 decision gate
+
+Before any further topology or reasoning-delivery feature work, collect real
+scope-local evidence:
+
+1. Run `hygiene`, `related_edge_refinements`, and `related_edge_semantics` on
+   the production scope and review a meaningful sample of candidates.
+2. Compare accepted/rejected/invalidated rates, residual `related_to`
+   concentration, and the v1.12 topology diagnostics.
+3. Expand PPR policy or ReasoningMemory delivery only if those measurements
+   show a concrete quality gain. Otherwise keep the conservative defaults and
+   prioritize operator experience over more automatic memory behavior.
+
 ## Non-negotiable boundaries
 
 - Never automate personality formation.
