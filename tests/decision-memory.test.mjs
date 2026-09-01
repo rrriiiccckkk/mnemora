@@ -14,7 +14,7 @@ test("explicit decision memory is previewed, source-linked, idempotent, and life
   let now = 1_000;
   const store = new GraphologyStore(":memory:");
   try {
-    assert.equal(SUPPORTED_SCHEMA_VERSION, 73);
+    assert.equal(SUPPORTED_SCHEMA_VERSION, 74);
     const candidate = new FormationService(store.db, () => ++now, { mode: "enforce" }).observe({ scope: "project:alpha", origin: "memory_store", authority: "user_explicit_preference", kind: "memory_document", source: "user:decision", content: "Use SQLite for this local-first project." });
     const sourceRef = createMnemoraContextRef({ scope: "project:alpha", kind: "memory-candidate", id: candidate.id });
     const service = new DecisionMemoryService(store.db, () => ++now);

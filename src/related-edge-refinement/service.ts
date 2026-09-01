@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSyncInstance } from "@photostructure/sqlite";
 import { edgeWeight } from "../schema.js";
 import { normalizeScope } from "../scope.js";
+import { GraphReviewLifecycleRepository, type GraphReviewInvalidationReason } from "../graph-review/lifecycle.js";
 
 export type RelatedEdgeRefinementType = "depends_on" | "part_of" | "instance_of";
 type Decision = "accepted" | "rejected";
@@ -19,7 +20,8 @@ export interface RelatedEdgeRefinementCandidate {
   confidence: number;
   /** Hash only; the evidence text remains in the bounded evidence projection. */
   evidence_hash: string;
-  status: "pending" | Decision;
+  status: "pending" | Decision | "invalidated";
+  invalidation?: { reason: GraphReviewInvalidationReason; invalidated_at: number };
   evidence: { observation_id: string; source: string; quote: string; confidence: number };
   first_seen_at: number;
   updated_at: number;
@@ -39,7 +41,8 @@ export interface RelatedEdgeRefinementReviewResult {
   decision: Decision;
   preview_hash: string;
   eligible: boolean;
-  reason?: "missing_candidate" | "already_reviewed" | "legacy_edge_changed" | "missing_scope_evidence";
+  reason?: "missing_candidate" | "already_reviewed" | "invalidated" | "legacy_edge_changed" | "missing_scope_evidence";
+  invalidation_reason?: GraphReviewInvalidationReason;
   audit_id?: string;
   edge_id?: string;
   observation_id?: string;
@@ -52,7 +55,7 @@ interface CandidateRow {
   evidence_observation_id: string; evidence_hash: string; rationale: string; confidence: number;
   status: string; first_seen_at: number; updated_at: number; reviewed_at: number | null;
   source_name: string; target_name: string; proposed_source_name: string; proposed_target_name: string;
-  evidence_source: string; evidence_quote: string; evidence_confidence: number;
+  evidence_source: string; evidence_quote: string; evidence_confidence: number; invalidation_reason?: string; invalidated_at?: number;
 }
 
 interface LegacyRow {
@@ -72,7 +75,8 @@ const topologyPatterns: Array<{ type: RelatedEdgeRefinementType; rationale: stri
 /** A deep, local module: scanning, cue validation, preview hashing, atomic
  * confirmation, and audit receipts sit behind the single review workflow. */
 export class RelatedEdgeRefinementService {
-  constructor(private readonly db: DatabaseSyncInstance, private readonly now: () => number = Date.now) {}
+  private readonly lifecycle: GraphReviewLifecycleRepository;
+  constructor(private readonly db: DatabaseSyncInstance, private readonly now: () => number = Date.now, lifecycle?: GraphReviewLifecycleRepository) { this.lifecycle = lifecycle ?? new GraphReviewLifecycleRepository(db, now); }
 
   scan(input: { scope: string; afterEdgeId?: string; limit?: number }): RelatedEdgeRefinementScanResult {
     const scope = normalizeScope(input.scope), after = boundedId(input.afterEdgeId), limit = Math.min(maxScan, Math.max(1, Math.trunc(input.limit ?? 20)));
@@ -107,14 +111,18 @@ export class RelatedEdgeRefinementService {
 
   list(scope: string, limit = 20): { items: RelatedEdgeRefinementCandidate[] } {
     const safe = normalizeScope(scope), take = Math.min(maxScan, Math.max(1, Math.trunc(limit)));
+    this.lifecycle.reconcile(safe, "related_edge_refinement", maxScan);
     const rows = this.db.prepare(candidateSelect("WHERE c.scope=? ORDER BY c.status='pending' DESC,c.updated_at DESC,c.id LIMIT ?")).all(safe, take) as CandidateRow[];
     return { items: rows.map(mapCandidate) };
   }
 
   preview(candidateIdValue: string, decision: Decision, scope = "default"): RelatedEdgeRefinementReviewResult {
-    const scopeSafe = normalizeScope(scope), candidate = this.find(candidateIdValue, scopeSafe);
+    const scopeSafe = normalizeScope(scope);
+    this.lifecycle.reconcileCandidate(scopeSafe, "related_edge_refinement", candidateIdValue);
+    const candidate = this.find(candidateIdValue, scopeSafe);
     const basic = { confirmed: false, candidate_id: candidateIdValue, decision } as const;
     if (!candidate) return { ...basic, preview_hash: "", eligible: false, reason: "missing_candidate" };
+    if (candidate.status === "invalidated") return { ...basic, preview_hash: "", eligible: false, reason: "invalidated", ...(candidate.invalidation ? { invalidation_reason: candidate.invalidation.reason } : {}) };
     if (candidate.status !== "pending") return { ...basic, preview_hash: receiptHash(this.db, candidate.id) ?? "", eligible: false, reason: "already_reviewed" };
     const legacy = this.activeLegacy(candidate, scopeSafe);
     if (!legacy) return { ...basic, preview_hash: "", eligible: false, reason: "legacy_edge_changed" };
@@ -209,13 +217,14 @@ function matchesOrderedCue(quote: string, source: string, target: string, cue: s
 
 function candidateSelect(suffix: string): string {
   return `SELECT c.*,s.name AS source_name,t.name AS target_name,ps.name AS proposed_source_name,pt.name AS proposed_target_name,
-    o.source AS evidence_source,o.quote AS evidence_quote,o.confidence AS evidence_confidence
+    COALESCE(o.source,'') AS evidence_source,COALESCE(o.quote,'') AS evidence_quote,COALESCE(o.confidence,0) AS evidence_confidence,i.reason AS invalidation_reason,i.invalidated_at
     FROM kg_related_edge_refinement_candidates c
       JOIN kg_nodes s ON s.id=c.source_entity_id
       JOIN kg_nodes t ON t.id=c.target_entity_id
       JOIN kg_nodes ps ON ps.id=c.proposed_source_entity_id
       JOIN kg_nodes pt ON pt.id=c.proposed_target_entity_id
-      JOIN kg_observations o ON o.id=c.evidence_observation_id ${suffix}`;
+      LEFT JOIN kg_observations o ON o.id=c.evidence_observation_id
+      LEFT JOIN kg_graph_review_invalidations i ON i.review_kind='related_edge_refinement' AND i.scope=c.scope AND i.candidate_id=c.id ${suffix}`;
 }
 
 function mapCandidate(row: CandidateRow): RelatedEdgeRefinementCandidate {
@@ -224,7 +233,8 @@ function mapCandidate(row: CandidateRow): RelatedEdgeRefinementCandidate {
     id: row.id, scope: row.scope, legacy_edge_id: row.legacy_edge_id,
     source: { id: row.source_entity_id, name: row.source_name }, target: { id: row.target_entity_id, name: row.target_name },
     proposed_source: { id: row.proposed_source_entity_id, name: row.proposed_source_name }, proposed_target: { id: row.proposed_target_entity_id, name: row.proposed_target_name },
-    proposed_type: type, rationale: row.rationale, confidence: clamp01(row.confidence), evidence_hash: row.evidence_hash, status: row.status === "accepted" ? "accepted" : row.status === "rejected" ? "rejected" : "pending",
+    proposed_type: type, rationale: row.rationale, confidence: clamp01(row.confidence), evidence_hash: row.evidence_hash, status: invalidationReason(row.invalidation_reason) ? "invalidated" : row.status === "accepted" ? "accepted" : row.status === "rejected" ? "rejected" : "pending",
+    ...(invalidationReason(row.invalidation_reason) ? { invalidation: { reason: invalidationReason(row.invalidation_reason)!, invalidated_at: Number(row.invalidated_at ?? 0) } } : {}),
     evidence: { observation_id: row.evidence_observation_id, source: row.evidence_source, quote: row.evidence_quote.slice(0, quoteLimit), confidence: clamp01(row.evidence_confidence) },
     first_seen_at: Number(row.first_seen_at), updated_at: Number(row.updated_at), reviewed_at: row.reviewed_at == null ? null : Number(row.reviewed_at)
   };
@@ -242,3 +252,4 @@ function clamp01(value: number): number { return Number.isFinite(value) ? Math.m
 function boundedId(value: string | undefined): string { return typeof value === "string" && value.length > 0 && value.length <= 200 ? value : ""; }
 function parseObject(value: string | undefined): Record<string, unknown> { try { const parsed = JSON.parse(value ?? "{}"); return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}; } catch { return {}; } }
 function escapeRegex(value: string): string { return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+function invalidationReason(value: unknown): GraphReviewInvalidationReason | undefined { return value === "legacy_edge_retired" || value === "evidence_removed" || value === "evidence_changed" || value === "node_evidence_removed" ? value : undefined; }

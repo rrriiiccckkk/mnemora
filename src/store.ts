@@ -41,6 +41,7 @@ import { memoryLifecycleSchemaSql } from "./memory-lifecycle/schema.js";
 import { unifiedRecallShadowSchemaSql } from "./retrieval/schema.js";
 import { relatedEdgeRefinementOptionalRestoreTables, relatedEdgeRefinementSchemaSql } from "./related-edge-refinement/schema.js";
 import { relatedEdgeSemanticOptionalRestoreTables, relatedEdgeSemanticSchemaSql } from "./related-edge-semantics/schema.js";
+import { graphReviewOptionalRestoreTables, graphReviewSchemaSql } from "./graph-review/schema.js";
 import { openMnemoraDatabase } from "./sqlite.js";
 import type { AutoRunClaim, AutoRunFinishStatus, CommunitySummary, ConflictCandidate, ConflictCandidateStatus, DuplicateCandidate, DuplicateCandidateStatus, DuplicateScanResult, EvidenceSummary, ExtractedEntity, ExtractedRelation, InsightKind, KgContextResult, KgEdge, KgForgetResult, KgInsight, KgMemoryChunk, KgMemoryDocument, KgMemoryExpiryReview, KgMemoryLifecycleAudit, KgMemoryLifecycleConfirm, KgMemoryLifecyclePreview, KgMemorySearchResult, KgNode, KgObservation, KgRelatedResult, KgScopeSummary, KgSearchResult, KgSourceSummary, KgStatsResult, LegacyIdentityAuditResult, MemoryLifecycleAction, MergeResult, MergeUndoResult, NodeType, QualityCleanupResult, QualityEvidenceSummary, RankedNode, RelatedSemanticLabelResult, RelationshipAnomaly, SchemaDriftCandidate, SchemaDriftRepairResult, SchemaDriftScanResult, SemanticPatternCandidate, SemanticPatternReviewResult, StoredEmbedding } from "./types.js";
 import type { GraphProjection, InsightSnapshot } from "./insights/types.js";
@@ -108,7 +109,7 @@ export class GraphologyStore {
     try {
       const sourceTables = new Set((this.db.prepare(`SELECT name FROM ${attached}.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'kg_nodes_fts%' AND name NOT LIKE 'kg_memory_documents_fts%' AND name NOT LIKE 'kg_memory_chunks_fts%' AND name NOT LIKE 'mnemora_corpus_chunks_fts%'`).all() as Array<{ name: string }>).map(row => row.name));
       const targetTables = (this.db.prepare("SELECT name FROM main.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'kg_nodes_fts%' AND name NOT LIKE 'kg_memory_documents_fts%' AND name NOT LIKE 'kg_memory_chunks_fts%' AND name NOT LIKE 'mnemora_corpus_chunks_fts%' ORDER BY name").all() as Array<{ name: string }>).map(row => row.name);
-      const optionalNewTables = new Set(["kg_scopes", "kg_memory_documents", "kg_memory_chunks", "kg_memory_lifecycle_audits", "kg_memory_import_previews", "kg_memory_import_audits", "kg_entity_identities", "kg_schema_quarantine", ...semanticOptionalRestoreTables, ...relatedEdgeRefinementOptionalRestoreTables, ...relatedEdgeSemanticOptionalRestoreTables, ...trustOptionalRestoreTables, ...integrationOptionalRestoreTables, ...profileOptionalRestoreTables, ...governanceOptionalRestoreTables, ...consolidationOptionalRestoreTables, ...cognitionOptionalRestoreTables, ...recallLifecycleOptionalRestoreTables, ...corpusOptionalRestoreTables]);
+      const optionalNewTables = new Set(["kg_scopes", "kg_memory_documents", "kg_memory_chunks", "kg_memory_lifecycle_audits", "kg_memory_import_previews", "kg_memory_import_audits", "kg_entity_identities", "kg_schema_quarantine", ...semanticOptionalRestoreTables, ...relatedEdgeRefinementOptionalRestoreTables, ...relatedEdgeSemanticOptionalRestoreTables, ...graphReviewOptionalRestoreTables, ...trustOptionalRestoreTables, ...integrationOptionalRestoreTables, ...profileOptionalRestoreTables, ...governanceOptionalRestoreTables, ...consolidationOptionalRestoreTables, ...cognitionOptionalRestoreTables, ...recallLifecycleOptionalRestoreTables, ...corpusOptionalRestoreTables]);
       if (targetTables.some(name => !optionalNewTables.has(name) && !sourceTables.has(name))) throw new Error("incompatible_schema");
       this.db.exec("BEGIN IMMEDIATE");
       for (const name of targetTables) {
@@ -376,6 +377,7 @@ export class GraphologyStore {
     if (version < 71) this.migrateUnifiedRecallShadowV71();
     if (version < 72) this.migrateRelatedEdgeRefinementsV72();
     if (version < 73) this.migrateRelatedEdgeSemanticsV73();
+    if (version < 74) this.migrateGraphReviewLifecycleV74();
     this.repairCanonicalCorpusFts();
     this.db.exec(`PRAGMA user_version=${SUPPORTED_SCHEMA_VERSION}`);
   }
@@ -512,6 +514,9 @@ export class GraphologyStore {
   /** Schema v73 adds source-linked semantic review metadata only. Accepted
    * labels never alter a fallback edge, topology, observation, or PPR weight. */
   private migrateRelatedEdgeSemanticsV73(): void { this.db.exec(relatedEdgeSemanticSchemaSql); }
+  /** Schema v74 adds stale-review metadata only. Migration never scans,
+   * retires, rewrites, or deletes graph data. */
+  private migrateGraphReviewLifecycleV74(): void { this.db.exec(graphReviewSchemaSql); }
 
   /** Schema v58 only adds durable receipts for explicitly confirmed consolidation
    * lifecycle actions. Existing evidence, episodes, and proposals are not

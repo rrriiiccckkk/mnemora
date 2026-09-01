@@ -97,7 +97,7 @@ test("assistant-only completion claims cannot enqueue an outcome candidate", asy
 test("invalid intake output cannot create candidates and schema v69 is additive", async () => {
   const store = new GraphologyStore(":memory:");
   try {
-    assert.equal(SUPPORTED_SCHEMA_VERSION, 73);
+    assert.equal(SUPPORTED_SCHEMA_VERSION, 74);
     const turn = { sessionId: "session:alpha", userText: "We decided to use SQLite.", assistantText: "Noted." }, source = receipt(store, turn.userText, turn.assistantText, "four"), service = new ReasoningIntakeService(store.db);
     const result = await service.capture({ scope: "project:alpha", receipt: source, turn, runtime: runtime("not json"), config });
     assert.deepEqual(result, { status: "failed", category: "invalid_model_response" });

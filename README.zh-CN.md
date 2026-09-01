@@ -133,6 +133,12 @@ quality: {
 接受后，仅让该标签可被显式语义关系查询返回。原 `related_to` 边会保留，PPR、遍历、
 observation 与图权重都不会改变。
 
+使用 `kg_review` 的 `kind: "worklist"` 可以在同一 scope 内分页查看只读的待处理
+自链接、已拒绝候选，以及已变为 `invalidated` 的待处理候选。`invalidated` 是持久化的
+审查元数据：候选所依赖的精确 fallback 边或证据已不再匹配，因此不能再 preview 或
+confirm。读取 worklist 最多会记录这一失效状态；不会删除边、证据、候选或审查回执。
+应重新运行对应的 refinement 或 semantic scan，让当前证据生成新的候选。
+
 `kg_stats` 的 `embedding_health` 是已观察到的本地状态，不会为读取状态发起 Provider
 探测。`healthy`/`degraded` 只取决于有界 embedding 成功或类别化失败；`hybrid` 搜索会
 确定性地退回词法结果，显式 `semantic` 搜索则返回有界的不可用错误。

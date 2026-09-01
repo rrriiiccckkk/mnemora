@@ -166,6 +166,15 @@ an accepted preview/confirm decision makes that label available only to an
 explicit semantic relationship query. It retains the original `related_to`
 edge and does not alter PPR, traversal, observations, or graph weights.
 
+Use `kg_review` with `kind: "worklist"` to page through one scope-local,
+read-only queue of pending self-link findings, rejected proposals, or pending
+proposals that have become `invalidated`. An invalidation is durable metadata:
+it means the exact fallback edge or supporting evidence no longer matches the
+proposal, so it cannot be previewed or confirmed. Reading the worklist may
+record that stale status, but it never deletes an edge, evidence, candidate,
+or review receipt. Re-run the appropriate refinement or semantic scan to
+create a fresh proposal from current evidence.
+
 `kg_stats` includes `embedding_health`, an observed local status rather than a
 live provider probe. `healthy` and `degraded` are based only on bounded local
 embedding successes or categorical failures; `hybrid` search deterministically

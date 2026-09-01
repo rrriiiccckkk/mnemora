@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSyncInstance } from "@photostructure/sqlite";
 import type { RelationshipType } from "../relationships.js";
 import { normalizeScope } from "../scope.js";
+import { GraphReviewLifecycleRepository, type GraphReviewInvalidationReason } from "../graph-review/lifecycle.js";
 
 export type RelatedEdgeSemanticType = Exclude<RelationshipType, "depends_on" | "part_of" | "instance_of" | "related_to">;
 type Decision = "accepted" | "rejected";
@@ -16,7 +17,8 @@ export interface RelatedEdgeSemanticCandidate {
   rationale: string;
   confidence: number;
   evidence_hash: string;
-  status: "pending" | Decision;
+  status: "pending" | Decision | "invalidated";
+  invalidation?: { reason: GraphReviewInvalidationReason; invalidated_at: number };
   evidence: { observation_id: string; source: string; quote: string; confidence: number };
   first_seen_at: number;
   updated_at: number;
@@ -36,7 +38,8 @@ export interface RelatedEdgeSemanticReviewResult {
   decision: Decision;
   preview_hash: string;
   eligible: boolean;
-  reason?: "missing_candidate" | "already_reviewed" | "legacy_edge_changed" | "missing_scope_evidence";
+  reason?: "missing_candidate" | "already_reviewed" | "invalidated" | "legacy_edge_changed" | "missing_scope_evidence";
+  invalidation_reason?: GraphReviewInvalidationReason;
   audit_id?: string;
 }
 
@@ -45,7 +48,7 @@ interface CandidateRow {
   proposed_type: string; evidence_observation_id: string; evidence_hash: string; rationale: string; confidence: number;
   status: string; first_seen_at: number; updated_at: number; reviewed_at: number | null;
   source_name: string; source_type: string; target_name: string; target_type: string;
-  evidence_source: string; evidence_quote: string; evidence_confidence: number;
+  evidence_source: string; evidence_quote: string; evidence_confidence: number; invalidation_reason?: string; invalidated_at?: number;
 }
 
 interface LegacyRow {
@@ -73,7 +76,8 @@ const semanticPatterns: Array<{ type: RelatedEdgeSemanticType; rationale: string
 /** A deep, local module for semantic enrichment. It emits no graph fact:
  * acceptance creates a narrow, source-backed read projection only. */
 export class RelatedEdgeSemanticService {
-  constructor(private readonly db: DatabaseSyncInstance, private readonly now: () => number = Date.now) {}
+  private readonly lifecycle: GraphReviewLifecycleRepository;
+  constructor(private readonly db: DatabaseSyncInstance, private readonly now: () => number = Date.now, lifecycle?: GraphReviewLifecycleRepository) { this.lifecycle = lifecycle ?? new GraphReviewLifecycleRepository(db, now); }
 
   scan(input: { scope: string; afterEdgeId?: string; limit?: number }): RelatedEdgeSemanticScanResult {
     const scope = normalizeScope(input.scope), after = boundedId(input.afterEdgeId), limit = boundedLimit(input.limit);
@@ -106,14 +110,18 @@ export class RelatedEdgeSemanticService {
 
   list(scope: string, limit = 20): { items: RelatedEdgeSemanticCandidate[] } {
     const safe = normalizeScope(scope), take = boundedLimit(limit);
+    this.lifecycle.reconcile(safe, "related_edge_semantic", maxScan);
     const rows = this.db.prepare(candidateSelect("WHERE c.scope=? ORDER BY c.status='pending' DESC,c.updated_at DESC,c.id LIMIT ?")).all(safe, take) as CandidateRow[];
     return { items: rows.map(mapCandidate) };
   }
 
   preview(candidateIdValue: string, decision: Decision, scope = "default"): RelatedEdgeSemanticReviewResult {
-    const safe = normalizeScope(scope), candidate = this.find(candidateIdValue, safe);
+    const safe = normalizeScope(scope);
+    this.lifecycle.reconcileCandidate(safe, "related_edge_semantic", candidateIdValue);
+    const candidate = this.find(candidateIdValue, safe);
     const basic = { confirmed: false, candidate_id: candidateIdValue, decision } as const;
     if (!candidate) return { ...basic, preview_hash: "", eligible: false, reason: "missing_candidate" };
+    if (candidate.status === "invalidated") return { ...basic, preview_hash: "", eligible: false, reason: "invalidated", ...(candidate.invalidation ? { invalidation_reason: candidate.invalidation.reason } : {}) };
     if (candidate.status !== "pending") return { ...basic, preview_hash: receiptHash(this.db, candidate.id) ?? "", eligible: false, reason: "already_reviewed" };
     const legacy = this.activeLegacy(candidate, safe);
     if (!legacy) return { ...basic, preview_hash: "", eligible: false, reason: "legacy_edge_changed" };
@@ -183,11 +191,12 @@ function matchesOrderedCue(quote: string, source: string, target: string, cue: s
 
 function candidateSelect(suffix: string): string {
   return `SELECT c.*,s.name AS source_name,s.type AS source_type,t.name AS target_name,t.type AS target_type,
-    o.source AS evidence_source,o.quote AS evidence_quote,o.confidence AS evidence_confidence
+    COALESCE(o.source,'') AS evidence_source,COALESCE(o.quote,'') AS evidence_quote,COALESCE(o.confidence,0) AS evidence_confidence,i.reason AS invalidation_reason,i.invalidated_at
     FROM kg_related_edge_semantic_candidates c
       JOIN kg_nodes s ON s.id=c.source_entity_id
       JOIN kg_nodes t ON t.id=c.target_entity_id
-      JOIN kg_observations o ON o.id=c.evidence_observation_id ${suffix}`;
+      LEFT JOIN kg_observations o ON o.id=c.evidence_observation_id
+      LEFT JOIN kg_graph_review_invalidations i ON i.review_kind='related_edge_semantic' AND i.scope=c.scope AND i.candidate_id=c.id ${suffix}`;
 }
 
 function mapCandidate(row: CandidateRow): RelatedEdgeSemanticCandidate {
@@ -195,7 +204,8 @@ function mapCandidate(row: CandidateRow): RelatedEdgeSemanticCandidate {
     id: row.id, scope: row.scope, legacy_edge_id: row.legacy_edge_id,
     source: { id: row.source_entity_id, name: row.source_name, type: row.source_type }, target: { id: row.target_entity_id, name: row.target_name, type: row.target_type },
     proposed_type: row.proposed_type as RelatedEdgeSemanticType, rationale: row.rationale, confidence: clamp01(row.confidence), evidence_hash: row.evidence_hash,
-    status: row.status === "accepted" ? "accepted" : row.status === "rejected" ? "rejected" : "pending",
+    status: invalidationReason(row.invalidation_reason) ? "invalidated" : row.status === "accepted" ? "accepted" : row.status === "rejected" ? "rejected" : "pending",
+    ...(invalidationReason(row.invalidation_reason) ? { invalidation: { reason: invalidationReason(row.invalidation_reason)!, invalidated_at: Number(row.invalidated_at ?? 0) } } : {}),
     evidence: { observation_id: row.evidence_observation_id, source: row.evidence_source, quote: row.evidence_quote.slice(0, quoteLimit), confidence: clamp01(row.evidence_confidence) },
     first_seen_at: Number(row.first_seen_at), updated_at: Number(row.updated_at), reviewed_at: row.reviewed_at == null ? null : Number(row.reviewed_at)
   };
@@ -211,3 +221,4 @@ function clamp01(value: number): number { return Number.isFinite(value) ? Math.m
 function boundedId(value: string | undefined): string { return typeof value === "string" && value.length > 0 && value.length <= 200 ? value : ""; }
 function boundedLimit(value: number | undefined): number { return Math.min(maxScan, Math.max(1, Math.trunc(value ?? 20))); }
 function escapeRegex(value: string): string { return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+function invalidationReason(value: unknown): GraphReviewInvalidationReason | undefined { return value === "legacy_edge_retired" || value === "evidence_removed" || value === "evidence_changed" || value === "node_evidence_removed" ? value : undefined; }

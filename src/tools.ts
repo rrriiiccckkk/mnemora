@@ -51,8 +51,11 @@ import { GraphHygieneService, type GraphHygienePolicy } from "./hygiene/service.
 import { EmbeddingHealthRepository } from "./embedding-health/repository.js";
 import { RelatedEdgeRefinementService } from "./related-edge-refinement/service.js";
 import { RelatedEdgeSemanticService } from "./related-edge-semantics/service.js";
+import { GraphReviewLifecycleRepository } from "./graph-review/lifecycle.js";
+import { GraphReviewWorklistService, type GraphReviewWorklistStatus } from "./graph-review/worklist.js";
 
 export type SemanticSearchUnavailableCategory = "disabled" | "timeout" | "aborted" | "provider" | "invalid_response" | "scale_limit";
+export type ReviewStatus = DuplicateCandidateStatus | "invalidated";
 export class SemanticSearchUnavailableError extends Error {
   constructor(readonly category: SemanticSearchUnavailableCategory, readonly count?: number) {
     super(`semantic search unavailable: ${category}${count == null ? "" : ` (${count})`}`);
@@ -165,6 +168,10 @@ export class Mnemora {
   private readonly relatedEdgeRefinements: RelatedEdgeRefinementService;
   /** Source-backed semantic labels for fallback edges; it never changes topology. */
   private readonly relatedEdgeSemantics: RelatedEdgeSemanticService;
+  /** Invalidation overlays make stale review proposals visible without touching graph facts. */
+  private readonly graphReviewLifecycle: GraphReviewLifecycleRepository;
+  /** Bounded read model joining graph-remediation proposals and self-link findings. */
+  private readonly graphReviewWorklist: GraphReviewWorklistService;
   /** Local categorical provider outcomes; never a live probe or provider log. */
   private readonly embeddingHealth: EmbeddingHealthRepository;
   /** Non-destructive tier/expiry selection overlay for canonical memory documents. */
@@ -206,8 +213,10 @@ export class Mnemora {
     this.personalContext = new PersonalContextCompiler(this.store.db, this.now, { staleAfterDays: this.config.cognition?.reflection?.staleAfterDays });
     this.recallFeedback = new RecallFeedbackRepository(this.store.db, this.now);
     this.hygiene = new GraphHygieneService(this.store, this.now);
-    this.relatedEdgeRefinements = new RelatedEdgeRefinementService(this.store.db, this.now);
-    this.relatedEdgeSemantics = new RelatedEdgeSemanticService(this.store.db, this.now);
+    this.graphReviewLifecycle = new GraphReviewLifecycleRepository(this.store.db, this.now);
+    this.relatedEdgeRefinements = new RelatedEdgeRefinementService(this.store.db, this.now, this.graphReviewLifecycle);
+    this.relatedEdgeSemantics = new RelatedEdgeSemanticService(this.store.db, this.now, this.graphReviewLifecycle);
+    this.graphReviewWorklist = new GraphReviewWorklistService(this.store.db, this.graphReviewLifecycle);
     this.embeddingHealth = new EmbeddingHealthRepository(this.store, this.now);
     this.memoryLifecycle = new MemoryDocumentLifecycleService(this.store.db, {
       enabled: this.config.memory?.lifecycle?.enabled === true,
@@ -1011,9 +1020,16 @@ export class Mnemora {
     } catch { return { ...result, vector_index_cleanup: "deferred" }; }
   }
 
-  kg_review(kind: "duplicates" | "anomalies" | "identity" | "schema_drift" | "semantic_patterns" | "related_edge_refinements" | "related_edge_semantics" | "hygiene" = "duplicates", status: DuplicateCandidateStatus = "pending", scan = false, limit = 20, after_id?: string, candidate_id?: string, decision?: "ignored" | "rejected" | "accepted", scope?: string, approval_id?: string, repair_type?: "depends_on" | "part_of" | "instance_of" | "related_to", preview_hash?: string, confirm = false): unknown {
+  kg_review(kind: "duplicates" | "anomalies" | "identity" | "schema_drift" | "semantic_patterns" | "related_edge_refinements" | "related_edge_semantics" | "hygiene" | "worklist" = "duplicates", status: ReviewStatus = "pending", scan = false, limit = 20, after_id?: string, candidate_id?: string, decision?: "ignored" | "rejected" | "accepted", scope?: string, approval_id?: string, repair_type?: "depends_on" | "part_of" | "instance_of" | "related_to", preview_hash?: string, confirm = false): unknown {
     const bounded = Math.min(100, Math.max(1, Math.trunc(limit)));
     const normalizedScope = normalizeScope(scope, this.config.scope?.default ?? "default");
+    if (kind === "worklist") {
+      if (scan || candidate_id || decision || approval_id || repair_type || preview_hash || confirm) throw new Error("graph_review_worklist_is_read_only");
+      if (status !== "pending" && status !== "rejected" && status !== "invalidated") throw new Error("invalid_graph_review_worklist_status");
+      return this.graphReviewWorklist.list({ scope: normalizedScope, status: status as GraphReviewWorklistStatus, limit: bounded, afterId: after_id });
+    }
+    if (status === "invalidated") throw new Error("invalid_review_status");
+    const candidateStatus = status as DuplicateCandidateStatus;
     if (kind === "hygiene") {
       if (status !== "pending" || after_id || candidate_id || decision || approval_id || repair_type || preview_hash || confirm) throw new Error("hygiene review is read-only");
       if (!scan) return this.hygiene.report(normalizedScope, this.hygienePolicy());
@@ -1091,12 +1107,12 @@ export class Mnemora {
       const revalidation_schedule = scan_result && (scan_result.created > 0 || scan_result.updated > 0)
         ? this.store.listScopes(100).map(item => ({ scope: item.id, ...this.retrospectiveAudits.scheduleContradictions(item.id) })) : undefined;
       const anomalies = this.store.reviewAnomalies({ limit: bounded }).items;
-      const conflicts = this.store.reviewConflictCandidates({ status: status === "merged" ? undefined : status, limit: bounded, scope: normalizedScope }).items;
+      const conflicts = this.store.reviewConflictCandidates({ status: candidateStatus === "merged" ? undefined : candidateStatus, limit: bounded, scope: normalizedScope }).items;
       return { items: [...anomalies, ...conflicts].slice(0, bounded), ...(scan_result ? { scan: scan_result } : {}), ...(revalidation_schedule ? { revalidation_schedule } : {}) };
     }
     if (candidate_id || decision) throw new Error("conflict decisions require kind anomalies");
     const scan_result = scan ? this.store.scanDuplicateCandidates(after_id, bounded, { persistCursor: after_id == null }) : undefined;
-    return { ...this.store.reviewCandidates({ status, limit: bounded }), ...(scan_result ? { scan: scan_result } : {}) };
+    return { ...this.store.reviewCandidates({ status: candidateStatus, limit: bounded }), ...(scan_result ? { scan: scan_result } : {}) };
   }
 
   kg_merge(canonical_entity_id: string, duplicate_entity_id: string, confirm = false, preview_hash?: string): MergeResult {
