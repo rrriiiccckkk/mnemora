@@ -35,6 +35,7 @@ import { createEmbedder } from "./embeddings.js";
 import { RecallFeedbackRepository, ReflectionService, type RecallFeedbackKind } from "./cognition/reflection.js";
 import { CognitionGraduationService } from "./cognition/graduation.js";
 import { EvaluationRunner, serializeEvaluationReport, validateEvaluationDataset } from "./evaluation/index.js";
+import { GraphReviewDecisionGate } from "./graph-review/decision-gate.js";
 
 const [, , command, ...args] = process.argv;
 const cliDirectory = process.cwd();
@@ -82,6 +83,7 @@ async function main(): Promise<void> {
       else throw new CliError("invalid_arguments");
     }
     else if (command === "memory") printOperator(`memory.${args[0] ?? "help"}`, memoryCommand(graph, args));
+    else if (command === "review") printOperator(`review.${args[0] ?? "help"}`, reviewCommand(graph, args));
     else if (command === "consolidation") printOperator(`consolidation.${args[0] ?? "help"}`, consolidationCommand(graph, args));
     else if (command === "cognition") printOperator(`cognition.${args[0] ?? "help"}`, await cognitionCommand(graph, args));
     else if (command === "trust" || command === "profile" || command === "recall" || command === "governance") printOperator(`${command}.${args[0] ?? "help"}`, await operator(graph, command, args));
@@ -140,6 +142,18 @@ function memoryCommand(graph: Mnemora, raw: string[]): unknown {
   if (operation !== "decay-review") throw new CliError("invalid_arguments");
   requireNone(positional);
   return graph.kg_memory({ operation: "recall_decay_review", scope, min_age_days: boundedRange(option(options, "min-age-days"), 1, 36500), limit: boundedLimit(option(options, "limit")) });
+}
+
+/** The graph decision gate is deliberately CLI-only: it is a human review
+ * report, not another context-consuming agent tool or a policy mutation. */
+function reviewCommand(graph: Mnemora, raw: string[]): unknown {
+  const { positional, options } = parseOptions(raw), operation = positional.shift();
+  if (operation !== "gate" || positional.length || Object.keys(options).some(key => key !== "scope")) throw new CliError("invalid_arguments");
+  const hygiene = graph.config.quality?.hygiene;
+  return new GraphReviewDecisionGate(graph.store, {
+    relatedToWarningRatio: hygiene?.relatedToWarningRatio ?? .4,
+    relatedToWarningMinimumEdges: hygiene?.relatedToWarningMinimumEdges ?? 20
+  }).report(option(options, "scope") ?? process.env.SCOPE ?? "default");
 }
 
 function standalone(raw: string[]): void {
@@ -598,4 +612,4 @@ async function inspect(allowOperations: boolean): Promise<void> {
 function print(value: unknown): void { console.log(JSON.stringify(value, null, 2)); }
 function printOperator(command: string, result: unknown): void { console.log(JSON.stringify({ ok: true, command, result })); }
 function fail(command: string, error: unknown): void { console.error(JSON.stringify({ ok: false, command, error: { code: error instanceof CliError ? error.code : "operation_failed" } })); process.exitCode = 1; }
-function usage(): string { return "Usage: mnemora <ingest|search|related|stats|forget|inspect|surface|trust|profile|recall|governance|journal|retrieve|evaluate|memory-impact|standalone|consolidation|cognition> [...]. Operator commands return structured JSON; use `journal compaction prepared`, `journal compaction reconcile <run_id> <rewrite_confirmed|rewrite_not_applied> --confirm`, `cognition status`, `cognition graduation status`, `cognition context compile <query>`, `cognition reflection preview`, `cognition feedback list`, `cognition decision list`, `cognition decision create <objective>`, `consolidation status`, `consolidation adopt preview <proposal_id>`, `consolidation adopt apply <proposal_id> --preview-hash <hash> --confirm`, `standalone guide`, `retrieve <query>`, `evaluate recall-quality <deidentified-golden.json>`, or `memory-impact preview <event|artifact|episode|summary> <id>`. Reflection, feedback, and consolidation adoption require explicit confirmation; Decision creation also requires a preview hash."; }
+function usage(): string { return "Usage: mnemora <ingest|search|related|stats|forget|inspect|surface|trust|profile|recall|governance|journal|retrieve|evaluate|memory-impact|review|standalone|consolidation|cognition> [...]. Operator commands return structured JSON; use `review gate --scope <scope>`, `journal compaction prepared`, `journal compaction reconcile <run_id> <rewrite_confirmed|rewrite_not_applied> --confirm`, `cognition status`, `cognition graduation status`, `cognition context compile <query>`, `cognition reflection preview`, `cognition feedback list`, `cognition decision list`, `cognition decision create <objective>`, `consolidation status`, `consolidation adopt preview <proposal_id>`, `consolidation adopt apply <proposal_id> --preview-hash <hash> --confirm`, `standalone guide`, `retrieve <query>`, `evaluate recall-quality <deidentified-golden.json>`, or `memory-impact preview <event|artifact|episode|summary> <id>`. Reflection, feedback, and consolidation adoption require explicit confirmation; Decision creation also requires a preview hash."; }

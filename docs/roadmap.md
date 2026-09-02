@@ -149,7 +149,20 @@ vocabulary, rather than expanding an ontology speculatively.
 - Preserve a small structural topology. New labels remain semantic projections
   unless a later, separately measured decision promotes a relationship type.
 
-## Post-v1.16 decision gate
+## v1.17 — Graph Review Decision Gate
+
+Make the post-v1.16 evidence collection practical without adding another
+agent-facing tool or making a policy decision automatic.
+
+- Add a read-only CLI report that combines one scope-local hygiene/topology
+  assessment with aggregate pending, accepted, rejected, and durably
+  invalidated outcomes for structural refinement, semantic labels, and
+  vocabulary review.
+- The command never scans, confirms, rewrites graph data, changes PPR, or
+  enables ReasoningMemory delivery. It is evidence for an operator decision,
+  not a policy engine.
+
+## Post-v1.17 decision gate
 
 Before any further topology or reasoning-delivery feature work, collect real
 scope-local evidence:

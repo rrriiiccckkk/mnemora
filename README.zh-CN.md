@@ -148,6 +148,18 @@ observation、且来自 2 个来源，才能进入 preview/confirm。接受词�
 confirm。读取 worklist 最多会记录这一失效状态；不会删除边、证据、候选或审查回执。
 应重新运行对应的 refinement 或 semantic scan，让当前证据生成新的候选。
 
+在分别运行有界 scan、并做出一些人工审查决定后，可使用 CLI 专用的决策门，将
+v1.16 之后的测量汇总为一份 scope 隔离报告：
+
+```bash
+MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review gate --scope default
+```
+
+它会合并当前 hygiene/topology 诊断，以及 refinement、语义标签和词表候选的
+accepted、rejected、pending 与持久化 invalidated 聚合统计；只输出 JSON，不会 scan、
+不会修改审查状态、不会改 PPR，也不会开启 reasoning delivery。是否有足够证据支持后续
+策略变更，始终由 operator 判断。
+
 `kg_stats` 的 `embedding_health` 是已观察到的本地状态，不会为读取状态发起 Provider
 探测。`healthy`/`degraded` 只取决于有界 embedding 成功或类别化失败；`hybrid` 搜索会
 确定性地退回词法结果，显式 `semantic` 搜索则返回有界的不可用错误。

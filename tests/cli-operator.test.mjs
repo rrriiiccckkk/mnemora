@@ -83,6 +83,21 @@ test("operator CLI exposes read-only Journal diagnostics", () => {
   assert.deepEqual(status.json, { ok: true, command: "journal.status", result: { enabled: false, events: 0, sessions: 0, pendingTasks: 0 } });
 });
 
+test("operator CLI reports the scope-local graph review decision gate without adding an agent tool", () => {
+  const directory = mkdtempSync(join(tmpdir(), "mnemora-review-gate-")), database = join(directory, "memory.db"); let store;
+  try {
+    store = new GraphologyStore(database);
+    const quote = "Build Tool depends on TypeScript.";
+    store.ingest([{ name: "Build Tool", type: "product", confidence: .95, evidence_span: quote }, { name: "TypeScript", type: "technology", confidence: .95, evidence_span: quote }], [{ source: "Build Tool", target: "TypeScript", type: "related_to", confidence: .95, evidence_span: quote }], "fixture:review-gate", 0, undefined, "project:alpha");
+    store.close(); store = undefined;
+    const report = executeAt(database, "review", "gate", "--scope", "project:alpha");
+    assert.deepEqual({ ok: report.json.ok, command: report.json.command, version: report.json.result.version, scope: report.json.result.scope, edges: report.json.result.hygiene.scoped_edges, policy: report.json.result.actions.topology_policy }, { ok: true, command: "review.gate", version: "graph-review-decision-gate-v1", scope: "project:alpha", edges: 1, policy: "not_changed" });
+    const invalid = executeAt(database, "review", "gate", "--limit", "1");
+    assert.deepEqual(invalid.error, { ok: false, command: "review.gate", error: { code: "invalid_arguments" } });
+    assert.doesNotMatch(readFileSync("src/openclaw.ts", "utf8"), /descriptor\("kg_review_gate"/);
+  } finally { try { store?.close(); } catch {} try { rmSync(directory, { recursive: true, force: true }); } catch {} }
+});
+
 test("operator CLI exposes only the read-only recall-decay review", () => {
   const review = execute("memory", "decay-review", "--scope", "project:alpha", "--min-age-days", "90");
   assert.deepEqual({ ok: review.json.ok, command: review.json.command, version: review.json.result.version, mutation: review.json.result.mutation, candidates: review.json.result.candidates }, { ok: true, command: "memory.decay-review", version: "recall-decay-review-v1", mutation: "none", candidates: [] });

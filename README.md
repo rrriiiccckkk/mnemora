@@ -187,6 +187,20 @@ record that stale status, but it never deletes an edge, evidence, candidate,
 or review receipt. Re-run the appropriate refinement or semantic scan to
 create a fresh proposal from current evidence.
 
+After running the separate bounded scans and making some review decisions, use
+the CLI-only decision gate to collect the post-v1.16 measurement in one
+scope-local report:
+
+```bash
+MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review gate --scope default
+```
+
+It combines the current hygiene/topology diagnostic with aggregate accepted,
+rejected, pending, and durably invalidated refinement, semantic-label, and
+vocabulary outcomes. It returns JSON only: it does not scan, mutate review
+state, change PPR, or enable reasoning delivery. The operator remains
+responsible for judging whether the evidence supports any later policy change.
+
 `kg_stats` includes `embedding_health`, an observed local status rather than a
 live provider probe. `healthy` and `degraded` are based only on bounded local
 embedding successes or categorical failures; `hybrid` search deterministically
