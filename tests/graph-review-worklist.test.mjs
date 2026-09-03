@@ -69,7 +69,7 @@ test("v74 graph review lifecycle migration is additive and does not alter existi
     store.db.prepare("INSERT INTO kg_observations(id,source_entity_id,payload,source,scope,quote,confidence,created_at) VALUES(?,?,?,?,?,?,?,?)").run("obs:existing", "product:existing", "{}", "fixture", "default", "existing evidence", .9, now);
     store.db.exec("DROP TABLE kg_graph_review_invalidations; PRAGMA user_version=73");
     store.close(); store = new GraphologyStore(path);
-    assert.equal(SUPPORTED_SCHEMA_VERSION, 75);
+    assert.equal(SUPPORTED_SCHEMA_VERSION, 76);
     assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM kg_observations WHERE id='obs:existing'").get().value, 1);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name='kg_graph_review_invalidations'").get().value, 1);

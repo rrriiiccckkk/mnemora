@@ -179,13 +179,21 @@ label only with its exact predicate—for example
 become traversal arcs, PPR inputs, or automatic context attachments.
 
 Use `kg_review` with `kind: "worklist"` to page through one scope-local,
-read-only queue of pending self-link findings, rejected proposals, or pending
-proposals that have become `invalidated`. An invalidation is durable metadata:
-it means the exact fallback edge or supporting evidence no longer matches the
-proposal, so it cannot be previewed or confirmed. Reading the worklist may
-record that stale status, but it never deletes an edge, evidence, candidate,
-or review receipt. Re-run the appropriate refinement or semantic scan to
-create a fresh proposal from current evidence.
+read-only queue of pending self-link findings, related-edge proposals, and
+schema-drift candidates, plus rejected or invalidated outcomes. A schema-drift
+candidate can be repaired through its existing preview/confirm flow or
+explicitly rejected with its own matching preview hash; rejection records a
+human disposition but never changes an entity, edge, evidence, PPR, or
+traversal. When a later built-in endpoint rule makes an old mismatch valid,
+the candidate becomes `invalidated` review metadata rather than being silently
+deleted. Reading the worklist may record that metadata, but it never deletes
+graph data or a review receipt.
+
+The built-in `uses` relation accepts `person` or `company` as its source and a
+`product` or `technology` as its target. This covers a person or KOL using a
+product without relabeling that person as a company. Mnemora never retags an
+entity automatically from a schema-drift candidate; an endpoint mismatch is
+not proof of identity.
 
 After running the separate bounded scans and making some review decisions, use
 the CLI-only decision gate to collect the post-v1.16 measurement in one
@@ -196,8 +204,8 @@ MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review gate --scope default
 ```
 
 It combines the current hygiene/topology diagnostic with aggregate accepted,
-rejected, pending, and durably invalidated refinement, semantic-label, and
-vocabulary outcomes. It returns JSON only: it does not scan, mutate review
+rejected, pending, and durably invalidated refinement, semantic-label,
+schema-drift, and vocabulary outcomes. It returns JSON only: it does not scan, mutate review
 state, change PPR, or enable reasoning delivery. The operator remains
 responsible for judging whether the evidence supports any later policy change.
 

@@ -284,7 +284,7 @@ export interface SchemaDriftRepairResult {
   replacement_type: RelationshipType;
   preview_hash: string;
   eligible: boolean;
-  reason?: "missing_candidate" | "missing_endpoint" | "missing_scope_evidence" | "invalid_payload" | "legacy_edge_changed" | "already_repaired";
+  reason?: "missing_candidate" | "missing_endpoint" | "missing_scope_evidence" | "invalid_payload" | "legacy_edge_changed" | "already_repaired" | "already_rejected" | "endpoint_now_allowed";
   edge_id?: string;
   observation_id?: string;
   audit_id?: string;

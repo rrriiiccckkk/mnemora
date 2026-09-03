@@ -31,8 +31,9 @@ import { chunkMemoryDocument } from "./memory.js";
 import { EntityRepository } from "./entities/repository.js";
 import { renderContext } from "./context-renderer.js";
 import { memoryMatchesTags } from "./retrieval/query-routing.js";
-import { schemaDriftSchemaSql } from "./schema-drift/schema.js";
+import { schemaDriftOptionalRestoreTables, schemaDriftSchemaSql } from "./schema-drift/schema.js";
 import { SchemaDriftRepository } from "./schema-drift/repository.js";
+import { SchemaDriftReviewRepository } from "./schema-drift/review.js";
 import { semanticOptionalRestoreTables, semanticSchemaSql } from "./semantics/schema.js";
 import { SemanticPatternRepository } from "./semantics/repository.js";
 import { recallLifecycleOptionalRestoreTables, recallLifecycleSchemaSql } from "./recall-lifecycle/schema.js";
@@ -88,6 +89,7 @@ export class GraphologyStore {
   db: DatabaseSyncInstance;
   readonly entities: EntityRepository;
   readonly schemaDrift: SchemaDriftRepository;
+  readonly schemaDriftReviews: SchemaDriftReviewRepository;
   readonly semanticPatterns: SemanticPatternRepository;
   private readonly location: string;
   private readonly inspectorSessionNonce = randomUUID();
@@ -98,6 +100,7 @@ export class GraphologyStore {
     this.db = openMnemoraDatabase(this.location);
     this.entities = new EntityRepository(this.db);
     this.schemaDrift = new SchemaDriftRepository(this.db);
+    this.schemaDriftReviews = new SchemaDriftReviewRepository(this.db);
     this.semanticPatterns = new SemanticPatternRepository(this.db);
     this.migrate();
   }
@@ -110,7 +113,7 @@ export class GraphologyStore {
     try {
       const sourceTables = new Set((this.db.prepare(`SELECT name FROM ${attached}.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'kg_nodes_fts%' AND name NOT LIKE 'kg_memory_documents_fts%' AND name NOT LIKE 'kg_memory_chunks_fts%' AND name NOT LIKE 'mnemora_corpus_chunks_fts%'`).all() as Array<{ name: string }>).map(row => row.name));
       const targetTables = (this.db.prepare("SELECT name FROM main.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'kg_nodes_fts%' AND name NOT LIKE 'kg_memory_documents_fts%' AND name NOT LIKE 'kg_memory_chunks_fts%' AND name NOT LIKE 'mnemora_corpus_chunks_fts%' ORDER BY name").all() as Array<{ name: string }>).map(row => row.name);
-      const optionalNewTables = new Set(["kg_scopes", "kg_memory_documents", "kg_memory_chunks", "kg_memory_lifecycle_audits", "kg_memory_import_previews", "kg_memory_import_audits", "kg_entity_identities", "kg_schema_quarantine", ...semanticOptionalRestoreTables, ...relatedEdgeRefinementOptionalRestoreTables, ...relatedEdgeSemanticOptionalRestoreTables, ...graphReviewOptionalRestoreTables, ...semanticVocabularyOptionalRestoreTables, ...trustOptionalRestoreTables, ...integrationOptionalRestoreTables, ...profileOptionalRestoreTables, ...governanceOptionalRestoreTables, ...consolidationOptionalRestoreTables, ...cognitionOptionalRestoreTables, ...recallLifecycleOptionalRestoreTables, ...corpusOptionalRestoreTables]);
+      const optionalNewTables = new Set(["kg_scopes", "kg_memory_documents", "kg_memory_chunks", "kg_memory_lifecycle_audits", "kg_memory_import_previews", "kg_memory_import_audits", "kg_entity_identities", "kg_schema_quarantine", ...schemaDriftOptionalRestoreTables, ...semanticOptionalRestoreTables, ...relatedEdgeRefinementOptionalRestoreTables, ...relatedEdgeSemanticOptionalRestoreTables, ...graphReviewOptionalRestoreTables, ...semanticVocabularyOptionalRestoreTables, ...trustOptionalRestoreTables, ...integrationOptionalRestoreTables, ...profileOptionalRestoreTables, ...governanceOptionalRestoreTables, ...consolidationOptionalRestoreTables, ...cognitionOptionalRestoreTables, ...recallLifecycleOptionalRestoreTables, ...corpusOptionalRestoreTables]);
       if (targetTables.some(name => !optionalNewTables.has(name) && !sourceTables.has(name))) throw new Error("incompatible_schema");
       this.db.exec("BEGIN IMMEDIATE");
       for (const name of targetTables) {
@@ -380,6 +383,7 @@ export class GraphologyStore {
     if (version < 73) this.migrateRelatedEdgeSemanticsV73();
     if (version < 74) this.migrateGraphReviewLifecycleV74();
     if (version < 75) this.migrateSemanticVocabularyV75();
+    if (version < 76) this.migrateSchemaDriftReviewV76();
     this.repairCanonicalCorpusFts();
     this.db.exec(`PRAGMA user_version=${SUPPORTED_SCHEMA_VERSION}`);
   }
@@ -546,6 +550,10 @@ export class GraphologyStore {
     }
     this.db.exec(semanticVocabularySchemaSql);
   }
+
+  /** Schema v76 adds only operator-review metadata for existing schema-drift
+   * candidates. It never rewrites entities, edges, observations, or evidence. */
+  private migrateSchemaDriftReviewV76(): void { this.db.exec(schemaDriftSchemaSql); }
 
   /** Schema v58 only adds durable receipts for explicitly confirmed consolidation
    * lifecycle actions. Existing evidence, episodes, and proposals are not
@@ -1323,6 +1331,9 @@ export class GraphologyStore {
     if (!candidate) return { ...basic, preview_hash: "", eligible: false, reason: "missing_candidate" };
     const existing = this.schemaDrift.repair(candidateId, normalizedScope);
     if (existing) return { ...basic, preview_hash: existing.preview_hash, eligible: false, reason: "already_repaired", edge_id: existing.edge_id, observation_id: existing.observation_id, audit_id: existing.audit_id, ...(existing.retired_edge_id ? { retired_edge_id: existing.retired_edge_id } : {}) };
+    const resolution = this.schemaDriftReviews.resolution(candidateId, normalizedScope);
+    if (resolution === "rejected") return { ...basic, preview_hash: "", eligible: false, reason: "already_rejected" };
+    if (resolution === "invalidated") return { ...basic, preview_hash: "", eligible: false, reason: "endpoint_now_allowed" };
     const source = this.getNodeById(candidate.source_entity_id), target = this.getNodeById(candidate.target_entity_id);
     if (!source || source.deleted_at != null || !target || target.deleted_at != null) return { ...basic, preview_hash: "", eligible: false, reason: "missing_endpoint" };
     if (!this.hasNodeEvidenceInScope(source.id, normalizedScope) || !this.hasNodeEvidenceInScope(target.id, normalizedScope)) return { ...basic, preview_hash: "", eligible: false, reason: "missing_scope_evidence" };
@@ -1348,6 +1359,7 @@ export class GraphologyStore {
       // the same candidate into duplicate evidence after a stale preview.
       const prior = this.schemaDrift.repair(candidateId, normalizedScope);
       if (prior) { this.db.exec("COMMIT"); return { confirmed: true, candidate_id: candidateId, replacement_type: replacementType, preview_hash: prior.preview_hash, eligible: false, reason: "already_repaired", edge_id: prior.edge_id, observation_id: prior.observation_id, audit_id: prior.audit_id, ...(prior.retired_edge_id ? { retired_edge_id: prior.retired_edge_id } : {}) }; }
+      if (this.schemaDriftReviews.resolution(candidateId, normalizedScope) !== "pending") throw new Error("schema_drift_repair_no_longer_eligible");
       const source = this.getNodeById(candidate.source_entity_id), target = this.getNodeById(candidate.target_entity_id);
       if (!source || source.deleted_at != null || !target || target.deleted_at != null || !this.hasNodeEvidenceInScope(source.id, normalizedScope) || !this.hasNodeEvidenceInScope(target.id, normalizedScope)) throw new Error("schema_drift_repair_no_longer_eligible");
       const legacy = candidate.legacy_edge_id ? this.activeLegacySchemaDriftEdge(candidate, normalizedScope) : undefined;

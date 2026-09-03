@@ -54,6 +54,7 @@ import { RelatedEdgeSemanticService } from "./related-edge-semantics/service.js"
 import { GraphReviewLifecycleRepository } from "./graph-review/lifecycle.js";
 import { GraphReviewWorklistService, type GraphReviewWorklistStatus } from "./graph-review/worklist.js";
 import { SemanticVocabularyRepository } from "./semantic-vocabulary/repository.js";
+import { SchemaDriftReviewRepository } from "./schema-drift/review.js";
 
 export type SemanticSearchUnavailableCategory = "disabled" | "timeout" | "aborted" | "provider" | "invalid_response" | "scale_limit";
 export type ReviewStatus = DuplicateCandidateStatus | "accepted" | "invalidated";
@@ -173,6 +174,8 @@ export class Mnemora {
   private readonly semanticVocabulary: SemanticVocabularyRepository;
   /** Invalidation overlays make stale review proposals visible without touching graph facts. */
   private readonly graphReviewLifecycle: GraphReviewLifecycleRepository;
+  /** Durable operator dispositions for ontology mismatches; it never owns graph facts. */
+  private readonly schemaDriftReviews: SchemaDriftReviewRepository;
   /** Bounded read model joining graph-remediation proposals and self-link findings. */
   private readonly graphReviewWorklist: GraphReviewWorklistService;
   /** Local categorical provider outcomes; never a live probe or provider log. */
@@ -217,10 +220,11 @@ export class Mnemora {
     this.recallFeedback = new RecallFeedbackRepository(this.store.db, this.now);
     this.hygiene = new GraphHygieneService(this.store, this.now);
     this.graphReviewLifecycle = new GraphReviewLifecycleRepository(this.store.db, this.now);
+    this.schemaDriftReviews = new SchemaDriftReviewRepository(this.store.db, this.now);
     this.semanticVocabulary = new SemanticVocabularyRepository(this.store.db, this.now);
     this.relatedEdgeRefinements = new RelatedEdgeRefinementService(this.store.db, this.now, this.graphReviewLifecycle);
     this.relatedEdgeSemantics = new RelatedEdgeSemanticService(this.store.db, this.now, this.graphReviewLifecycle, this.semanticVocabulary);
-    this.graphReviewWorklist = new GraphReviewWorklistService(this.store.db, this.graphReviewLifecycle);
+    this.graphReviewWorklist = new GraphReviewWorklistService(this.store.db, this.graphReviewLifecycle, this.schemaDriftReviews);
     this.embeddingHealth = new EmbeddingHealthRepository(this.store, this.now);
     this.memoryLifecycle = new MemoryDocumentLifecycleService(this.store.db, {
       enabled: this.config.memory?.lifecycle?.enabled === true,
@@ -1051,7 +1055,14 @@ export class Mnemora {
       return this.store.auditLegacyIdentities(after_id, bounded);
     }
     if (kind === "schema_drift") {
-      if (status !== "pending" || decision) throw new Error("invalid_schema_drift_review");
+      if (status !== "pending") throw new Error("invalid_schema_drift_review");
+      if (decision === "rejected") {
+        if (!candidate_id || scan || after_id || repair_type) throw new Error("schema_drift_candidate_required");
+        return confirm
+          ? this.schemaDriftReviews.confirmReject(candidate_id, normalizedScope, preview_hash ?? "")
+          : this.schemaDriftReviews.previewReject(candidate_id, normalizedScope);
+      }
+      if (decision) throw new Error("invalid_schema_drift_review");
       if (repair_type) {
         if (!candidate_id || scan || after_id) throw new Error("schema_drift_candidate_required");
         return confirm ? this.store.confirmSchemaDriftRepair(candidate_id, repair_type, preview_hash ?? "", normalizedScope) : this.store.previewSchemaDriftRepair(candidate_id, repair_type, normalizedScope);

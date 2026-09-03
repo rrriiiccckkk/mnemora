@@ -162,13 +162,31 @@ agent-facing tool or making a policy decision automatic.
   enables ReasoningMemory delivery. It is evidence for an operator decision,
   not a policy engine.
 
-## Post-v1.17 decision gate
+## v1.18 — Schema-Drift Review Closure
+
+The production decision gate confirmed that `related_to` remains the current
+connectivity bridge: full exclusion fragments the graph, while uniform
+downweighting has no measurable top-k benefit. Keep the live PPR multiplier
+unchanged and complete the human data-quality loop instead.
+
+- Add a durable preview/confirm rejection outcome for schema-drift candidates
+  and include those candidates in the existing read-only worklist and decision
+  gate. A rejection is review metadata, never a graph mutation.
+- Recognize direct `person → product|technology uses` facts. This corrects an
+  endpoint-coverage gap without automatically retyping people, accounts, or
+  companies; a schema mismatch is not identity evidence.
+- Surface existing suspicious self-links through the same worklist, but leave
+  their removal an explicit, separately confirmed production-data action.
+- Preserve the live `related_to` PPR multiplier and keep ReasoningMemory in
+  shadow mode. Neither becomes a side effect of reviewing candidates.
+
+## Post-v1.18 review closure
 
 Before any further topology or reasoning-delivery feature work, collect real
 scope-local evidence:
 
-1. Run `hygiene`, `related_edge_refinements`, and `related_edge_semantics` on
-   the production scope and review a meaningful sample of candidates.
+1. Resolve a representative schema-drift and semantic-label worklist sample,
+   then rerun the decision gate for the production scope.
 2. Compare accepted/rejected/invalidated rates, residual `related_to`
    concentration, and the v1.12 topology diagnostics.
 3. Expand PPR policy or ReasoningMemory delivery only if those measurements

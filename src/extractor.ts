@@ -283,7 +283,7 @@ const extractionSystemPrompt = `You extract named entities and relationships fro
 - supplies_product: a company supplies a specific product
 - supplied_to: a product is supplied to a company
 - competes_with: two entities compete
-- uses: an entity uses a technology, product, or service
+- uses: a person or company uses a technology, product, or service; do not relabel a person as a company merely to fit this relation
 - develops: an entity develops or builds a product/technology
 - owns: an entity owns another entity
 - partners_with: two entities partner or collaborate

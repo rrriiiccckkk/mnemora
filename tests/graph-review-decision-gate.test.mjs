@@ -35,6 +35,10 @@ test("graph review decision gate aggregates scope-local durable outcomes without
     const staleCandidate = semantic.find(item => item.legacy_edge_id === stale.relations[0].edge.id);
     graph.store.forget(staleCandidate.source.id, false, false);
     graph.kg_review("worklist", "invalidated", false, 20, undefined, undefined, undefined, "work");
+    graph.store.ingest([entity("Widget", "product", "Widget works at Fabric."), entity("Fabric", "technology", "Widget works at Fabric.")], [{ source: "Widget", target: "Fabric", type: "works_at", confidence: .9, evidence_span: "Widget works at Fabric." }], "fixture:schema-drift", 0, undefined, "work");
+    const drift = graph.store.reviewSchemaDrift("work").items[0];
+    const driftPreview = graph.kg_review("schema_drift", "pending", false, 20, undefined, drift.id, "rejected", "work");
+    graph.kg_review("schema_drift", "pending", false, 20, undefined, drift.id, "rejected", "work", undefined, undefined, driftPreview.preview_hash, true);
 
     const gate = new GraphReviewDecisionGate(graph.store, { relatedToWarningRatio: .4, relatedToWarningMinimumEdges: 1 });
     const revision = graph.store.graphRevision(), report = gate.report("work");
@@ -44,11 +48,13 @@ test("graph review decision gate aggregates scope-local durable outcomes without
     });
     assert.deepEqual(report.reviews.related_edge_refinement, { total: 1, pending: 0, accepted: 1, rejected: 0, invalidated: 0, reviewed: 1, acceptance_rate: 1 });
     assert.deepEqual(report.reviews.related_edge_semantic, { total: 5, pending: 3, accepted: 0, rejected: 1, invalidated: 1, reviewed: 1, acceptance_rate: 0 });
+    assert.deepEqual(report.reviews.schema_drift, { total: 1, pending: 0, accepted: 0, rejected: 1, invalidated: 0, reviewed: 1, acceptance_rate: 0 });
     assert.deepEqual(report.reviews.semantic_vocabulary, { total: 1, collecting: 0, pending: 0, accepted: 1, rejected: 0, reviewed: 1, acceptance_rate: 1 });
     assert.equal(graph.store.graphRevision(), revision, "decision-gate reads never change graph data");
 
     const isolated = gate.report("default");
     assert.deepEqual(isolated.reviews.related_edge_refinement, { total: 0, pending: 0, accepted: 0, rejected: 0, invalidated: 0, reviewed: 0, acceptance_rate: null });
+    assert.deepEqual(isolated.reviews.schema_drift, { total: 0, pending: 0, accepted: 0, rejected: 0, invalidated: 0, reviewed: 0, acceptance_rate: null });
     assert.deepEqual(isolated.reviews.semantic_vocabulary, { total: 0, collecting: 0, pending: 0, accepted: 0, rejected: 0, reviewed: 0, acceptance_rate: null });
   } finally { graph.close(); }
 });

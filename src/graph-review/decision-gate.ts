@@ -1,6 +1,7 @@
 import { normalizeScope } from "../scope.js";
 import type { GraphologyStore } from "../store.js";
 import { GraphHygieneService, type GraphHygienePolicy, type GraphHygieneReport } from "../hygiene/service.js";
+import { SchemaDriftReviewRepository } from "../schema-drift/review.js";
 
 export interface GraphReviewOutcomeSummary {
   total: number;
@@ -30,6 +31,7 @@ export interface GraphReviewDecisionGateReport {
   reviews: {
     related_edge_refinement: GraphReviewOutcomeSummary;
     related_edge_semantic: GraphReviewOutcomeSummary;
+    schema_drift: GraphReviewOutcomeSummary;
     semantic_vocabulary: SemanticVocabularyOutcomeSummary;
   };
   actions: {
@@ -46,9 +48,11 @@ export interface GraphReviewDecisionGateReport {
  */
 export class GraphReviewDecisionGate {
   private readonly hygiene: GraphHygieneService;
+  private readonly schemaDriftReviews: SchemaDriftReviewRepository;
 
   constructor(private readonly store: GraphologyStore, private readonly policy: Pick<GraphHygienePolicy, "relatedToWarningRatio" | "relatedToWarningMinimumEdges">, private readonly now: () => number = Date.now) {
     this.hygiene = new GraphHygieneService(store, now);
+    this.schemaDriftReviews = new SchemaDriftReviewRepository(store.db, now);
   }
 
   report(scope: string): GraphReviewDecisionGateReport {
@@ -61,6 +65,7 @@ export class GraphReviewDecisionGate {
       reviews: {
         related_edge_refinement: this.edgeOutcomes(safe, "related_edge_refinement", "kg_related_edge_refinement_candidates"),
         related_edge_semantic: this.edgeOutcomes(safe, "related_edge_semantic", "kg_related_edge_semantic_candidates"),
+        schema_drift: this.schemaDriftReviews.summary(safe),
         semantic_vocabulary: this.vocabularyOutcomes(safe)
       },
       // A report is evidence for an operator decision, never the decision.

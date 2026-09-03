@@ -143,10 +143,15 @@ observation、且来自 2 个来源，才能进入 preview/confirm。接受词�
 输入或自动上下文附加内容。
 
 使用 `kg_review` 的 `kind: "worklist"` 可以在同一 scope 内分页查看只读的待处理
-自链接、已拒绝候选，以及已变为 `invalidated` 的待处理候选。`invalidated` 是持久化的
-审查元数据：候选所依赖的精确 fallback 边或证据已不再匹配，因此不能再 preview 或
-confirm。读取 worklist 最多会记录这一失效状态；不会删除边、证据、候选或审查回执。
-应重新运行对应的 refinement 或 semantic scan，让当前证据生成新的候选。
+自链接、关系候选和 schema-drift 候选，以及已拒绝或已 `invalidated` 的结果。schema-drift
+候选可沿用已有 preview/confirm 修复流程，或用其匹配的 preview hash 显式拒绝；拒绝只记录
+人工结论，绝不会修改实体、边、证据、PPR 或遍历。若后续内置端点规则已允许某个旧不匹配，
+候选会成为 `invalidated` 审查元数据，而非被静默删除。读取 worklist 最多会记录这些元数据，
+不会删除图数据或审查回执。
+
+内置 `uses` 关系允许 `person` 或 `company` 指向 `product` 或 `technology`。这覆盖个人或
+KOL 使用产品的事实，不再为了满足关系定义而把 person 改标成 company。schema-drift 候选
+并不是身份事实，Mnemora 绝不会据此自动重标实体。
 
 在分别运行有界 scan、并做出一些人工审查决定后，可使用 CLI 专用的决策门，将
 v1.16 之后的测量汇总为一份 scope 隔离报告：
@@ -155,7 +160,7 @@ v1.16 之后的测量汇总为一份 scope 隔离报告：
 MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review gate --scope default
 ```
 
-它会合并当前 hygiene/topology 诊断，以及 refinement、语义标签和词表候选的
+它会合并当前 hygiene/topology 诊断，以及 refinement、语义标签、schema-drift 和词表候选的
 accepted、rejected、pending 与持久化 invalidated 聚合统计；只输出 JSON，不会 scan、
 不会修改审查状态、不会改 PPR，也不会开启 reasoning delivery。是否有足够证据支持后续
 策略变更，始终由 operator 判断。

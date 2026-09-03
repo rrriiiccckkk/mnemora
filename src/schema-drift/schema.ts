@@ -35,4 +35,28 @@ CREATE TABLE IF NOT EXISTS kg_schema_drift_repairs (
 );
 CREATE INDEX IF NOT EXISTS idx_kg_schema_drift_repairs_scope_created
   ON kg_schema_drift_repairs(scope,created_at DESC);
+CREATE TABLE IF NOT EXISTS kg_schema_drift_reviews (
+  candidate_id TEXT PRIMARY KEY REFERENCES kg_schema_drift_candidates(id),
+  scope TEXT NOT NULL REFERENCES kg_scopes(id),
+  decision TEXT NOT NULL CHECK(decision IN ('rejected')),
+  preview_hash TEXT NOT NULL CHECK(length(preview_hash)=64),
+  audit_id TEXT NOT NULL REFERENCES kg_quality_audits(id),
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_kg_schema_drift_reviews_scope_created
+  ON kg_schema_drift_reviews(scope,created_at DESC);
+CREATE TABLE IF NOT EXISTS kg_schema_drift_invalidations (
+  candidate_id TEXT PRIMARY KEY REFERENCES kg_schema_drift_candidates(id),
+  scope TEXT NOT NULL REFERENCES kg_scopes(id),
+  reason TEXT NOT NULL CHECK(reason IN ('endpoint_now_allowed')),
+  invalidated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_kg_schema_drift_invalidations_scope_created
+  ON kg_schema_drift_invalidations(scope,invalidated_at DESC);
 `;
+
+/** Added after v52; replacement imports may omit these review-only overlays. */
+export const schemaDriftOptionalRestoreTables = [
+  "kg_schema_drift_reviews",
+  "kg_schema_drift_invalidations"
+];
