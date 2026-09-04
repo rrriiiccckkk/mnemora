@@ -384,6 +384,7 @@ export class GraphologyStore {
     if (version < 74) this.migrateGraphReviewLifecycleV74();
     if (version < 75) this.migrateSemanticVocabularyV75();
     if (version < 76) this.migrateSchemaDriftReviewV76();
+    if (version < 77) this.migrateSchemaDriftVocabularyReconciliationV77();
     this.repairCanonicalCorpusFts();
     this.db.exec(`PRAGMA user_version=${SUPPORTED_SCHEMA_VERSION}`);
   }
@@ -554,6 +555,11 @@ export class GraphologyStore {
   /** Schema v76 adds only operator-review metadata for existing schema-drift
    * candidates. It never rewrites entities, edges, observations, or evidence. */
   private migrateSchemaDriftReviewV76(): void { this.db.exec(schemaDriftSchemaSql); }
+
+  /** Schema v77 has no new graph schema. It deterministically records only
+   * review metadata for historic candidates newly allowed by the vocabulary,
+   * so a read-only decision report never depends on opening a worklist first. */
+  private migrateSchemaDriftVocabularyReconciliationV77(): void { this.schemaDriftReviews.reconcileAll(); }
 
   /** Schema v58 only adds durable receipts for explicitly confirmed consolidation
    * lifecycle actions. Existing evidence, episodes, and proposals are not

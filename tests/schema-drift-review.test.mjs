@@ -26,6 +26,22 @@ test("person uses product is accepted by the ontology without relabeling the per
   } finally { store.close(); }
 });
 
+test("company develops concept is accepted by the ontology without rewriting graph topology", () => {
+  const store = new GraphologyStore(":memory:");
+  try {
+    const result = store.ingest(
+      entities("Warp", "company", "Self-improving agents", "concept", "Warp develops self-improving agents."),
+      [{ source: "Warp", target: "Self-improving agents", type: "develops", confidence: .92, evidence_span: "Warp develops self-improving agents." }],
+      "fixture:company-develops-concept", 0, undefined, "research"
+    );
+    assert.equal(result.relations.length, 1);
+    assert.equal(store.reviewSchemaDrift("research").items.length, 0);
+    assert.equal(store.getNodeById(result.entities[0].node.id)?.type, "company");
+    assert.equal(store.getNodeById(result.entities[1].node.id)?.type, "concept");
+    assert.equal(store.qualityGraphSnapshot([result.entities[0].node.id], { maxNodes: 10, maxArcs: 10 }).arcs.length, 0, "semantic coverage must not add a PPR arc");
+  } finally { store.close(); }
+});
+
 test("schema drift rejection is preview-confirmed, scope-bound, and cannot mutate graph state", () => {
   const graph = new Mnemora({ config: { dbPath: ":memory:" } });
   try {
@@ -88,11 +104,41 @@ test("v75 schema drift review migration is additive and retains historic candida
     store.db.prepare("INSERT INTO kg_observations(id,source_entity_id,payload,source,scope,quote,confidence,created_at) VALUES(?,?,?,?,?,?,?,?)").run("obs:existing", "product:existing", "{}", "fixture", "default", "existing evidence", .9, now);
     store.db.exec("DROP TABLE kg_schema_drift_reviews; DROP TABLE kg_schema_drift_invalidations; PRAGMA user_version=75");
     store.close(); store = new GraphologyStore(path);
-    assert.equal(SUPPORTED_SCHEMA_VERSION, 76);
+    assert.equal(SUPPORTED_SCHEMA_VERSION, 77);
     assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM kg_observations WHERE id='obs:existing'").get().value, 1);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name='kg_schema_drift_reviews'").get().value, 1);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name='kg_schema_drift_invalidations'").get().value, 1);
+  } finally {
+    try { store?.close(); } catch {}
+    try { rmSync(directory, { recursive: true, force: true }); } catch {}
+  }
+});
+
+test("v76 migration invalidates every newly allowed historic endpoint without graph mutation", () => {
+  const directory = mkdtempSync(join(tmpdir(), "mnemora-schema-drift-v77-")), path = join(directory, "memory.db");
+  let store;
+  try {
+    store = new GraphologyStore(path);
+    const now = Date.now();
+    const person = store.ingest(entities("KOL", "person", "Social Platform", "product", "KOL uses Social Platform."), [], "fixture:v76-person-uses", 0, undefined, "default");
+    const company = store.ingest(entities("Warp", "company", "Self-improving agents", "concept", "Warp develops self-improving agents."), [], "fixture:v76-company-develops", 0, undefined, "default");
+    const candidates = [
+      ["schema-drift:v76-person-uses", person.entities[0].node.id, person.entities[1].node.id, "uses", "person", "product", "company", "technology|product", "KOL uses Social Platform."],
+      ["schema-drift:v76-company-develops", company.entities[0].node.id, company.entities[1].node.id, "develops", "company", "concept", "company", "product", "Warp develops self-improving agents."]
+    ];
+    for (const [id, source, target, relationship, sourceType, targetType, expectedSource, expectedTarget, quote] of candidates) {
+      store.db.prepare(`INSERT INTO kg_schema_drift_candidates(
+        id,scope,source_entity_id,target_entity_id,relationship_type,source_type,target_type,expected_source_types,expected_target_types,legacy_edge_id,relation_payload,occurrence_count,first_seen_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?)`).run(id, "default", source, target, relationship, sourceType, targetType, expectedSource, expectedTarget, "", JSON.stringify({ source, target, type: relationship, confidence: .9, evidence_span: quote }), now, now);
+    }
+    const revision = store.graphRevision();
+    store.db.exec("PRAGMA user_version=76");
+    store.close(); store = new GraphologyStore(path);
+    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
+    assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM kg_schema_drift_invalidations WHERE scope='default' AND reason='endpoint_now_allowed'").get().value, 2);
+    assert.equal(store.graphRevision(), revision, "v77 may add only review metadata");
+    for (const [id] of candidates) assert.equal(store.previewSchemaDriftRepair(id, "related_to", "default").reason, "endpoint_now_allowed");
   } finally {
     try { store?.close(); } catch {}
     try { rmSync(directory, { recursive: true, force: true }); } catch {}

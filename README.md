@@ -186,14 +186,20 @@ explicitly rejected with its own matching preview hash; rejection records a
 human disposition but never changes an entity, edge, evidence, PPR, or
 traversal. When a later built-in endpoint rule makes an old mismatch valid,
 the candidate becomes `invalidated` review metadata rather than being silently
-deleted. Reading the worklist may record that metadata, but it never deletes
-graph data or a review receipt.
+deleted. A vocabulary-upgrade migration records that outcome for every
+already-valid historic candidate; the worklist can also reconcile imported
+legacy candidates. Neither path deletes graph data or a review receipt.
 
 The built-in `uses` relation accepts `person` or `company` as its source and a
 `product` or `technology` as its target. This covers a person or KOL using a
 product without relabeling that person as a company. Mnemora never retags an
 entity automatically from a schema-drift candidate; an endpoint mismatch is
 not proof of identity.
+
+The built-in `develops` relation accepts a `company` developing a `product` or
+`concept`. This covers directly evidenced work such as a company developing a
+named technical approach; it does not retag the company, create a topology arc,
+or broaden a vague `related_to` edge.
 
 After running the separate bounded scans and making some review decisions, use
 the CLI-only decision gate to collect the post-v1.16 measurement in one

@@ -69,16 +69,41 @@ export class SchemaDriftReviewRepository {
 
   reconcile(scope: string, limit = 100, afterId?: string): { examined: number; invalidated: number } {
     const safe = normalizeScope(scope), take = boundedLimit(limit), after = boundedId(afterId);
-    const rows = this.db.prepare(`SELECT c.id,c.scope,c.relationship_type,c.source_type,c.target_type,c.expected_source_types,c.expected_target_types,c.occurrence_count,c.updated_at,c.legacy_edge_id
+    const rows = this.unresolvedCandidates(safe, take, after);
+    let invalidated = 0;
+    for (const row of rows) if (this.reconcileCandidate(row)) invalidated++;
+    return { examined: rows.length, invalidated };
+  }
+
+  /** A schema upgrade must close every historic candidate newly made valid by
+   * the versioned vocabulary. Batching bounds each database read; the only
+   * writes are append-only invalidation receipts, never graph facts. */
+  reconcileAll(): { examined: number; invalidated: number } {
+    const scopes = this.db.prepare(`SELECT DISTINCT scope FROM kg_schema_drift_candidates
+      ORDER BY scope`).all() as Array<{ scope: string }>;
+    let examined = 0, invalidated = 0;
+    for (const row of scopes) {
+      const scope = normalizeScope(row.scope);
+      let after = "";
+      for (;;) {
+        const candidates = this.unresolvedCandidates(scope, 100, after);
+        if (!candidates.length) break;
+        for (const candidate of candidates) if (this.reconcileCandidate(candidate)) invalidated++;
+        examined += candidates.length;
+        after = candidates.at(-1)!.id;
+      }
+    }
+    return { examined, invalidated };
+  }
+
+  private unresolvedCandidates(scope: string, limit: number, afterId: string): CandidateRow[] {
+    return this.db.prepare(`SELECT c.id,c.scope,c.relationship_type,c.source_type,c.target_type,c.expected_source_types,c.expected_target_types,c.occurrence_count,c.updated_at,c.legacy_edge_id
       FROM kg_schema_drift_candidates c
       WHERE c.scope=? AND c.id>?
         AND NOT EXISTS(SELECT 1 FROM kg_schema_drift_repairs p WHERE p.candidate_id=c.id AND p.scope=c.scope)
         AND NOT EXISTS(SELECT 1 FROM kg_schema_drift_reviews r WHERE r.candidate_id=c.id AND r.scope=c.scope)
         AND NOT EXISTS(SELECT 1 FROM kg_schema_drift_invalidations i WHERE i.candidate_id=c.id AND i.scope=c.scope)
-      ORDER BY c.id LIMIT ?`).all(safe, after, take) as CandidateRow[];
-    let invalidated = 0;
-    for (const row of rows) if (this.reconcileCandidate(row)) invalidated++;
-    return { examined: rows.length, invalidated };
+      ORDER BY c.id LIMIT ?`).all(scope, afterId, limit) as CandidateRow[];
   }
 
   worklist(input: { scope: string; status: SchemaDriftWorklistStatus; afterId?: string; limit?: number }): SchemaDriftWorklistItem[] {

@@ -88,8 +88,8 @@ test("v75 preserves existing related semantic reviews while widening only their 
     store.db.prepare("INSERT INTO kg_related_edge_semantic_reviews VALUES(?,?,?,?,?,?)").run("candidate:semantic-v74", "work", "accepted", "b".repeat(64), "audit:semantic-v74", now);
     store.db.exec("PRAGMA user_version=74");
     store.close(); store = new GraphologyStore(path);
-    assert.equal(SUPPORTED_SCHEMA_VERSION, 76);
-    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 76);
+    assert.equal(SUPPORTED_SCHEMA_VERSION, 77);
+    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM kg_related_edge_semantic_candidates WHERE id='candidate:semantic-v74'").get().value, 1);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM kg_related_edge_semantic_reviews WHERE candidate_id='candidate:semantic-v74'").get().value, 1);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM kg_observations WHERE edge_id=?").get(edge.id).value, 1);

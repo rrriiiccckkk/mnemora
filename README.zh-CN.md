@@ -146,12 +146,16 @@ observation、且来自 2 个来源，才能进入 preview/confirm。接受词�
 自链接、关系候选和 schema-drift 候选，以及已拒绝或已 `invalidated` 的结果。schema-drift
 候选可沿用已有 preview/confirm 修复流程，或用其匹配的 preview hash 显式拒绝；拒绝只记录
 人工结论，绝不会修改实体、边、证据、PPR 或遍历。若后续内置端点规则已允许某个旧不匹配，
-候选会成为 `invalidated` 审查元数据，而非被静默删除。读取 worklist 最多会记录这些元数据，
-不会删除图数据或审查回执。
+候选会成为 `invalidated` 审查元数据，而非被静默删除。词表升级迁移会为所有已经合法的历史
+候选记录该结果；worklist 也可以协调导入的旧候选。两条路径都不会删除图数据或审查回执。
 
 内置 `uses` 关系允许 `person` 或 `company` 指向 `product` 或 `technology`。这覆盖个人或
 KOL 使用产品的事实，不再为了满足关系定义而把 person 改标成 company。schema-drift 候选
 并不是身份事实，Mnemora 绝不会据此自动重标实体。
+
+内置 `develops` 关系允许 `company` 指向 `product` 或 `concept`。这覆盖公司直接开发某个
+具名技术方法等有证据的事实；不会重标公司、不会创建拓扑边，也不会把宽泛的 `related_to`
+关系扩大为语义事实。
 
 在分别运行有界 scan、并做出一些人工审查决定后，可使用 CLI 专用的决策门，将
 v1.16 之后的测量汇总为一份 scope 隔离报告：

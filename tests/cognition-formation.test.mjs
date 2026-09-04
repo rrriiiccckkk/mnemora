@@ -9,7 +9,7 @@ test("formation shadow is idempotent, scope-isolated, hash-chained, and creates 
   let now = 2_000_000_000_000;
   const store = new GraphologyStore(":memory:");
   try {
-    assert.equal(SUPPORTED_SCHEMA_VERSION, 76);
+    assert.equal(SUPPORTED_SCHEMA_VERSION, 77);
     const service = new FormationService(store.db, () => now);
     const first = service.observe({ scope: "a", origin: "explicit_ingest", authority: "manual_operator", kind: "graph_extraction", source: "manual", entities: 1, relations: 1, content: "private text" });
     assert.equal(first.status, "accepted_shadow");

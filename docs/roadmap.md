@@ -180,18 +180,36 @@ unchanged and complete the human data-quality loop instead.
 - Preserve the live `related_to` PPR multiplier and keep ReasoningMemory in
   shadow mode. Neither becomes a side effect of reviewing candidates.
 
-## Post-v1.18 review closure
+## v1.19 — Schema-Drift Vocabulary Reconciliation
+
+The production review showed that six historic `person → product uses`
+candidates were already covered by v1.18 vocabulary, while one directly
+evidenced `company → concept develops` candidate exposed a narrow endpoint
+gap. Address only those observed cases.
+
+- Permit `company → product|concept develops` as a semantic relation. This is
+  endpoint coverage only: it never retypes an entity, rewrites an edge, or
+  adds an arc to PPR or traversal.
+- On upgrade, deterministically invalidate every unresolved historic
+  schema-drift candidate newly allowed by the current vocabulary. The v77
+  migration writes only review metadata, so a decision gate never relies on a
+  worklist read side effect.
+- Keep the live `related_to` PPR multiplier and ReasoningMemory shadow-only.
+
+## Post-v1.19 review closure
 
 Before any further topology or reasoning-delivery feature work, collect real
 scope-local evidence:
 
-1. Resolve a representative schema-drift and semantic-label worklist sample,
-   then rerun the decision gate for the production scope.
-2. Compare accepted/rejected/invalidated rates, residual `related_to`
-   concentration, and the v1.12 topology diagnostics.
-3. Expand PPR policy or ReasoningMemory delivery only if those measurements
-   show a concrete quality gain. Otherwise keep the conservative defaults and
-   prioritize operator experience over more automatic memory behavior.
+1. Verify the production upgrade records the seven now-allowed historic
+   endpoint candidates as `invalidated`, then resolve a representative
+   semantic-label worklist sample and rerun the decision gate.
+2. Delete a suspicious self-link only through its separately previewed and
+   explicitly confirmed production-data action.
+3. Compare accepted/rejected/invalidated rates, residual `related_to`
+   concentration, and the v1.12 topology diagnostics. Expand PPR policy or
+   ReasoningMemory delivery only if independent measurements show a concrete
+   quality gain.
 
 ## Non-negotiable boundaries
 
