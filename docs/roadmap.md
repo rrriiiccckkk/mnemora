@@ -291,6 +291,38 @@ caller knowledge without changing public behavior.
 - No schema migration, configuration default, agent tool, PPR policy, or
   recall-delivery behavior changes.
 
+## v1.25 — Query Persistence Seam
+
+Continue Store decomposition at the bounded query-state boundary without
+changing query, watch, digest, or agent-facing behavior.
+
+- Move watch CRUD, digest idempotency/reclaim receipts, and redacted query
+  audit retention into one internal query-persistence repository.
+  `GraphologyStore` remains the compatibility facade for all callers.
+- Keep the existing normalized-plan, scope-touching, transaction, bounded
+  listing, digest cursor, audit hashing, redaction, and daily retention
+  contracts exactly as they are today.
+- No schema migration, configuration default, new tool, graph mutation,
+  PPR/traversal policy, or recall-delivery change is included.
+
+## Decision-gate status (2026-09-06)
+
+The latest real scope-local review correctly produced no graph-policy action:
+
+- The semantic-vocabulary scans for `default`, `inbox`, and
+  `ai-agent-search` examined 20 edges and created no candidates; `inbox`
+  itself also has no candidates.
+- `default` and `inbox` have no self-link anomalies, and duplicate review is
+  empty. The nine existing `semantic_patterns` in `default` are already
+  accepted rather than pending decisions.
+- A topology diagnostic was obtained, but its terminal output was truncated.
+  It does not provide retained independent evidence for a PPR or recall-policy
+  change. If such a change is later considered, re-run a bounded report first.
+
+Accordingly, do not manufacture review work, adjust PPR, or enable a recall
+canary. Wait for new scope-local evidence or pursue behavior-preserving
+reliability work.
+
 ## Post-v1.22 decision gate
 
 Before any further topology or reasoning-delivery feature work, collect real
