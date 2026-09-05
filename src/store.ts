@@ -29,6 +29,7 @@ import { sourceDiversityScore } from "./ranking.js";
 import { normalizeScope } from "./scope.js";
 import { chunkMemoryDocument } from "./memory.js";
 import { EntityRepository } from "./entities/repository.js";
+import { GraphSearchRepository } from "./retrieval/graph-search-repository.js";
 import { renderContext } from "./context-renderer.js";
 import { memoryMatchesTags } from "./retrieval/query-routing.js";
 import { schemaDriftOptionalRestoreTables, schemaDriftSchemaSql } from "./schema-drift/schema.js";
@@ -45,6 +46,7 @@ import { relatedEdgeSemanticOptionalRestoreTables, relatedEdgeSemanticSchemaSql 
 import { graphReviewOptionalRestoreTables, graphReviewSchemaSql } from "./graph-review/schema.js";
 import { semanticVocabularyOptionalRestoreTables, semanticVocabularySchemaSql } from "./semantic-vocabulary/schema.js";
 import { openMnemoraDatabase } from "./sqlite.js";
+import { DatabaseRecoveryService } from "./operations/database-recovery.js";
 import type { AutoRunClaim, AutoRunFinishStatus, CommunitySummary, ConflictCandidate, ConflictCandidateStatus, DuplicateCandidate, DuplicateCandidateStatus, DuplicateScanResult, EvidenceSummary, ExtractedEntity, ExtractedRelation, InsightKind, KgContextResult, KgEdge, KgForgetResult, KgInsight, KgMemoryChunk, KgMemoryDocument, KgMemoryExpiryReview, KgMemoryLifecycleAudit, KgMemoryLifecycleConfirm, KgMemoryLifecyclePreview, KgMemorySearchResult, KgNode, KgObservation, KgRelatedResult, KgScopeSummary, KgSearchResult, KgSourceSummary, KgStatsResult, LegacyIdentityAuditResult, MemoryLifecycleAction, MergeResult, MergeUndoResult, NodeType, QualityCleanupResult, QualityEvidenceSummary, RankedNode, RelatedSemanticLabelResult, RelationshipAnomaly, SchemaDriftCandidate, SchemaDriftRepairResult, SchemaDriftScanResult, SemanticPatternCandidate, SemanticPatternReviewResult, StoredEmbedding } from "./types.js";
 import type { GraphProjection, InsightSnapshot } from "./insights/types.js";
 import type { QueryAuditPlanV1, QueryPlanV1 } from "./query/types.js";
@@ -91,6 +93,8 @@ export class GraphologyStore {
   readonly schemaDrift: SchemaDriftRepository;
   readonly schemaDriftReviews: SchemaDriftReviewRepository;
   readonly semanticPatterns: SemanticPatternRepository;
+  private readonly graphSearch: GraphSearchRepository;
+  private readonly recovery: DatabaseRecoveryService;
   private readonly location: string;
   private readonly inspectorSessionNonce = randomUUID();
 
@@ -99,49 +103,20 @@ export class GraphologyStore {
     if (this.location !== ":memory:") mkdirSync(dirname(this.location), { recursive: true });
     this.db = openMnemoraDatabase(this.location);
     this.entities = new EntityRepository(this.db);
+    this.graphSearch = new GraphSearchRepository(this.db);
     this.schemaDrift = new SchemaDriftRepository(this.db);
     this.schemaDriftReviews = new SchemaDriftReviewRepository(this.db);
     this.semanticPatterns = new SemanticPatternRepository(this.db);
+    this.recovery = new DatabaseRecoveryService({
+      db: this.db,
+      optionalNewTables: ["kg_scopes", "kg_memory_documents", "kg_memory_chunks", "kg_memory_lifecycle_audits", "kg_memory_import_previews", "kg_memory_import_audits", "kg_entity_identities", "kg_schema_quarantine", ...schemaDriftOptionalRestoreTables, ...semanticOptionalRestoreTables, ...relatedEdgeRefinementOptionalRestoreTables, ...relatedEdgeSemanticOptionalRestoreTables, ...graphReviewOptionalRestoreTables, ...semanticVocabularyOptionalRestoreTables, ...trustOptionalRestoreTables, ...integrationOptionalRestoreTables, ...profileOptionalRestoreTables, ...governanceOptionalRestoreTables, ...consolidationOptionalRestoreTables, ...cognitionOptionalRestoreTables, ...recallLifecycleOptionalRestoreTables, ...corpusOptionalRestoreTables],
+      rebuildDerivedData: () => { this.ensureMemoryChunks(); this.entities.rebuild(); }
+    });
     this.migrate();
   }
 
   close(): void { this.db.close(); }
-  replaceDatabaseFrom(sourcePath: string): void {
-    const attached = "restore_source";
-    this.db.prepare(`ATTACH DATABASE ? AS ${attached}`).run(sourcePath);
-    this.db.exec("PRAGMA foreign_keys=OFF");
-    try {
-      const sourceTables = new Set((this.db.prepare(`SELECT name FROM ${attached}.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'kg_nodes_fts%' AND name NOT LIKE 'kg_memory_documents_fts%' AND name NOT LIKE 'kg_memory_chunks_fts%' AND name NOT LIKE 'mnemora_corpus_chunks_fts%'`).all() as Array<{ name: string }>).map(row => row.name));
-      const targetTables = (this.db.prepare("SELECT name FROM main.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'kg_nodes_fts%' AND name NOT LIKE 'kg_memory_documents_fts%' AND name NOT LIKE 'kg_memory_chunks_fts%' AND name NOT LIKE 'mnemora_corpus_chunks_fts%' ORDER BY name").all() as Array<{ name: string }>).map(row => row.name);
-      const optionalNewTables = new Set(["kg_scopes", "kg_memory_documents", "kg_memory_chunks", "kg_memory_lifecycle_audits", "kg_memory_import_previews", "kg_memory_import_audits", "kg_entity_identities", "kg_schema_quarantine", ...schemaDriftOptionalRestoreTables, ...semanticOptionalRestoreTables, ...relatedEdgeRefinementOptionalRestoreTables, ...relatedEdgeSemanticOptionalRestoreTables, ...graphReviewOptionalRestoreTables, ...semanticVocabularyOptionalRestoreTables, ...trustOptionalRestoreTables, ...integrationOptionalRestoreTables, ...profileOptionalRestoreTables, ...governanceOptionalRestoreTables, ...consolidationOptionalRestoreTables, ...cognitionOptionalRestoreTables, ...recallLifecycleOptionalRestoreTables, ...corpusOptionalRestoreTables]);
-      if (targetTables.some(name => !optionalNewTables.has(name) && !sourceTables.has(name))) throw new Error("incompatible_schema");
-      this.db.exec("BEGIN IMMEDIATE");
-      for (const name of targetTables) {
-        const quoted = `"${name.replaceAll('"', '""')}"`;
-        this.db.exec(`DELETE FROM main.${quoted}`);
-        if (!sourceTables.has(name)) continue;
-        const sourceColumns = new Set((this.db.prepare(`PRAGMA ${attached}.table_info(${quoted})`).all() as Array<{ name: string }>).map(row => row.name));
-        const targetColumns = (this.db.prepare(`PRAGMA main.table_info(${quoted})`).all() as Array<{ name: string }>).map(row => row.name);
-        const columns = targetColumns.filter(column => sourceColumns.has(column));
-        if (!columns.length) throw new Error("incompatible_schema");
-        const names = columns.map(column => `"${column.replaceAll('"', '""')}"`).join(",");
-        this.db.exec(`INSERT INTO main.${quoted}(${names}) SELECT ${names} FROM ${attached}.${quoted}`);
-      }
-      const now = Date.now();
-      this.db.prepare("INSERT OR IGNORE INTO main.kg_scopes(id,created_at,updated_at) VALUES('default',?,?)").run(now, now);
-      this.db.prepare("INSERT OR IGNORE INTO main.kg_scopes(id,created_at,updated_at) SELECT DISTINCT scope,?,? FROM main.kg_observations WHERE typeof(scope)='text' AND scope<>''").run(now, now);
-      this.ensureMemoryChunks();
-      this.entities.rebuild();
-      this.db.exec("DELETE FROM main.kg_nodes_fts; INSERT INTO main.kg_nodes_fts(id,name,description,aliases) SELECT id,name,description,aliases FROM main.kg_nodes WHERE deleted_at IS NULL");
-      this.db.exec("DELETE FROM main.kg_memory_documents_fts; INSERT INTO main.kg_memory_documents_fts(id,title,content) SELECT id,title,content FROM main.kg_memory_documents");
-      this.db.exec("DELETE FROM main.kg_memory_chunks_fts; INSERT INTO main.kg_memory_chunks_fts(id,content) SELECT id,content FROM main.kg_memory_chunks");
-      this.db.exec("DELETE FROM main.mnemora_corpus_chunks_fts; INSERT INTO main.mnemora_corpus_chunks_fts(id,content) SELECT id,content FROM main.mnemora_corpus_chunks");
-      this.db.exec("COMMIT");
-    } catch (error) {
-      try { this.db.exec("ROLLBACK"); } catch { /* transaction may not have begun */ }
-      throw new Error("restore_failed");
-    } finally { try { this.db.exec(`DETACH DATABASE ${attached}`); } finally { this.db.exec("PRAGMA foreign_keys=ON"); } }
-  }
+  replaceDatabaseFrom(sourcePath: string): void { this.recovery.replaceFrom(sourcePath); }
   createWatch(input: { id: string; name: string; plan: QueryPlanV1; scope: string; schedule_hint: WatchScheduleHint; enabled: boolean; now: number; maxWatches: number }): KgWatch {
     const plan = canonicalQueryPlan(normalizeQueryPlan(input.plan));
     const scope = normalizeScope(input.scope);
@@ -1665,42 +1640,7 @@ export class GraphologyStore {
   }
 
   lexicalCandidates(query: string, nodeType?: string, limit = 10, scope?: string): RankedNode[] {
-    const trimmed = query.trim();
-    if (!trimmed) return [];
-    const normalizedScope = scope == null ? undefined : normalizeScope(scope);
-    const scopePredicate = "(? IS NULL OR EXISTS (SELECT 1 FROM kg_observations so WHERE so.source_entity_id=kg_nodes.id AND so.scope=?))";
-    const candidates = new Map<string, RankedNode>();
-    const add = (node: KgNode, score: number) => {
-      const prev = candidates.get(node.id);
-      if (!prev || score > prev.score) candidates.set(node.id, { node, score });
-    };
-
-    const exactRows = this.db.prepare(`SELECT * FROM kg_nodes WHERE deleted_at IS NULL AND (? IS NULL OR type = ?) AND ${scopePredicate} AND (lower(name)=lower(?) OR lower(id)=lower(?)) LIMIT ?`).all(nodeType ?? null, nodeType ?? null, normalizedScope ?? null, normalizedScope ?? null, trimmed, trimmed, limit) as NodeRow[];
-    for (const row of exactRows) add(mapNode(row), 1);
-
-    const aliasRows = this.db.prepare(`SELECT DISTINCT n.* FROM kg_nodes n
-      JOIN json_each(CASE WHEN json_valid(n.aliases) THEN n.aliases ELSE '[]' END) a
-      WHERE n.deleted_at IS NULL AND (? IS NULL OR n.type=?) AND (? IS NULL OR EXISTS (SELECT 1 FROM kg_observations so WHERE so.source_entity_id=n.id AND so.scope=?)) AND lower(CAST(a.value AS TEXT))=lower(?) LIMIT ?`)
-      .all(nodeType ?? null, nodeType ?? null, normalizedScope ?? null, normalizedScope ?? null, trimmed, limit) as NodeRow[];
-    for (const row of aliasRows) add(mapNode(row), .95);
-
-    try {
-      const ftsQuery = toFtsQuery(trimmed);
-      if (ftsQuery) {
-        const rows = this.db.prepare(`SELECT n.*, bm25(kg_nodes_fts) AS rank FROM kg_nodes_fts f JOIN kg_nodes n ON n.id=f.id WHERE kg_nodes_fts MATCH ? AND n.deleted_at IS NULL AND (? IS NULL OR n.type=?) AND (? IS NULL OR EXISTS (SELECT 1 FROM kg_observations so WHERE so.source_entity_id=n.id AND so.scope=?)) ORDER BY rank LIMIT ?`).all(ftsQuery, nodeType ?? null, nodeType ?? null, normalizedScope ?? null, normalizedScope ?? null, limit) as Array<NodeRow & { rank: number }>;
-        const ranks = rows.map(row => Number(row.rank ?? 0));
-        const best = Math.min(...ranks), worst = Math.max(...ranks);
-        rows.forEach((row, index) => add(mapNode(row), best === worst ? 1 : (worst - ranks[index]) / (worst - best)));
-      }
-    } catch {}
-
-    const like = `%${escapeLike(trimmed)}%`;
-    const likeRows = this.db.prepare(`SELECT * FROM kg_nodes WHERE deleted_at IS NULL AND (? IS NULL OR type = ?) AND ${scopePredicate} AND (name LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\' OR aliases LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\') LIMIT ?`).all(nodeType ?? null, nodeType ?? null, normalizedScope ?? null, normalizedScope ?? null, like, like, like, like, limit) as NodeRow[];
-    for (const row of likeRows) add(mapNode(row), .5);
-
-    return [...candidates.values()]
-      .sort((a, b) => b.score - a.score || b.node.importance - a.node.importance)
-      .slice(0, limit)
+    return this.graphSearch.lexicalCandidates(query, nodeType, limit, scope);
   }
 
   search(query: string, nodeType?: string, limit = 10, scope?: string): KgSearchResult[] {
@@ -1708,45 +1648,15 @@ export class GraphologyStore {
   }
 
   semanticCandidates(queryVector: number[], identity: EmbeddingIdentity, inputVersion: string, nodeType?: string, limit = 10, minimum = .35, maxScanNodes = 10000, scope?: string): RankedNode[] {
-    const budget = Math.min(Math.max(0, Math.trunc(maxScanNodes)), Math.max(limit * 8, 64));
-    const normalizedScope = scope == null ? undefined : normalizeScope(scope);
-    const valid: Array<{ node: KgNode; vector: number[] }> = []; let afterId = ""; let scanned = 0;
-    while (valid.length < budget && scanned < maxScanNodes) {
-      const pageSize = Math.min(64, maxScanNodes - scanned);
-      const rows = this.db.prepare(`SELECT * FROM kg_nodes WHERE deleted_at IS NULL AND embedding IS NOT NULL AND embedding_provider=? AND embedding_model=? AND embedding_dimensions=? AND embedding_input_version=? AND (? IS NULL OR type=?) AND (? IS NULL OR EXISTS (SELECT 1 FROM kg_observations so WHERE so.source_entity_id=kg_nodes.id AND so.scope=?)) AND id>? ORDER BY id LIMIT ?`).all(identity.provider, identity.model, identity.dimensions, inputVersion, nodeType ?? null, nodeType ?? null, normalizedScope ?? null, normalizedScope ?? null, afterId, pageSize) as Array<NodeRow & { embedding: Uint8Array }>;
-      if (!rows.length) break;
-      scanned += rows.length; afterId = rows.at(-1)!.id;
-      for (const row of rows) try { valid.push({ node: mapNode(row), vector: decodeEmbedding(row.embedding, identity.dimensions) }); } catch { /* isolate corruption */ }
-    }
-    return valid
-      .map(({ node, vector }) => ({ node, score: (cosineSimilarity(queryVector, vector) + 1) / 2 }))
-      .filter(({ score }) => score >= minimum)
-      .sort((a, b) => b.score - a.score || b.node.importance - a.node.importance)
-      .slice(0, limit);
+    return this.graphSearch.semanticCandidates(queryVector, identity, inputVersion, nodeType, limit, minimum, maxScanNodes, scope);
   }
 
   embeddingCandidateCount(identity: EmbeddingIdentity, inputVersion: string, scope?: string): number {
-    const normalizedScope = scope == null ? undefined : normalizeScope(scope);
-    const row = this.db.prepare(`SELECT count(*) AS count FROM kg_nodes WHERE deleted_at IS NULL AND embedding IS NOT NULL AND embedding_provider=? AND embedding_model=? AND embedding_dimensions=? AND embedding_input_version=? AND (? IS NULL OR EXISTS (SELECT 1 FROM kg_observations so WHERE so.source_entity_id=kg_nodes.id AND so.scope=?))`).get(identity.provider, identity.model, identity.dimensions, inputVersion, normalizedScope ?? null, normalizedScope ?? null) as { count: number };
-    return Number(row.count);
+    return this.graphSearch.embeddingCandidateCount(identity, inputVersion, scope);
   }
 
   rankHybrid(input: { lexical: RankedNode[]; semantic: RankedNode[]; limit: number; now: number; weights?: { semantic: number; lexical: number; confidence: number; freshness: number }; scope?: string }): KgSearchResult[] {
-    const weights = input.weights ?? { semantic: .45, lexical: .25, confidence: .20, freshness: .10 };
-    const merged = new Map<string, { node: KgNode; lexical: number; semantic: number }>();
-    for (const item of input.lexical) merged.set(item.node.id, { node: item.node, lexical: item.score, semantic: 0 });
-    for (const item of input.semantic) {
-      const current = merged.get(item.node.id);
-      if (current) current.semantic = item.score; else merged.set(item.node.id, { node: item.node, lexical: 0, semantic: item.score });
-    }
-    return [...merged.values()].map(item => {
-      const evidence = this.evidenceForNode(item.node.id, 3, input.scope);
-      const confidence = evidence.length ? evidence.reduce((sum, e) => sum + e.confidence, 0) / evidence.length : 0;
-      const freshness = Math.exp(-Math.log(2) * Math.max(0, input.now - item.node.updated_at) / 86400000 / 180);
-      const score_components = { semantic: item.semantic, lexical: item.lexical, confidence, freshness };
-      const score = weights.semantic * item.semantic + weights.lexical * item.lexical + weights.confidence * confidence + weights.freshness * freshness;
-      return { node: item.node, evidence, score, score_components };
-    }).sort((a, b) => b.score - a.score || b.node.importance - a.node.importance).slice(0, input.limit);
+    return this.graphSearch.rankHybrid(input);
   }
 
   related(entity: string, depth = 1, edgeTypes?: RelationshipType[], direction?: Direction, scope?: string, semanticPredicates?: readonly string[]): KgRelatedResult {
@@ -3021,8 +2931,7 @@ export class GraphologyStore {
   }
 
   private evidenceForNode(nodeId: string, limit: number, scope?: string): EvidenceSummary[] {
-    const normalizedScope = scope == null ? undefined : normalizeScope(scope);
-    return this.db.prepare("SELECT id AS observation_id,source,quote,confidence,valid_from,valid_to,temporal_confidence,created_at FROM kg_observations WHERE source_entity_id = ? AND (? IS NULL OR scope=?) ORDER BY confidence DESC,created_at DESC,id LIMIT ?").all(nodeId, normalizedScope ?? null, normalizedScope ?? null, limit) as EvidenceSummary[];
+    return this.graphSearch.evidenceForNode(nodeId, limit, scope);
   }
 
   private hasGraphPresence(nodeId: string, scope: string): boolean {

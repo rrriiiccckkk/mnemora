@@ -254,6 +254,24 @@ operator interface before collecting production evidence.
 - Do not add an agent tool, automatic promotion, schema migration, graph
   mutation, PPR/traversal change, or recall-delivery change.
 
+## v1.23 — Storage Read Seams and Windows CI
+
+Make the first targeted split of the oversized Store without changing its
+public surface or data behavior.
+
+- Move node lexical/semantic candidate discovery, evidence hydration, and
+  hybrid ranking behind an internal read-only repository. `GraphologyStore`
+  remains the compatibility facade for every caller.
+- Move portable database replacement into a dedicated recovery service. It
+  retains schema compatibility checks, one transaction, derived-index rebuild,
+  and the existing bounded `restore_failed` error contract.
+- Validate the complete release gate on Node 24 for both Ubuntu and Windows.
+  Browser installation remains platform-specific; no runtime dependency or
+  configuration default changes.
+- This is deliberately the first slice, not a claim that Store decomposition
+  is complete. Traversal, review, and mutation responsibilities stay put until
+  their interfaces can be separated without widening public API complexity.
+
 ## Post-v1.22 decision gate
 
 Before any further topology or reasoning-delivery feature work, collect real
