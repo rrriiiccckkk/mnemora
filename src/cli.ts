@@ -147,13 +147,36 @@ function memoryCommand(graph: Mnemora, raw: string[]): unknown {
 /** The graph decision gate is deliberately CLI-only: it is a human review
  * report, not another context-consuming agent tool or a policy mutation. */
 function reviewCommand(graph: Mnemora, raw: string[]): unknown {
-  const { positional, options } = parseOptions(raw), operation = positional.shift();
-  if (operation !== "gate" || positional.length || Object.keys(options).some(key => key !== "scope")) throw new CliError("invalid_arguments");
-  const hygiene = graph.config.quality?.hygiene;
-  return new GraphReviewDecisionGate(graph.store, {
-    relatedToWarningRatio: hygiene?.relatedToWarningRatio ?? .4,
-    relatedToWarningMinimumEdges: hygiene?.relatedToWarningMinimumEdges ?? 20
-  }).report(option(options, "scope") ?? process.env.SCOPE ?? "default");
+  const { positional, options } = parseOptions(raw), operation = positional.shift(), scope = option(options, "scope") ?? process.env.SCOPE ?? "default";
+  if (operation === "gate") {
+    if (positional.length || Object.keys(options).some(key => key !== "scope")) throw new CliError("invalid_arguments");
+    const hygiene = graph.config.quality?.hygiene;
+    return new GraphReviewDecisionGate(graph.store, {
+      relatedToWarningRatio: hygiene?.relatedToWarningRatio ?? .4,
+      relatedToWarningMinimumEdges: hygiene?.relatedToWarningMinimumEdges ?? 20
+    }).report(scope);
+  }
+  if (operation === "worklist") {
+    if (positional.length || Object.keys(options).some(key => !["scope", "status", "limit", "after-id"].includes(key))) throw new CliError("invalid_arguments");
+    const status = option(options, "status") ?? "pending";
+    if (status !== "pending" && status !== "rejected" && status !== "invalidated") throw new CliError("invalid_arguments");
+    return graph.kg_review("worklist", status, false, boundedLimit(option(options, "limit")) ?? 20, option(options, "after-id"), undefined, undefined, scope);
+  }
+  if (operation === "anomalies") {
+    const phase = takeArgument(positional), edgeIds = positional.splice(0);
+    if (!edgeIds.length || edgeIds.length > 20 || Object.keys(options).some(key => !["scope", "preview-hash", "confirm"].includes(key))) throw new CliError("invalid_arguments");
+    if (phase === "preview") {
+      if (options.confirm === true || option(options, "preview-hash")) throw new CliError("invalid_arguments");
+      return graph.store.cleanupAnomalies(edgeIds, false, undefined, scope);
+    }
+    if (phase === "confirm") {
+      if (options.confirm !== true) return { status: "confirm_required", operation: "review.anomalies.confirm" };
+      const previewHash = option(options, "preview-hash");
+      if (!previewHash) throw new CliError("invalid_arguments");
+      return graph.store.cleanupAnomalies(edgeIds, true, previewHash, scope);
+    }
+  }
+  throw new CliError("invalid_arguments");
 }
 
 function standalone(raw: string[]): void {
@@ -567,7 +590,7 @@ function recallCommand(graph: Mnemora, command: string | undefined, args: string
 
 function parseOptions(args: string[]): { positional: string[]; options: Record<string, string | true> } {
   const positional: string[] = [], options: Record<string, string | true> = {};
-  const values = new Set(["scope", "limit", "preview-hash", "issued-by", "token-budget", "max-items", "historical-at", "stale-after-days", "min-age-days", "adapter"]);
+  const values = new Set(["scope", "limit", "preview-hash", "issued-by", "token-budget", "max-items", "historical-at", "stale-after-days", "min-age-days", "adapter", "status", "after-id"]);
   for (let index = 0; index < args.length; index++) {
     const item = args[index];
     if (!item.startsWith("--")) { positional.push(item); continue; }
@@ -612,4 +635,4 @@ async function inspect(allowOperations: boolean): Promise<void> {
 function print(value: unknown): void { console.log(JSON.stringify(value, null, 2)); }
 function printOperator(command: string, result: unknown): void { console.log(JSON.stringify({ ok: true, command, result })); }
 function fail(command: string, error: unknown): void { console.error(JSON.stringify({ ok: false, command, error: { code: error instanceof CliError ? error.code : "operation_failed" } })); process.exitCode = 1; }
-function usage(): string { return "Usage: mnemora <ingest|search|related|stats|forget|inspect|surface|trust|profile|recall|governance|journal|retrieve|evaluate|memory-impact|review|standalone|consolidation|cognition> [...]. Operator commands return structured JSON; use `review gate --scope <scope>`, `journal compaction prepared`, `journal compaction reconcile <run_id> <rewrite_confirmed|rewrite_not_applied> --confirm`, `cognition status`, `cognition graduation status`, `cognition context compile <query>`, `cognition reflection preview`, `cognition feedback list`, `cognition decision list`, `cognition decision create <objective>`, `consolidation status`, `consolidation adopt preview <proposal_id>`, `consolidation adopt apply <proposal_id> --preview-hash <hash> --confirm`, `standalone guide`, `retrieve <query>`, `evaluate recall-quality <deidentified-golden.json>`, or `memory-impact preview <event|artifact|episode|summary> <id>`. Reflection, feedback, and consolidation adoption require explicit confirmation; Decision creation also requires a preview hash."; }
+function usage(): string { return "Usage: mnemora <ingest|search|related|stats|forget|inspect|surface|trust|profile|recall|governance|journal|retrieve|evaluate|memory-impact|review|standalone|consolidation|cognition> [...]. Operator commands return structured JSON; use `review gate --scope <scope>`, `review worklist --scope <scope> --status <pending|rejected|invalidated>`, `review anomalies preview <edge_id> --scope <scope>`, `review anomalies confirm <edge_id> --scope <scope> --preview-hash <hash> --confirm`, `journal compaction prepared`, `journal compaction reconcile <run_id> <rewrite_confirmed|rewrite_not_applied> --confirm`, `cognition status`, `cognition graduation status`, `cognition context compile <query>`, `cognition reflection preview`, `cognition feedback list`, `cognition decision list`, `cognition decision create <objective>`, `consolidation status`, `consolidation adopt preview <proposal_id>`, `consolidation adopt apply <proposal_id> --preview-hash <hash> --confirm`, `standalone guide`, `retrieve <query>`, `evaluate recall-quality <deidentified-golden.json>`, or `memory-impact preview <event|artifact|episode|summary> <id>`. Reflection, feedback, consolidation adoption, and anomaly cleanup require explicit confirmation; Decision creation also requires a preview hash."; }

@@ -178,6 +178,18 @@ label only with its exact predicate—for example
 `kg_related(..., semantic_predicates: ["based_on"])`. Dynamic labels never
 become traversal arcs, PPR inputs, or automatic context attachments.
 
+Run that vocabulary collection explicitly and review its resulting proposals
+in their own flow; an accepted semantic-pattern review is not a vocabulary
+promotion:
+
+```js
+kg_review({ kind: "semantic_vocabulary", scan: true, scope: "default", limit: 20 })
+```
+
+The scan is bounded and only creates reviewable proposals. It neither rewrites
+an edge nor changes automatic recall. Each vocabulary proposal still requires
+its own matching preview and explicit confirmation.
+
 Use `kg_review` with `kind: "worklist"` to page through one scope-local,
 read-only queue of pending self-link findings, related-edge proposals, and
 schema-drift candidates, plus rejected or invalidated outcomes. A schema-drift
@@ -214,6 +226,21 @@ rejected, pending, and durably invalidated refinement, semantic-label,
 schema-drift, and vocabulary outcomes. It returns JSON only: it does not scan, mutate review
 state, change PPR, or enable reasoning delivery. The operator remains
 responsible for judging whether the evidence supports any later policy change.
+
+The same local operator CLI can inspect the existing read-only worklist and,
+for a scope-exclusive active anomaly such as a self-link, perform the separate
+audited cleanup flow:
+
+```bash
+MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review worklist --scope default --status pending
+MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review anomalies preview edge:example --scope default
+MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review anomalies confirm edge:example --scope default --preview-hash <hash> --confirm
+```
+
+`worklist` is read-only. Cleanup never runs automatically: confirmation must
+match a fresh preview hash, writes an audit receipt, and refuses an edge with
+evidence in any other scope. Use `--status rejected` or `--status invalidated`
+to inspect those durable outcomes without querying SQLite directly.
 
 `kg_stats` includes `embedding_health`, an observed local status rather than a
 live provider probe. `healthy` and `degraded` are based only on bounded local

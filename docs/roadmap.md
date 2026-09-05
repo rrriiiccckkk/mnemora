@@ -232,8 +232,9 @@ without treating review metadata as an automatic graph change.
 - Expose the existing audited relationship-anomaly cleanup through a dedicated
   operator `preview → confirm` path. It may retire only the exact active
   self-link named in the preview; a matching scope, fresh preview hash, audit
-  receipt, and one graph-revision update are required. Do not repurpose
-  schema-drift repair for anomaly deletion.
+  receipt, and one graph-revision update are required. An edge with evidence
+  in another scope is ineligible, so a scope-local cleanup cannot remove
+  shared graph state. Do not repurpose schema-drift repair for anomaly deletion.
 - Document the separate semantic-vocabulary scan. It only collects bounded
   evidence and may create pending vocabulary proposals; accepting a
   semantic-pattern proposal never promotes a vocabulary entry automatically.

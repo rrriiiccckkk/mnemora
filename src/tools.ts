@@ -1134,7 +1134,7 @@ export class Mnemora {
       const scan_result = scan ? this.store.scanConflictCandidates(this.config.quality?.singleValuedEdgeTypes ?? []) : undefined;
       const revalidation_schedule = scan_result && (scan_result.created > 0 || scan_result.updated > 0)
         ? this.store.listScopes(100).map(item => ({ scope: item.id, ...this.retrospectiveAudits.scheduleContradictions(item.id) })) : undefined;
-      const anomalies = this.store.reviewAnomalies({ limit: bounded }).items;
+      const anomalies = this.store.reviewAnomalies({ limit: bounded, scope: normalizedScope }).items;
       const conflicts = this.store.reviewConflictCandidates({ status: candidateStatus === "merged" ? undefined : candidateStatus, limit: bounded, scope: normalizedScope }).items;
       return { items: [...anomalies, ...conflicts].slice(0, bounded), ...(scan_result ? { scan: scan_result } : {}), ...(revalidation_schedule ? { revalidation_schedule } : {}) };
     }

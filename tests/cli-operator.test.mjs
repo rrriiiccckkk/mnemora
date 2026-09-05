@@ -98,6 +98,60 @@ test("operator CLI reports the scope-local graph review decision gate without ad
   } finally { try { store?.close(); } catch {} try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
 
+test("operator CLI exposes scope-bound graph-review worklists and preview-confirm anomaly cleanup", () => {
+  const directory = mkdtempSync(join(tmpdir(), "mnemora-review-anomalies-")), database = join(directory, "memory.db"); let store;
+  try {
+    store = new GraphologyStore(database);
+    const quote = "NVIDIA has an erroneous self reference.";
+    const ingested = store.ingest([{ name: "NVIDIA", type: "company", confidence: .95, evidence_span: quote }], [], "fixture:review-anomalies", 0, undefined, "project:alpha");
+    const nodeId = ingested.entities[0].node.id, now = Date.now(), edgeId = "edge:review:self";
+    store.db.prepare("INSERT INTO kg_edges(id,source_id,target_id,type,edge_props,weight,deleted_at,created_at,updated_at) VALUES(?,?,?,?,?,0,NULL,?,?)")
+      .run(edgeId, nodeId, nodeId, "competes_with", "{}", now, now);
+    store.db.prepare("INSERT INTO kg_observations(id,edge_id,source_entity_id,payload,source,scope,quote,confidence,created_at) VALUES(?,?,NULL,?,?,?,?,?,?)")
+      .run("obs:review:self", edgeId, "{}", "fixture:review-anomalies", "project:alpha", quote, .9, now);
+    store.close(); store = undefined;
+
+    const worklist = executeAt(database, "review", "worklist", "--scope", "project:alpha", "--status", "pending");
+    assert.equal(worklist.status, 0);
+    assert.deepEqual(worklist.json.result.items.map(item => [item.kind, item.edge_id, item.status]), [["suspicious_self_link", edgeId, "pending"]]);
+    const rejected = executeAt(database, "review", "worklist", "--scope", "project:alpha", "--status", "rejected");
+    assert.deepEqual(rejected.json.result.items, []);
+
+    const preview = executeAt(database, "review", "anomalies", "preview", edgeId, "--scope", "project:alpha");
+    assert.deepEqual({ confirmed: preview.json.result.confirmed, cleaned: preview.json.result.cleaned, edge_ids: preview.json.result.edge_ids }, { confirmed: false, cleaned: 0, edge_ids: [edgeId] });
+    const guarded = executeAt(database, "review", "anomalies", "confirm", edgeId, "--scope", "project:alpha");
+    assert.deepEqual(guarded.json.result, { status: "confirm_required", operation: "review.anomalies.confirm" });
+    const stale = executeAt(database, "review", "anomalies", "confirm", edgeId, "--scope", "project:alpha", "--preview-hash", "stale", "--confirm");
+    assert.deepEqual(stale.error, { ok: false, command: "review.anomalies", error: { code: "operation_failed" } });
+    const confirmed = executeAt(database, "review", "anomalies", "confirm", edgeId, "--scope", "project:alpha", "--preview-hash", preview.json.result.preview_hash, "--confirm");
+    assert.deepEqual({ confirmed: confirmed.json.result.confirmed, cleaned: confirmed.json.result.cleaned, edge_ids: confirmed.json.result.edge_ids, audit: typeof confirmed.json.result.audit_id === "string" }, { confirmed: true, cleaned: 1, edge_ids: [edgeId], audit: true });
+
+    store = new GraphologyStore(database);
+    assert.notEqual(store.getEdgeById(edgeId)?.deleted_at, null);
+    assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM kg_quality_audits WHERE action='cleanup_relationship_anomalies'").get().value, 1);
+  } finally { try { store?.close(); } catch {} try { rmSync(directory, { recursive: true, force: true }); } catch {} }
+});
+
+test("operator CLI will not preview anomaly cleanup for an edge evidenced by another scope", () => {
+  const directory = mkdtempSync(join(tmpdir(), "mnemora-review-anomaly-scope-")), database = join(directory, "memory.db"); let store;
+  try {
+    store = new GraphologyStore(database);
+    const quote = "NVIDIA has an erroneous self reference.";
+    const ingested = store.ingest([{ name: "NVIDIA", type: "company", confidence: .95, evidence_span: quote }], [], "fixture:review-anomalies", 0, undefined, "project:alpha");
+    const nodeId = ingested.entities[0].node.id, now = Date.now(), edgeId = "edge:review:shared-self";
+    store.db.prepare("INSERT INTO kg_edges(id,source_id,target_id,type,edge_props,weight,deleted_at,created_at,updated_at) VALUES(?,?,?,?,?,0,NULL,?,?)")
+      .run(edgeId, nodeId, nodeId, "competes_with", "{}", now, now);
+    for (const scope of ["project:alpha", "project:beta"]) store.db.prepare("INSERT INTO kg_observations(id,edge_id,source_entity_id,payload,source,scope,quote,confidence,created_at) VALUES(?,?,NULL,?,?,?,?,?,?)")
+      .run(`obs:review:${scope}`, edgeId, "{}", "fixture:review-anomalies", scope, quote, .9, now);
+    store.close(); store = undefined;
+
+    const preview = executeAt(database, "review", "anomalies", "preview", edgeId, "--scope", "project:alpha");
+    assert.deepEqual(preview.error, { ok: false, command: "review.anomalies", error: { code: "operation_failed" } });
+    store = new GraphologyStore(database);
+    assert.equal(store.getEdgeById(edgeId)?.deleted_at, null, "a scope cannot delete graph state still evidenced elsewhere");
+  } finally { try { store?.close(); } catch {} try { rmSync(directory, { recursive: true, force: true }); } catch {} }
+});
+
 test("operator CLI exposes only the read-only recall-decay review", () => {
   const review = execute("memory", "decay-review", "--scope", "project:alpha", "--min-age-days", "90");
   assert.deepEqual({ ok: review.json.ok, command: review.json.command, version: review.json.result.version, mutation: review.json.result.mutation, candidates: review.json.result.candidates }, { ok: true, command: "memory.decay-review", version: "recall-decay-review-v1", mutation: "none", candidates: [] });

@@ -142,6 +142,16 @@ observation、且来自 2 个来源，才能进入 preview/confirm。接受词�
 `kg_related(..., semantic_predicates: ["based_on"])`。动态标签绝不会成为遍历边、PPR
 输入或自动上下文附加内容。
 
+词表收集必须显式执行，并在其独立流程中审查生成的候选；接受 semantic-pattern 审查结论
+并不等于自动提升词表项：
+
+```js
+kg_review({ kind: "semantic_vocabulary", scan: true, scope: "default", limit: 20 })
+```
+
+扫描有边界，只会创建可审查候选；不会改写边，也不会改变自动召回。每个词表候选仍必须经过
+自己的 preview 与显式 confirm。
+
 使用 `kg_review` 的 `kind: "worklist"` 可以在同一 scope 内分页查看只读的待处理
 自链接、关系候选和 schema-drift 候选，以及已拒绝或已 `invalidated` 的结果。schema-drift
 候选可沿用已有 preview/confirm 修复流程，或用其匹配的 preview hash 显式拒绝；拒绝只记录
@@ -168,6 +178,19 @@ MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review gate --scope default
 accepted、rejected、pending 与持久化 invalidated 聚合统计；只输出 JSON，不会 scan、
 不会修改审查状态、不会改 PPR，也不会开启 reasoning delivery。是否有足够证据支持后续
 策略变更，始终由 operator 判断。
+
+同一个本地 operator CLI 还可查看既有的只读 worklist；对于仅由当前 scope 证据支撑的活跃异常
+（例如自链接），可使用独立、带审计的清理流程：
+
+```bash
+MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review worklist --scope default --status pending
+MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review anomalies preview edge:example --scope default
+MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review anomalies confirm edge:example --scope default --preview-hash <hash> --confirm
+```
+
+`worklist` 始终只读。清理绝不会自动执行：confirm 必须匹配最新 preview hash、会写入审计回执，
+并会拒绝任何在其他 scope 仍有证据的边。使用 `--status rejected` 或 `--status invalidated`
+即可查看这些持久化结果，无需直接查询 SQLite。
 
 `kg_stats` 的 `embedding_health` 是已观察到的本地状态，不会为读取状态发起 Provider
 探测。`healthy`/`degraded` 只取决于有界 embedding 成功或类别化失败；`hybrid` 搜索会

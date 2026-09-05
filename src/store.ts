@@ -1237,9 +1237,15 @@ export class GraphologyStore {
     return this.db.prepare("SELECT * FROM kg_conflict_candidates WHERE id=? AND scope=?").get(id, normalizedScope) as unknown as ConflictCandidate;
   }
 
-  reviewAnomalies(options: { limit?: number } = {}): { items: RelationshipAnomaly[] } {
+  reviewAnomalies(options: { limit?: number; scope?: string } = {}): { items: RelationshipAnomaly[] } {
     const limit = Math.min(100, Math.max(1, Math.trunc(options.limit ?? 20)));
-    const rows = this.db.prepare("SELECT * FROM kg_edges WHERE deleted_at IS NULL ORDER BY id LIMIT ?").all(limit * 4) as EdgeRow[];
+    const scope = options.scope === undefined ? undefined : normalizeScope(options.scope);
+    const rows = scope === undefined
+      ? this.db.prepare("SELECT * FROM kg_edges WHERE deleted_at IS NULL ORDER BY id LIMIT ?").all(limit * 4) as EdgeRow[]
+      : this.db.prepare(`SELECT e.* FROM kg_edges e WHERE e.deleted_at IS NULL
+          AND EXISTS(SELECT 1 FROM kg_observations o WHERE o.edge_id=e.id AND o.scope=?)
+          AND NOT EXISTS(SELECT 1 FROM kg_observations o WHERE o.edge_id=e.id AND o.scope<>?)
+          ORDER BY e.id LIMIT ?`).all(scope, scope, limit * 4) as EdgeRow[];
     const items: RelationshipAnomaly[] = [];
     for (const row of rows) {
       const edge = mapEdge(row);
@@ -1248,7 +1254,7 @@ export class GraphologyStore {
       if (!source || !target) continue;
       const admission = validateRelationship(source, target, edge.type, 1, 0);
       if (!admission.accepted && admission.reason !== "below_edge_confidence" && admission.reason !== "missing_related_to_evidence") {
-        items.push({ edge, reason: admission.reason, evidence: this.evidenceForEdge(edge.id, 3) });
+        items.push({ edge, reason: admission.reason, evidence: this.evidenceForEdge(edge.id, 3, scope) });
         if (items.length === limit) break;
       }
     }
@@ -1382,25 +1388,37 @@ export class GraphologyStore {
     } catch (error) { try { this.db.exec("ROLLBACK"); } catch {} throw error; }
   }
 
-  cleanupAnomalies(edgeIds: string[], confirm = false, expectedPreviewHash?: string): QualityCleanupResult {
+  cleanupAnomalies(edgeIds: string[], confirm = false, expectedPreviewHash?: string, scope?: string): QualityCleanupResult {
     const ids = [...new Set(edgeIds)].sort();
-    const anomalies = new Map(this.reviewAnomalies({ limit: 100 }).items.map(item => [item.edge.id, item]));
-    const selected = ids.map(id => anomalies.get(id)).filter((item): item is RelationshipAnomaly => item != null);
-    if (selected.length !== ids.length) throw new Error("cleanup requires active relationship anomaly ids");
-    const snapshot = selected.map(item => ({
-      edge: item.edge,
-      reason: item.reason,
-      observations: this.db.prepare("SELECT * FROM kg_observations WHERE edge_id=? ORDER BY id").all(item.edge.id)
-    }));
-    const previewHash = createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");
+    if (!ids.length && scope !== undefined) throw new Error("cleanup requires active relationship anomaly ids");
+    const normalizedScope = scope === undefined ? undefined : normalizeScope(scope);
+    const previewFor = () => {
+      const anomalies = new Map(this.reviewAnomalies({ limit: 100, ...(normalizedScope === undefined ? {} : { scope: normalizedScope }) }).items.map(item => [item.edge.id, item]));
+      const selected = ids.map(id => anomalies.get(id)).filter((item): item is RelationshipAnomaly => item != null);
+      if (selected.length !== ids.length) throw new Error("cleanup requires active relationship anomaly ids");
+      const snapshot = {
+        version: 2,
+        scope: normalizedScope ?? null,
+        graph_revision: this.graphRevision(),
+        anomalies: selected.map(item => ({
+          edge: item.edge,
+          reason: item.reason,
+          observations: this.db.prepare("SELECT * FROM kg_observations WHERE edge_id=? ORDER BY id").all(item.edge.id)
+        }))
+      };
+      return { snapshot, previewHash: createHash("sha256").update(JSON.stringify(snapshot)).digest("hex") };
+    };
+    const preview = previewFor(), previewHash = preview.previewHash;
     if (!confirm) return { confirmed: false, preview_hash: previewHash, cleaned: 0, edge_ids: ids };
     if (!expectedPreviewHash || expectedPreviewHash !== previewHash) throw new Error("stale anomaly cleanup preview");
     const auditId = `quality:${randomUUID()}`;
     const now = Date.now();
     this.db.exec("BEGIN IMMEDIATE");
     try {
+      const current = previewFor();
+      if (current.previewHash !== expectedPreviewHash) throw new Error("stale anomaly cleanup preview");
       this.db.prepare("INSERT INTO kg_quality_audits(id,action,snapshot_version,snapshot,created_at) VALUES(?,?,1,?,?)")
-        .run(auditId, "cleanup_relationship_anomalies", JSON.stringify(snapshot), now);
+        .run(auditId, "cleanup_relationship_anomalies", JSON.stringify(current.snapshot), now);
       let cleaned = 0;
       for (const id of ids) cleaned += Number(this.db.prepare("UPDATE kg_edges SET deleted_at=?,updated_at=? WHERE id=? AND deleted_at IS NULL").run(now, now, id).changes);
       this.invalidateDetachedConflictCandidates(now);
