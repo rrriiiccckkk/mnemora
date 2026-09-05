@@ -2,29 +2,37 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { basename, join, resolve, sep } from "node:path";
 
 export interface ArtifactMetadata { artifact_id: string; kind: "backup" | "recovery"; path: string; sha256: string; integrity: "ok"; graph_revision: number; created_at: number; }
+export type ArtifactRegistryLoadError = "manifest_invalid" | "manifest_too_large";
 export interface ArtifactHealth {
   status: "healthy" | "degraded" | "unavailable";
   artifacts: { backups: number; recovery_points: number; available: number; missing: number };
   latest_created_at: number | null;
+  load_error?: ArtifactRegistryLoadError;
 }
+
+const maximumManifestBytes = 1024 * 1024;
+const maximumRegisteredArtifacts = 1000;
 
 export class ArtifactRegistry {
   readonly directory: string;
   private readonly manifest: string;
   private readonly artifacts = new Map<string, ArtifactMetadata>();
+  private loadError: ArtifactRegistryLoadError | undefined;
   constructor(directory: string, options: { create?: boolean } = {}) {
     this.directory = resolve(directory); this.manifest = join(this.directory, ".mnemora-artifacts.json");
     if (options.create !== false) mkdirSync(this.directory, { recursive: true });
     this.load();
   }
   register(metadata: ArtifactMetadata): void {
+    if (this.loadError) throw new Error("artifact_registry_unavailable");
     const path = resolve(metadata.path);
     if (!path.startsWith(this.directory + sep)) throw new Error("invalid_artifact");
+    if (!this.artifacts.has(metadata.artifact_id) && this.artifacts.size >= maximumRegisteredArtifacts) throw new Error("artifact_registry_full");
     this.artifacts.set(metadata.artifact_id, { ...metadata, path });
     this.persist();
   }
-  resolve(id: string): ArtifactMetadata { const value = this.artifacts.get(id); if (!value) throw new Error("artifact_not_found"); return { ...value }; }
-  list(): ArtifactMetadata[] { return [...this.artifacts.values()].map(value => ({ ...value })); }
+  resolve(id: string): ArtifactMetadata { this.assertReadable(); const value = this.artifacts.get(id); if (!value) throw new Error("artifact_not_found"); return { ...value }; }
+  list(): ArtifactMetadata[] { this.assertReadable(); return [...this.artifacts.values()].map(value => ({ ...value })); }
   health(): ArtifactHealth {
     if (!existsSync(this.directory)) return { status: "unavailable", artifacts: { backups: 0, recovery_points: 0, available: 0, missing: 0 }, latest_created_at: null };
     let backups = 0, recovery_points = 0, available = 0, missing = 0, latest_created_at: number | null = null;
@@ -33,15 +41,15 @@ export class ArtifactRegistry {
       if (latest_created_at == null || artifact.created_at > latest_created_at) latest_created_at = artifact.created_at;
       try { if (statSync(artifact.path).size > 0) available++; else missing++; } catch { missing++; }
     }
-    return { status: missing ? "degraded" : "healthy", artifacts: { backups, recovery_points, available, missing }, latest_created_at };
+    return { status: this.loadError || missing ? "degraded" : "healthy", artifacts: { backups, recovery_points, available, missing }, latest_created_at, ...(this.loadError ? { load_error: this.loadError } : {}) };
   }
 
   private load(): void {
     if (!existsSync(this.manifest)) return;
     try {
-      const bytes = readFileSync(this.manifest); if (bytes.byteLength > 1024 * 1024) return;
+      const bytes = readFileSync(this.manifest); if (bytes.byteLength > maximumManifestBytes) { this.loadError = "manifest_too_large"; return; }
       const value = JSON.parse(bytes.toString("utf8")) as unknown;
-      if (!record(value) || value.version !== 1 || !Array.isArray(value.artifacts) || value.artifacts.length > 1000) return;
+      if (!record(value) || value.version !== 1 || !Array.isArray(value.artifacts)) { this.loadError = "manifest_invalid"; return; }
       for (const item of value.artifacts) {
         if (!record(item) || !validArtifact(item)) continue;
         const artifact = item as { artifact_id: string; kind: "backup" | "recovery"; file: string; sha256: string; graph_revision: number; created_at: number };
@@ -49,12 +57,13 @@ export class ArtifactRegistry {
         if (!path.startsWith(this.directory + sep)) continue;
         this.artifacts.set(artifact.artifact_id, { artifact_id: artifact.artifact_id, kind: artifact.kind, path, sha256: artifact.sha256, integrity: "ok", graph_revision: artifact.graph_revision, created_at: artifact.created_at });
       }
-    } catch { /* A corrupt local manifest must not block a read-only health check. */ }
+    } catch { this.loadError = "manifest_invalid"; }
   }
   private persist(): void {
     const artifacts = [...this.artifacts.values()].sort((a, b) => a.artifact_id.localeCompare(b.artifact_id)).map(item => ({ artifact_id: item.artifact_id, kind: item.kind, file: basename(item.path), sha256: item.sha256, graph_revision: item.graph_revision, created_at: item.created_at }));
     writeFileSync(this.manifest, JSON.stringify({ version: 1, artifacts }), { encoding: "utf8", mode: 0o600 });
   }
+  private assertReadable(): void { if (this.loadError) throw new Error("artifact_registry_unavailable"); }
 }
 
 function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }

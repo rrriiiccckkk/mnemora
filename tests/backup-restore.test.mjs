@@ -97,6 +97,42 @@ test("artifact registry survives restart and reports missing recovery files with
   } finally { await cleanup(directory); }
 });
 
+test("artifact registry rejects a new entry at capacity while preserving every existing registration across restart", () => {
+  const directory = mkdtempSync(join(tmpdir(), "mnemora-artifact-capacity-")), artifactPath = join(directory, ".persist.sqlite");
+  try {
+    writeFileSync(artifactPath, "fixture");
+    const registry = new ArtifactRegistry(directory);
+    for (let index = 0; index < 1000; index++) registry.register({ artifact_id: `artifact:${index}`, kind: "backup", path: artifactPath, sha256: "a".repeat(64), integrity: "ok", graph_revision: index, created_at: index });
+    assert.throws(() => registry.register({ artifact_id: "artifact:overflow", kind: "backup", path: artifactPath, sha256: "a".repeat(64), integrity: "ok", graph_revision: 1000, created_at: 1000 }), /artifact_registry_full/);
+    const restarted = new ArtifactRegistry(directory, { create: false });
+    assert.equal(restarted.list().length, 1000);
+    assert.equal(restarted.resolve("artifact:999").graph_revision, 999);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("a valid legacy artifact manifest above the admission cap remains recoverable after restart", () => {
+  const directory = mkdtempSync(join(tmpdir(), "mnemora-artifact-legacy-")), artifactPath = join(directory, ".persist.sqlite");
+  try {
+    writeFileSync(artifactPath, "fixture");
+    const artifacts = Array.from({ length: 1001 }, (_, index) => ({ artifact_id: `artifact:${index}`, kind: "backup", file: ".persist.sqlite", sha256: "a".repeat(64), graph_revision: index, created_at: index }));
+    writeFileSync(join(directory, ".mnemora-artifacts.json"), JSON.stringify({ version: 1, artifacts }));
+    const restarted = new ArtifactRegistry(directory, { create: false });
+    assert.equal(restarted.list().length, 1001);
+    assert.equal(restarted.resolve("artifact:1000").graph_revision, 1000);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("an unreadable artifact manifest remains visible as a bounded registry failure", () => {
+  const directory = mkdtempSync(join(tmpdir(), "mnemora-artifact-invalid-"));
+  try {
+    writeFileSync(join(directory, ".mnemora-artifacts.json"), "not json");
+    const registry = new ArtifactRegistry(directory, { create: false });
+    assert.deepEqual(registry.health(), { status: "degraded", artifacts: { backups: 0, recovery_points: 0, available: 0, missing: 0 }, latest_created_at: null, load_error: "manifest_invalid" });
+    assert.throws(() => registry.list(), /artifact_registry_unavailable/);
+    assert.throws(() => registry.resolve("artifact:missing"), /artifact_registry_unavailable/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
 test("restore accepts a v1.0 observation schema and maps restored evidence to default scope", async () => {
   const directory = mkdtempSync(join(tmpdir(), "mnemora-restore-v10-")), active = join(directory, "active.sqlite"), legacy = join(directory, "legacy.sqlite");
   const store = new GraphologyStore(active);

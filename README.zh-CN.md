@@ -315,6 +315,9 @@ shadow 报告提供聚合的 `semanticCandidates`、`unmatched` 和 `taskTypeExc
 - 自动抽取产生受策略约束的候选，不能自行创建可信用户事实。
 - Provider 迁移只使用公开接口，分页、preview-first 且可恢复。
 - loopback Inspector 默认只读，会脱敏原始 prompt、凭据、Provider 响应和私有路径。
+- Inspector 的新备份登记上限为 1,000 条；达到上限时，新的备份或恢复点登记会明确失败，
+  不会静默清理已有 artifact。旧版的有效大清单仍可读取；损坏或过大的清单会明确显示为
+  degraded，而不会伪装成“空但健康”的登记表。
 
 ## 日常操作
 

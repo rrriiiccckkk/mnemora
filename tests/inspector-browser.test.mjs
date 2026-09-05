@@ -24,9 +24,19 @@ test("operations UI is capability-gated and completes backup preview then confir
   finally{await browser.close();await running.close();graph.close();try{rmSync(directory,{recursive:true,force:true});}catch{}}
 });
 
-test("real browser bootstraps once, clears the fragment, renders bounded views, and persists no secrets",async()=>{
-  const directory=mkdtempSync(join(tmpdir(),"mnemora-browser-")),graph=new Mnemora({config:{dbPath:":memory:"}}),application=createInspectorApplication({graph,allowOperations:false,artifactDirectory:directory}),running=await startInspector({graph:application,allowOperations:false});
-  const browser=await chromium.launch({headless:true});
-  try{const page=await browser.newPage();await page.goto(running.url);await page.waitForSelector("#overview-cards .card");assert.equal(new URL(page.url()).hash,"");assert.equal(await page.locator('button[data-view="operations"]').isHidden(),true);await page.locator('button[data-view="graph"]').click();await page.waitForSelector("#graph-canvas canvas");const storage=await page.evaluate(()=>({local:localStorage.length,session:sessionStorage.length,hash:location.hash}));assert.deepEqual(storage,{local:0,session:0,hash:""});}
-  finally{await browser.close();await running.close();graph.close();try{rmSync(directory,{recursive:true,force:true});}catch{}}
+test("real browser bootstraps once, clears the fragment, and renders a non-empty graph without client failures",async()=>{
+  const directory=mkdtempSync(join(tmpdir(),"mnemora-browser-")),graph=new Mnemora({config:{dbPath:":memory:"}});
+  graph.store.ingest(
+    [{name:"Acme",type:"company",confidence:.9,evidence_span:"Acme relates to Widget."},{name:"Widget",type:"product",confidence:.9,evidence_span:"Acme relates to Widget."}],
+    [{source:"Acme",target:"Widget",type:"related_to",confidence:.9,evidence_span:"Acme relates to Widget."}],
+    "fixture:browser-graph",0,{edgeMinConfidence:0,relatedToMinConfidence:.85,edgeTypeMinConfidence:{}},"default"
+  );
+  const application=createInspectorApplication({graph,allowOperations:false,artifactDirectory:directory}),running=await startInspector({graph:application,allowOperations:false}),browser=await chromium.launch({headless:true});
+  try{
+    const page=await browser.newPage(),errors=[];page.on("pageerror",error=>errors.push(error.message));
+    await page.goto(running.url);await page.waitForSelector("#overview-cards .card");assert.equal(new URL(page.url()).hash,"");assert.equal(await page.locator('button[data-view="operations"]').isHidden(),true);
+    await page.locator('button[data-view="graph"]').click();await page.waitForSelector("#graph-canvas canvas");
+    assert.deepEqual(errors,[]);
+    const storage=await page.evaluate(()=>({local:localStorage.length,session:sessionStorage.length,hash:location.hash}));assert.deepEqual(storage,{local:0,session:0,hash:""});
+  } finally{await browser.close();await running.close();graph.close();try{rmSync(directory,{recursive:true,force:true});}catch{}}
 });

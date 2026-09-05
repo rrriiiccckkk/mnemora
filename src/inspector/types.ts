@@ -67,6 +67,7 @@ export interface InspectorRecoveryHealth {
   status: "healthy" | "degraded" | "unavailable";
   artifacts: { backups: number; recovery_points: number; available: number; missing: number };
   latest_created_at: number | null;
+  load_error?: "manifest_invalid" | "manifest_too_large";
 }
 export interface HealthResult { kind: "health"; graph_revision: number; status: "healthy" | "degraded" | "unavailable"; counts: { orphans: number; conflicts: number; duplicate_candidates: number }; recovery: InspectorRecoveryHealth; }
 export type InspectorReadResult = OverviewResult | GraphPageResult | EntityDetailResult | ResearchPageResult | SourceAnchorPageResult | HealthResult;

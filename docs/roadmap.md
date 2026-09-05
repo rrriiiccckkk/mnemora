@@ -196,16 +196,62 @@ gap. Address only those observed cases.
   worklist read side effect.
 - Keep the live `related_to` PPR multiplier and ReasoningMemory shadow-only.
 
-## Post-v1.19 review closure
+## v1.20 — Reliability Hardening
+
+Fix the operational correctness failures found by exercising real non-empty
+Inspector and long-lived backup-registry paths before extending the review
+surface.
+
+- Build Inspector graphs in a valid order: add every node and edge before
+  deriving degree-based display attributes. Keep business entity type separate
+  from Sigma's renderer `type` attribute, and lock this down with a real
+  non-empty browser test.
+- Make artifact-registry capacity an admission boundary instead of a restart
+  data-loss boundary. Preserve readable legacy manifests above the cap; reject
+  a new registration at capacity without touching existing records or files.
+  No backup or recovery artifact is automatically pruned.
+- Surface a bounded `manifest_invalid` or `manifest_too_large` health status
+  when the registry cannot be safely read. Restore/list operations fail with a
+  stable category instead of silently treating the registry as empty.
+- Type-check the browser Inspector with a separate bundler-oriented TypeScript
+  project as part of the normal check command. This complements, but never
+  replaces, the non-empty browser integration test.
+
+## v1.21 — Graph Review Operator Closure
+
+Production review of v1.19 completed the current candidate loop: the seven
+historic schema-drift records left `pending` as six vocabulary-driven
+invalidations and one deliberate rejection; nine semantic-pattern proposals
+were accepted. The next release closes the remaining operator-interface gap,
+without treating review metadata as an automatic graph change.
+
+- Expose the existing read-only review worklist through the operator CLI so
+  rejected and invalidated dispositions can be inspected without direct
+  database access. A rejection remains distinct from an invalidation and is
+  never overwritten merely to make aggregate counts uniform.
+- Expose the existing audited relationship-anomaly cleanup through a dedicated
+  operator `preview → confirm` path. It may retire only the exact active
+  self-link named in the preview; a matching scope, fresh preview hash, audit
+  receipt, and one graph-revision update are required. Do not repurpose
+  schema-drift repair for anomaly deletion.
+- Document the separate semantic-vocabulary scan. It only collects bounded
+  evidence and may create pending vocabulary proposals; accepting a
+  semantic-pattern proposal never promotes a vocabulary entry automatically.
+- Keep PPR and traversal policy unchanged, and keep ReasoningMemory delivery
+  in shadow mode. The current production metrics contain no real reasoning
+  retrieval runs, so a canary would have no evidence base.
+
+## Post-v1.21 decision gate
 
 Before any further topology or reasoning-delivery feature work, collect real
 scope-local evidence:
 
-1. Verify the production upgrade records the seven now-allowed historic
-   endpoint candidates as `invalidated`, then resolve a representative
-   semantic-label worklist sample and rerun the decision gate.
-2. Delete a suspicious self-link only through its separately previewed and
-   explicitly confirmed production-data action.
+1. Run a bounded semantic-vocabulary scan, inspect every resulting pending
+   proposal, and use its own preview/confirm decision flow. Do not accept
+   vocabulary candidates as a side effect of scanning.
+2. If the self-link preview remains current, explicitly confirm its cleanup
+   through the v1.21 operator path; otherwise re-preview it. Preserve its
+   audit record and do not apply schema-drift repair.
 3. Compare accepted/rejected/invalidated rates, residual `related_to`
    concentration, and the v1.12 topology diagnostics. Expand PPR policy or
    ReasoningMemory delivery only if independent measurements show a concrete

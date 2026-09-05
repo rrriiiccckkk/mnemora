@@ -427,6 +427,11 @@ source content.
 - Provider migration is public, paginated, preview-first, and recoverable.
 - The loopback Inspector is read-only by default and redacts raw prompts,
   credentials, provider bodies, and private paths.
+- Inspector backup registration is bounded to 1,000 new artifacts. At capacity
+  a new backup or recovery registration fails explicitly; Mnemora never
+  silently prunes existing artifacts. A valid legacy inventory remains
+  readable, while a damaged or oversized inventory is reported as degraded
+  rather than as an empty healthy registry.
 
 ## Daily operations
 

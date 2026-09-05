@@ -1,6 +1,6 @@
 {
   "name": "mnemora",
-  "version": "1.19.0",
+  "version": "1.20.0",
   "description": "Local-first, evidence-first memory runtime for persistent OpenClaw agents.",
   "type": "module",
   "main": "dist/index.js",
@@ -8,7 +8,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && npm run build:inspector",
     "build:inspector": "node scripts/build-inspector.mjs",
-    "check": "tsc -p tsconfig.json --noEmit",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.inspector.json --noEmit",
     "plugin:build": "npm run build",
     "plugin:validate": "npm run plugin:build && node scripts/validate-plugin.mjs && npm run smoke",
     "plugin:official:build": "openclaw plugins build --entry ./dist/plugin.js --root .",
