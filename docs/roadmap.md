@@ -242,14 +242,26 @@ without treating review metadata as an automatic graph change.
   in shadow mode. The current production metrics contain no real reasoning
   retrieval runs, so a canary would have no evidence base.
 
-## Post-v1.21 decision gate
+## v1.22 — Semantic Vocabulary Operator Lifecycle
+
+Complete the already-governed vocabulary workflow through the same local
+operator interface before collecting production evidence.
+
+- Expose bounded, cursor-based vocabulary collection and scope-local lists for
+  pending, accepted, and rejected proposals through the CLI.
+- Keep each vocabulary decision preview-first: confirmation requires the exact
+  fresh candidate hash and records the existing audit receipt.
+- Do not add an agent tool, automatic promotion, schema migration, graph
+  mutation, PPR/traversal change, or recall-delivery change.
+
+## Post-v1.22 decision gate
 
 Before any further topology or reasoning-delivery feature work, collect real
 scope-local evidence:
 
-1. Run a bounded semantic-vocabulary scan, inspect every resulting pending
-   proposal, and use its own preview/confirm decision flow. Do not accept
-   vocabulary candidates as a side effect of scanning.
+1. Run the bounded semantic-vocabulary CLI scan, inspect every resulting
+   pending proposal, and use its own preview/confirm decision flow. Do not
+   accept vocabulary candidates as a side effect of scanning.
 2. If the self-link preview remains current, explicitly confirm its cleanup
    through the v1.21 operator path; otherwise re-preview it. Preserve its
    audit record and do not apply schema-drift repair.

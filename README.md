@@ -178,17 +178,20 @@ label only with its exact predicate—for example
 `kg_related(..., semantic_predicates: ["based_on"])`. Dynamic labels never
 become traversal arcs, PPR inputs, or automatic context attachments.
 
-Run that vocabulary collection explicitly and review its resulting proposals
-in their own flow; an accepted semantic-pattern review is not a vocabulary
-promotion:
+Run collection and its separate review flow through the local operator CLI; an
+accepted semantic-pattern review is not a vocabulary promotion:
 
-```js
-kg_review({ kind: "semantic_vocabulary", scan: true, scope: "default", limit: 20 })
+```bash
+MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review vocabulary scan --scope default --limit 20
+MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review vocabulary list --scope default --status pending
+MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review vocabulary preview <candidate_id> accepted --scope default
+MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review vocabulary confirm <candidate_id> accepted --scope default --preview-hash <hash> --confirm
 ```
 
 The scan is bounded and only creates reviewable proposals. It neither rewrites
 an edge nor changes automatic recall. Each vocabulary proposal still requires
-its own matching preview and explicit confirmation.
+its own matching preview and explicit confirmation. Use `rejected` in place of
+`accepted` when the evidence does not justify activating that vocabulary entry.
 
 Use `kg_review` with `kind: "worklist"` to page through one scope-local,
 read-only queue of pending self-link findings, related-edge proposals, and

@@ -162,6 +162,32 @@ function reviewCommand(graph: Mnemora, raw: string[]): unknown {
     if (status !== "pending" && status !== "rejected" && status !== "invalidated") throw new CliError("invalid_arguments");
     return graph.kg_review("worklist", status, false, boundedLimit(option(options, "limit")) ?? 20, option(options, "after-id"), undefined, undefined, scope);
   }
+  if (operation === "vocabulary") {
+    const phase = takeArgument(positional);
+    if (phase === "scan") {
+      if (positional.length || Object.keys(options).some(key => !["scope", "limit", "after-id"].includes(key))) throw new CliError("invalid_arguments");
+      return graph.kg_review("semantic_vocabulary", "pending", true, boundedLimit(option(options, "limit")) ?? 20, option(options, "after-id"), undefined, undefined, scope);
+    }
+    if (phase === "list") {
+      if (positional.length || Object.keys(options).some(key => !["scope", "limit", "status"].includes(key))) throw new CliError("invalid_arguments");
+      const status = option(options, "status") ?? "pending";
+      if (status !== "pending" && status !== "accepted" && status !== "rejected") throw new CliError("invalid_arguments");
+      return graph.kg_review("semantic_vocabulary", status, false, boundedLimit(option(options, "limit")) ?? 20, undefined, undefined, undefined, scope);
+    }
+    if (phase === "preview" || phase === "confirm") {
+      const candidateId = takeArgument(positional), decision = takeArgument(positional);
+      if (positional.length || (decision !== "accepted" && decision !== "rejected") || Object.keys(options).some(key => !["scope", "preview-hash", "confirm"].includes(key))) throw new CliError("invalid_arguments");
+      if (phase === "preview") {
+        if (options.confirm === true || option(options, "preview-hash")) throw new CliError("invalid_arguments");
+        return graph.kg_review("semantic_vocabulary", "pending", false, 20, undefined, candidateId, decision, scope);
+      }
+      if (options.confirm !== true) return { status: "confirm_required", operation: "review.vocabulary.confirm" };
+      const previewHash = option(options, "preview-hash");
+      if (!previewHash) throw new CliError("invalid_arguments");
+      return graph.kg_review("semantic_vocabulary", "pending", false, 20, undefined, candidateId, decision, scope, undefined, undefined, previewHash, true);
+    }
+    throw new CliError("invalid_arguments");
+  }
   if (operation === "anomalies") {
     const phase = takeArgument(positional), edgeIds = positional.splice(0);
     if (!edgeIds.length || edgeIds.length > 20 || Object.keys(options).some(key => !["scope", "preview-hash", "confirm"].includes(key))) throw new CliError("invalid_arguments");
@@ -635,4 +661,4 @@ async function inspect(allowOperations: boolean): Promise<void> {
 function print(value: unknown): void { console.log(JSON.stringify(value, null, 2)); }
 function printOperator(command: string, result: unknown): void { console.log(JSON.stringify({ ok: true, command, result })); }
 function fail(command: string, error: unknown): void { console.error(JSON.stringify({ ok: false, command, error: { code: error instanceof CliError ? error.code : "operation_failed" } })); process.exitCode = 1; }
-function usage(): string { return "Usage: mnemora <ingest|search|related|stats|forget|inspect|surface|trust|profile|recall|governance|journal|retrieve|evaluate|memory-impact|review|standalone|consolidation|cognition> [...]. Operator commands return structured JSON; use `review gate --scope <scope>`, `review worklist --scope <scope> --status <pending|rejected|invalidated>`, `review anomalies preview <edge_id> --scope <scope>`, `review anomalies confirm <edge_id> --scope <scope> --preview-hash <hash> --confirm`, `journal compaction prepared`, `journal compaction reconcile <run_id> <rewrite_confirmed|rewrite_not_applied> --confirm`, `cognition status`, `cognition graduation status`, `cognition context compile <query>`, `cognition reflection preview`, `cognition feedback list`, `cognition decision list`, `cognition decision create <objective>`, `consolidation status`, `consolidation adopt preview <proposal_id>`, `consolidation adopt apply <proposal_id> --preview-hash <hash> --confirm`, `standalone guide`, `retrieve <query>`, `evaluate recall-quality <deidentified-golden.json>`, or `memory-impact preview <event|artifact|episode|summary> <id>`. Reflection, feedback, consolidation adoption, and anomaly cleanup require explicit confirmation; Decision creation also requires a preview hash."; }
+function usage(): string { return "Usage: mnemora <ingest|search|related|stats|forget|inspect|surface|trust|profile|recall|governance|journal|retrieve|evaluate|memory-impact|review|standalone|consolidation|cognition> [...]. Operator commands return structured JSON; use `review gate --scope <scope>`, `review worklist --scope <scope> --status <pending|rejected|invalidated>`, `review vocabulary scan --scope <scope>`, `review vocabulary list --scope <scope> --status <pending|accepted|rejected>`, `review vocabulary preview <candidate_id> <accepted|rejected> --scope <scope>`, `review vocabulary confirm <candidate_id> <accepted|rejected> --scope <scope> --preview-hash <hash> --confirm`, `review anomalies preview <edge_id> --scope <scope>`, `review anomalies confirm <edge_id> --scope <scope> --preview-hash <hash> --confirm`, `journal compaction prepared`, `journal compaction reconcile <run_id> <rewrite_confirmed|rewrite_not_applied> --confirm`, `cognition status`, `cognition graduation status`, `cognition context compile <query>`, `cognition reflection preview`, `cognition feedback list`, `cognition decision list`, `cognition decision create <objective>`, `consolidation status`, `consolidation adopt preview <proposal_id>`, `consolidation adopt apply <proposal_id> --preview-hash <hash> --confirm`, `standalone guide`, `retrieve <query>`, `evaluate recall-quality <deidentified-golden.json>`, or `memory-impact preview <event|artifact|episode|summary> <id>`. Reflection, feedback, consolidation adoption, vocabulary review, and anomaly cleanup require explicit confirmation; Decision creation also requires a preview hash."; }

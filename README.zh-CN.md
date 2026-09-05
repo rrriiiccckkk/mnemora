@@ -142,15 +142,18 @@ observation、且来自 2 个来源，才能进入 preview/confirm。接受词�
 `kg_related(..., semantic_predicates: ["based_on"])`。动态标签绝不会成为遍历边、PPR
 输入或自动上下文附加内容。
 
-词表收集必须显式执行，并在其独立流程中审查生成的候选；接受 semantic-pattern 审查结论
-并不等于自动提升词表项：
+词表收集及其独立审查流程必须显式执行；接受 semantic-pattern 审查结论并不等于自动提升
+词表项。使用本地 operator CLI：
 
-```js
-kg_review({ kind: "semantic_vocabulary", scan: true, scope: "default", limit: 20 })
+```bash
+MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review vocabulary scan --scope default --limit 20
+MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review vocabulary list --scope default --status pending
+MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review vocabulary preview <candidate_id> accepted --scope default
+MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review vocabulary confirm <candidate_id> accepted --scope default --preview-hash <hash> --confirm
 ```
 
 扫描有边界，只会创建可审查候选；不会改写边，也不会改变自动召回。每个词表候选仍必须经过
-自己的 preview 与显式 confirm。
+自己的 preview 与显式 confirm。证据不足时，将上面的 `accepted` 替换为 `rejected`。
 
 使用 `kg_review` 的 `kind: "worklist"` 可以在同一 scope 内分页查看只读的待处理
 自链接、关系候选和 schema-drift 候选，以及已拒绝或已 `invalidated` 的结果。schema-drift
