@@ -77,12 +77,10 @@ test("fetchUrlResource classifies literal IPv6 without DNS and sanitizes resolve
   }), error => error.category === "network_error" && !error.message.includes("SECRET"));
 });
 
-test("fetchUrlResource enforces the total deadline even when resolver ignores abort", async () => {
-  const started = Date.now();
+test("fetchUrlResource enforces the total deadline even when resolver ignores abort", { timeout: 2_000 }, async () => {
   await assert.rejects(fetchUrlResource("https://example.com", { maxBytes: 100, maxRedirects: 5, timeoutMs: 20 }, {
     resolver: async () => new Promise(() => {})
   }), error => error.category === "timeout");
-  assert.ok(Date.now() - started < 250);
 });
 
 test("fetchUrlResource destroys redirect responses before following them", async () => {

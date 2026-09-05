@@ -1,9 +1,8 @@
 import type { DatabaseSyncInstance } from "@photostructure/sqlite";
 import { cosineSimilarity, decodeEmbedding, type EmbeddingIdentity } from "../embeddings.js";
+import { mapNode, type NodeRow } from "../graph-records.js";
 import { normalizeScope } from "../scope.js";
 import type { EvidenceSummary, KgNode, KgSearchResult, RankedNode } from "../types.js";
-
-type NodeRow = Omit<KgNode, "aliases"> & { aliases: string };
 
 /**
  * Read-only node discovery and ranking.  GraphologyStore remains the public
@@ -98,15 +97,6 @@ export class GraphSearchRepository {
       return { node: item.node, evidence, score, score_components };
     }).sort((a, b) => b.score - a.score || b.node.importance - a.node.importance).slice(0, input.limit);
   }
-}
-
-function mapNode(row: NodeRow): KgNode {
-  return { ...row, aliases: parseJsonArray(row.aliases), importance: Number(row.importance), deleted_at: row.deleted_at == null ? null : Number(row.deleted_at), created_at: Number(row.created_at), updated_at: Number(row.updated_at) };
-}
-
-function parseJsonArray(value: string): string[] {
-  try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []; }
-  catch { return []; }
 }
 
 function toFtsQuery(query: string): string { return (query.match(/[\p{L}\p{N}_-]+/gu) ?? []).map((term) => `"${term.replace(/"/g, '""')}"`).join(" OR "); }

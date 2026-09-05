@@ -272,6 +272,25 @@ public surface or data behavior.
   is complete. Traversal, review, and mutation responsibilities stay put until
   their interfaces can be separated without widening public API complexity.
 
+## v1.24 — Graph Projection Seam and CI Stability
+
+Continue the Store decomposition only where a deep, read-only module reduces
+caller knowledge without changing public behavior.
+
+- Move graph traversal, semantic-label projection, source attribution, and
+  context compilation behind one internal graph-projection module. Preserve
+  the Store methods and all scope, bounded-result, evidence, and error
+  contracts exactly.
+- Centralize SQLite graph-row decoding for the read-model modules so query
+  behavior cannot diverge between lexical, semantic, traversal, and context
+  paths.
+- Replace a scheduler-sensitive URL deadline assertion with a bounded test
+  timeout. The test still proves that a resolver which ignores cancellation
+  yields a `timeout`, without treating a loaded Windows runner's scheduling
+  delay as an application failure.
+- No schema migration, configuration default, agent tool, PPR policy, or
+  recall-delivery behavior changes.
+
 ## Post-v1.22 decision gate
 
 Before any further topology or reasoning-delivery feature work, collect real
