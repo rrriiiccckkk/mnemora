@@ -37,7 +37,7 @@ Mnemora 是独立实现，设计上借鉴了 `lossless-claw` 与
 - **有界相关召回。** 统一的词法、语义与混合检索结合 scope 过滤、分数下限、多样性、时效性、token 预算和 provenance 去重。
 - **证据与可信度。** 图谱 observation 保留来源、时间、置信度和验证状态。LLM 可以提出候选，但不能成为记忆权威。
 - **可安全演化。** 更正、冲突、保留与遗忘都有审计链；高影响操作均通过 preview/confirm 执行。
-- **可运维、可解释。** 本地 Inspector 和 `mnemora` CLI 提供诊断、召回解释、trust 操作和质量评估。
+- **可运维、可解释。** 本地 Inspector 和 `mnemora` CLI 提供诊断、按 scope 隔离的记忆工作台、召回解释、trust 操作和质量评估。
 
 ## 快速开始
 
@@ -81,6 +81,32 @@ plugins: {
 mnemora standalone status
 mnemora standalone guide
 ```
+
+### 验收首次使用
+
+在 ContextEngine slot 已选中后，可在对话中运行 `/mnemora verify`，用运行中插件的
+实际证据确认安装，而不是只看配置文件：
+
+1. 在一个对话中写入一条适合测试的简短事实。
+2. 新开一个对话，对该事实提出具体问题。
+3. 回答后运行 `/mnemora verify`。
+
+它会用四项通俗检查确认：ContextEngine slot 已实际激活、已完成的 turn 已保存到本地、
+已有两个对话、自动上下文已附加记忆。最后一项只依赖上文开启的
+`unifiedRetrieval.shadowMode` 有界脱敏遥测；它只保存 query hash 和计数，不保存 query
+或召回内容。若某项尚未完成，命令会给出下一步安全操作。
+
+### 查看和更正记忆
+
+`mnemora inspect` 会打开按 scope 隔离的工作台：先用卡片展示已接受事实、待审项、
+过时内容和冲突，再提供详细记忆浏览；已知 Claim 卡片可直接打开同 scope 的证据追踪。
+Recall explanation 会明确区分“策略会检索什么”
+和“真实 ContextEngine 是否附加了内容”。后者仅在存在匹配的脱敏 shadow telemetry 时
+显示；若查询经过路由而无法比较，会明确标记为不可比较，不会当作已附加的证明。
+
+只有显式以可操作模式启动 Inspector 时，才可从 Journal event、Artifact、Episode 或
+Summary 卡片移除错误记忆。它会先显示有界的下游影响计数，再接受一次短时有效的明确确认；
+不会覆盖原始证据，也不会暴露受影响项的 ID，受影响 Decision 会转为待审。
 
 ### 自动召回精度
 
@@ -341,6 +367,8 @@ shadow 报告提供聚合的 `semanticCandidates`、`unmatched` 和 `taskTypeExc
 - 自动抽取产生受策略约束的候选，不能自行创建可信用户事实。
 - Provider 迁移只使用公开接口，分页、preview-first 且可恢复。
 - loopback Inspector 默认只读，会脱敏原始 prompt、凭据、Provider 响应和私有路径。
+- Inspector 的记忆移除入口只在启用操作模式时出现，受 CSRF 保护，且每次都必须先取得
+  最新影响预览，再明确确认。
 - Inspector 的新备份登记上限为 1,000 条；达到上限时，新的备份或恢复点登记会明确失败，
   不会静默清理已有 artifact。旧版的有效大清单仍可读取；损坏或过大的清单会明确显示为
   degraded，而不会伪装成“空但健康”的登记表。

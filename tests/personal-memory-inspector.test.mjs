@@ -20,6 +20,8 @@ test("personal memory inspector is bounded, read-only, scope-isolated, and redac
     summaries.create({ scope: "alpha", sessionId: "s", eventIds: [event.id], content: "A bounded summary", maxChars: 200, now });
     store.db.prepare("INSERT INTO kg_source_anchors(id,scope,provider,source_label,content_hash,captured_at,status) VALUES(?,?,?,?,?,?,?)").run("anchor-a", "alpha", "local", "DO_NOT_SHOW_THIS_LABEL", "a".repeat(64), now, "available");
     store.db.prepare("INSERT INTO kg_claim_verifications(id,claim_id,source_anchor_id,scope,status,verifier_kind,created_at) VALUES(?,?,?,?,?,?,?)").run("verification-a", "claim-a", "anchor-a", "alpha", "verified", "human", now);
+    store.db.prepare("INSERT INTO kg_source_anchors(id,scope,provider,source_label,content_hash,captured_at,status) VALUES(?,?,?,?,?,?,?)").run("anchor-b", "alpha", "local", "ANOTHER_PRIVATE_LABEL", "b".repeat(64), now, "available");
+    store.db.prepare("INSERT INTO kg_claim_verifications(id,claim_id,source_anchor_id,scope,status,verifier_kind,created_at) VALUES(?,?,?,?,?,?,?)").run("verification-b", "claim-a", "anchor-b", "alpha", "verified", "human", now);
     store.db.prepare("INSERT INTO kg_nodes(id,type,name,description,aliases,importance,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)").run("person:alice", "person", "Alice", "", "[]", .5, now, now);
     store.db.prepare("INSERT INTO kg_nodes(id,type,name,description,aliases,importance,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)").run("company:mnemora", "company", "Mnemora", "", "[]", .5, now, now);
     store.db.prepare("INSERT INTO kg_edges(id,source_id,target_id,type,edge_props,weight,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)").run("edge-a", "person:alice", "company:mnemora", "works_at", "{}", .8, now, now);
@@ -37,6 +39,13 @@ test("personal memory inspector is bounded, read-only, scope-isolated, and redac
     assert.equal(sources.includes("DO_NOT_SHOW_THIS_LABEL"), false);
     const before = JSON.stringify(view.read({ scope: "alpha", section: "episodes" }));
     assert.equal(before.includes("User likes concise answers"), true);
+    const workbench = view.workbench({ scope: "alpha", limit: 3 });
+    assert.deepEqual(workbench.summary, { accepted_facts: 1, pending_reviews: 0, stale_items: 0, conflicts: 0 });
+    assert.equal(workbench.accepted.length, 1);
+    assert.equal(workbench.attention.length, 0);
+    assert.equal(JSON.stringify(workbench).includes("DO_NOT_SHOW_THIS_LABEL"), false);
+    assert.equal(JSON.stringify(workbench).includes("ANOTHER_PRIVATE_LABEL"), false);
+    assert.equal(JSON.stringify(view.workbench({ scope: "beta" })).includes("concise answers"), false);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_conversation_events WHERE scope='alpha'").get().value, 1);
   } finally { store.close(); }
 });

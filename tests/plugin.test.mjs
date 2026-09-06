@@ -76,6 +76,36 @@ test("plugin registers a bounded read-only mnemora operator command", async () =
   assert.match(help.text, /use \/mnemora status/i);
 });
 
+test("first-use verification confirms the selected lifecycle, persisted capture, cross-session use, and an actual attachment", async () => {
+  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-first-use-")), dbPath = join(directory, "memory.db");
+  const result = harness({
+    dbPath,
+    conversationJournal: { enabled: true },
+    contextEngine: { enabled: true },
+    episodicMemory: { enabled: true },
+    unifiedRetrieval: { enabled: true, shadowMode: true, tokenBudget: 240, maxItems: 2, minConfidence: .5 }
+  });
+  try {
+    const engine = result.contextEngines[0].factory({ config: { plugins: { slots: { contextEngine: "mnemora" } } } });
+    await engine.afterTurn({ sessionId: "first-use-note", prePromptMessageCount: 0, messages: [
+      { id: "note", role: "user", content: "My first-use marker is SKY-WREN-438." },
+      { id: "answer", role: "assistant", content: "I will remember SKY-WREN-438." }
+    ] });
+    const assembled = await engine.assemble({ sessionId: "first-use-recall", prompt: "What is SKY-WREN-438?", messages: [{ role: "user", content: "What is SKY-WREN-438?" }], tokenBudget: 800 });
+    assert.equal("systemPromptAddition" in assembled, true);
+    await engine.afterTurn({ sessionId: "first-use-recall", prePromptMessageCount: 0, messages: [
+      { id: "query", role: "user", content: "What is SKY-WREN-438?" },
+      { id: "response", role: "assistant", content: "It is your first-use marker." }
+    ] });
+    const verification = await result.commands[0].handler({ args: "verify" });
+    assert.match(verification.text, /4\/4 checks complete/i);
+    assert.doesNotMatch(verification.text, /SKY-WREN-438/);
+  } finally {
+    await result.hooks.find(hook => hook.name === "gateway_stop")?.handler();
+    try { rmSync(directory, { recursive: true, force: true }); } catch {}
+  }
+});
+
 test("plugin reports ContextEngine-only lifecycle state with bounded fields", () => {
   const result = harness({ dbPath: "C:/SECRET/private.db", llm: { apiKey: "SECRET_API_KEY" } });
   assert.deepEqual(result.infos[0], ["automatic lifecycle configured", { autoExtract: false, conversationJournal: false, contextEngine: false, episodicMemory: false }]);

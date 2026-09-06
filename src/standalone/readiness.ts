@@ -64,7 +64,7 @@ export function standaloneGuide(): { standalone: Record<string, unknown>; rollba
       // Standalone has one prompt producer: the ContextEngine. Enable its
       // unified retrieval explicitly instead of leaving the generated guide in
       // a journal-only mode that cannot replace long-term recall.
-      unifiedRetrieval: { enabled: true, shadowMode: false }
+      unifiedRetrieval: { enabled: true, shadowMode: true }
     },
     rollback: { host_context_engine: { contextEngine: { enabled: false }, unifiedRetrieval: { enabled: false } } }
   };

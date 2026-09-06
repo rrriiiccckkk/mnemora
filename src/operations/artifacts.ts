@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { basename, join, resolve, sep } from "node:path";
 
 export interface ArtifactMetadata { artifact_id: string; kind: "backup" | "recovery"; path: string; sha256: string; integrity: "ok"; graph_revision: number; created_at: number; }
@@ -28,8 +29,10 @@ export class ArtifactRegistry {
     const path = resolve(metadata.path);
     if (!path.startsWith(this.directory + sep)) throw new Error("invalid_artifact");
     if (!this.artifacts.has(metadata.artifact_id) && this.artifacts.size >= maximumRegisteredArtifacts) throw new Error("artifact_registry_full");
-    this.artifacts.set(metadata.artifact_id, { ...metadata, path });
-    this.persist();
+    const next = { ...metadata, path }, candidate = new Map(this.artifacts);
+    candidate.set(next.artifact_id, next);
+    this.persist(candidate);
+    this.artifacts.set(next.artifact_id, next);
   }
   resolve(id: string): ArtifactMetadata { this.assertReadable(); const value = this.artifacts.get(id); if (!value) throw new Error("artifact_not_found"); return { ...value }; }
   list(): ArtifactMetadata[] { this.assertReadable(); return [...this.artifacts.values()].map(value => ({ ...value })); }
@@ -59,9 +62,13 @@ export class ArtifactRegistry {
       }
     } catch { this.loadError = "manifest_invalid"; }
   }
-  private persist(): void {
-    const artifacts = [...this.artifacts.values()].sort((a, b) => a.artifact_id.localeCompare(b.artifact_id)).map(item => ({ artifact_id: item.artifact_id, kind: item.kind, file: basename(item.path), sha256: item.sha256, graph_revision: item.graph_revision, created_at: item.created_at }));
-    writeFileSync(this.manifest, JSON.stringify({ version: 1, artifacts }), { encoding: "utf8", mode: 0o600 });
+  private persist(entries: ReadonlyMap<string, ArtifactMetadata>): void {
+    const artifacts = [...entries.values()].sort((a, b) => a.artifact_id.localeCompare(b.artifact_id)).map(item => ({ artifact_id: item.artifact_id, kind: item.kind, file: basename(item.path), sha256: item.sha256, graph_revision: item.graph_revision, created_at: item.created_at }));
+    const temporary = join(this.directory, `.mnemora-artifacts.${randomUUID()}.tmp`);
+    try {
+      writeFileSync(temporary, JSON.stringify({ version: 1, artifacts }), { encoding: "utf8", mode: 0o600 });
+      renameSync(temporary, this.manifest);
+    } finally { try { rmSync(temporary, { force: true }); } catch { /* a failed replacement must not alter registry state */ } }
   }
   private assertReadable(): void { if (this.loadError) throw new Error("artifact_registry_unavailable"); }
 }

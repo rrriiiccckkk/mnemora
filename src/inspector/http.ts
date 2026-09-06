@@ -37,7 +37,7 @@ export async function startInspector(options: StartInspectorOptions): Promise<Ru
         if (request.headers.origin !== `http://${authority}` || !validSession(auth, request.headers.cookie)) return json(response, 401, { error: "unauthorized" });
         const key = `${request.method ?? ""} ${path}`, route = routes.get(key);
         if (!route) return routesForPath(routes, path) ? method(response) : json(response, 404, { error: "not_found" });
-        const operation = path.startsWith("/api/operations/");
+        const operation = path.startsWith("/api/operations/") || path.startsWith("/api/memory-correction/");
         if (operation && !validCsrf(auth, header(request, "x-csrf-token"))) return json(response, 403, { error: "forbidden" });
         let body: unknown;
         if (request.method === "POST") {

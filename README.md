@@ -57,7 +57,8 @@ public capabilities and explicit provider adapters.
 - **Memory can change safely.** Corrections, conflicts, retention, and forgetting
   preserve auditability. High-impact changes use preview/confirm flows.
 - **Operator visibility.** The local Inspector and `mnemora` CLI expose
-  diagnostics, retrieval explanations, trust operations, and quality evaluation.
+  diagnostics, scope-bound memory workbenches, retrieval explanations, trust
+  operations, and quality evaluation.
 
 ## Quick start
 
@@ -103,6 +104,39 @@ stays manual-only. Check the local deployment state with:
 mnemora standalone status
 mnemora standalone guide
 ```
+
+### Verify first use
+
+Once Mnemora is selected, use the in-chat `/mnemora verify` flow to confirm
+the installation with evidence from the running plugin rather than from a
+configuration file alone:
+
+1. In one conversation, share a short fact you would be comfortable testing.
+2. Start a new conversation and ask a specific question about that fact.
+3. Run `/mnemora verify` after the response.
+
+It reports four plain-language checks: the ContextEngine slot was actually
+activated, a completed turn was saved locally, two conversations are present,
+and automatic context attached memory to a response. The final check uses the
+bounded, redacted `unifiedRetrieval.shadowMode` telemetry shown above; it
+stores only a query hash and counts, never the query or retrieved content. If
+a check is incomplete, the command names the next safe action.
+
+### Inspect and correct memory
+
+`mnemora inspect` opens a scope-bound workbench: accepted facts, pending
+reviews, stale material, and conflicts are shown as cards before the detailed
+memory browser. A known-claim card opens its scope-bound evidence trace. The
+Recall explanation panel separates a policy trace (what
+would be retrieved) from a real ContextEngine attachment. The latter is shown
+only when matching, redacted shadow telemetry exists; a routed query is marked
+as not comparable rather than treated as proof of attachment.
+
+When the Inspector is explicitly started with operations enabled, a journal
+event, artifact, episode, or summary can be removed through its item card. The
+Inspector first shows bounded downstream impact counts, then accepts one
+short-lived confirmation. It never overwrites the original evidence or exposes
+dependent IDs; affected decisions become review-only.
 
 ### Automatic-recall precision
 
@@ -457,6 +491,9 @@ source content.
 - Provider migration is public, paginated, preview-first, and recoverable.
 - The loopback Inspector is read-only by default and redacts raw prompts,
   credentials, provider bodies, and private paths.
+- Its memory-removal path exists only with operations enabled, is CSRF
+  protected, and always requires a fresh impact preview followed by explicit
+  confirmation.
 - Inspector backup registration is bounded to 1,000 new artifacts. At capacity
   a new backup or recovery registration fails explicitly; Mnemora never
   silently prunes existing artifacts. A valid legacy inventory remains

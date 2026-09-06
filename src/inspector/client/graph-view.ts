@@ -7,7 +7,7 @@ let renderer: Sigma | undefined;
 
 export function renderGraph(container: HTMLElement, page: Page): void {
   renderer?.kill();
-  const graph = new Graph();
+  const graph = new Graph({ multi: true });
   for (const [index, node] of page.nodes.entries()) graph.addNode(node.id, {
     label: node.name,
     size: 5,

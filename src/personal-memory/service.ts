@@ -4,6 +4,15 @@ import { normalizeScope } from "../scope.js";
 export const PERSONAL_MEMORY_SECTIONS = ["today", "episodes", "claims", "profile", "sources", "summaries", "artifacts", "conflicts", "corrections", "consolidation", "recall", "evaluation"] as const;
 export type PersonalMemorySection = typeof PERSONAL_MEMORY_SECTIONS[number];
 export interface PersonalMemoryView { kind: "personal_memory"; scope: string; section: PersonalMemorySection; items: Array<Record<string, unknown>>; counts: Record<string, number>; truncated: boolean; }
+export interface MemoryWorkbenchItem { kind: "accepted_fact" | "conflict" | "stale_claim" | "stale_source" | "proposal"; title: string; detail: string; updated_at: number; }
+export interface MemoryWorkbenchView {
+  kind: "memory_workbench";
+  scope: string;
+  summary: { accepted_facts: number; pending_reviews: number; stale_items: number; conflicts: number; };
+  accepted: MemoryWorkbenchItem[];
+  attention: MemoryWorkbenchItem[];
+  truncated: boolean;
+}
 
 const sectionSet = new Set<string>(PERSONAL_MEMORY_SECTIONS);
 const take = (value: unknown) => Math.min(50, Math.max(1, Number.isSafeInteger(value) ? Number(value) : 20));
@@ -28,6 +37,27 @@ export class PersonalMemoryInspectorService {
     return { kind: "personal_memory", scope, section, items: items.slice(0, limit), counts, truncated: items.length > limit };
   }
 
+  /**
+   * A small, scope-isolated workbench for the items most likely to need a
+   * human's attention. It joins canonical owners only and never creates a
+   * review, changes a fact, or exposes source bodies, quotes, or identifiers.
+   */
+  workbench(input: { scope?: unknown; limit?: unknown } = {}): MemoryWorkbenchView {
+    const scope = normalizeScope(typeof input.scope === "string" ? input.scope : undefined, "default"), limit = take(input.limit);
+    const one = (sql: string) => count((this.db.prepare(sql).get(scope) as { value?: unknown } | undefined)?.value);
+    const conflicts = one("SELECT COUNT(*) AS value FROM kg_conflict_candidates WHERE scope=? AND status='pending'");
+    const proposals = one("SELECT COUNT(*) AS value FROM mnemora_consolidation_proposals WHERE scope=? AND status='proposed'");
+    const staleClaims = one("SELECT COUNT(*) AS value FROM kg_claim_verifications WHERE scope=? AND status IN ('stale','contradicted','flagged','unverifiable')");
+    const staleSources = one("SELECT COUNT(*) AS value FROM kg_source_anchors WHERE scope=? AND status IN ('changed','deleted','missing')");
+    const acceptedFacts = one("SELECT COUNT(DISTINCT claim_id) AS value FROM kg_claim_verifications WHERE scope=? AND status='verified'");
+    const extra = Math.min(100, limit + 1), accepted = this.acceptedFacts(scope, extra), attention = this.attention(scope, extra);
+    return {
+      kind: "memory_workbench", scope,
+      summary: { accepted_facts: acceptedFacts, pending_reviews: conflicts + proposals, stale_items: staleClaims + staleSources, conflicts },
+      accepted: accepted.slice(0, limit), attention: attention.slice(0, limit), truncated: accepted.length > limit || attention.length > limit
+    };
+  }
+
   private counts(scope: string): Record<string, number> {
     const one = (sql: string) => count((this.db.prepare(sql).get(scope) as { value?: unknown } | undefined)?.value);
     return {
@@ -39,6 +69,42 @@ export class PersonalMemoryInspectorService {
       conflicts: one("SELECT COUNT(*) AS value FROM kg_conflict_candidates WHERE scope=? AND status='pending'"),
       proposals: one("SELECT COUNT(*) AS value FROM mnemora_consolidation_proposals WHERE scope=? AND status='proposed'")
     };
+  }
+
+  private acceptedFacts(scope: string, limit: number): MemoryWorkbenchItem[] {
+    return rows(this.db.prepare(`SELECT MAX(v.verified_at) AS verified_at,MAX(v.created_at) AS created_at,e.type AS relationship_type,source.name AS source_name,target.name AS target_name,subject.name AS subject_name
+      FROM kg_claim_verifications v LEFT JOIN kg_observations o ON o.id=v.claim_id AND o.scope=v.scope
+      LEFT JOIN kg_edges e ON e.id=o.edge_id AND e.deleted_at IS NULL
+      LEFT JOIN kg_nodes source ON source.id=e.source_id AND source.deleted_at IS NULL
+      LEFT JOIN kg_nodes target ON target.id=e.target_id AND target.deleted_at IS NULL
+      LEFT JOIN kg_nodes subject ON subject.id=o.source_entity_id AND subject.deleted_at IS NULL
+      WHERE v.scope=? AND v.status='verified' GROUP BY v.claim_id ORDER BY MAX(v.verified_at) DESC,MAX(v.created_at) DESC,v.claim_id DESC LIMIT ?`).all(scope, limit)).map(row => ({
+      kind: "accepted_fact" as const, title: factTitle(row), detail: "Evidence has been verified.", updated_at: count(row.verified_at ?? row.created_at)
+    }));
+  }
+
+  private attention(scope: string, limit: number): MemoryWorkbenchItem[] {
+    const conflicts = rows(this.db.prepare("SELECT category,updated_at FROM kg_conflict_candidates WHERE scope=? AND status='pending' ORDER BY updated_at DESC,id DESC LIMIT ?").all(scope, limit)).map(row => ({
+      kind: "conflict" as const, title: "Potentially conflicting memory", detail: conflictDetail(text(row.category, 80)), updated_at: count(row.updated_at), priority: 0
+    }));
+    const staleClaims = rows(this.db.prepare(`SELECT v.status,v.created_at,v.verified_at,e.type AS relationship_type,source.name AS source_name,target.name AS target_name,subject.name AS subject_name
+      FROM kg_claim_verifications v LEFT JOIN kg_observations o ON o.id=v.claim_id AND o.scope=v.scope
+      LEFT JOIN kg_edges e ON e.id=o.edge_id AND e.deleted_at IS NULL
+      LEFT JOIN kg_nodes source ON source.id=e.source_id AND source.deleted_at IS NULL
+      LEFT JOIN kg_nodes target ON target.id=e.target_id AND target.deleted_at IS NULL
+      LEFT JOIN kg_nodes subject ON subject.id=o.source_entity_id AND subject.deleted_at IS NULL
+      WHERE v.scope=? AND v.status IN ('stale','contradicted','flagged','unverifiable') ORDER BY COALESCE(v.verified_at,v.created_at) DESC,v.id DESC LIMIT ?`).all(scope, limit)).map(row => ({
+      kind: "stale_claim" as const, title: factTitle(row), detail: claimDetail(text(row.status, 40)), updated_at: count(row.verified_at ?? row.created_at), priority: 1
+    }));
+    const staleSources = rows(this.db.prepare("SELECT provider,status,COALESCE(last_checked_at,captured_at) AS updated_at FROM kg_source_anchors WHERE scope=? AND status IN ('changed','deleted','missing') ORDER BY updated_at DESC,id DESC LIMIT ?").all(scope, limit)).map(row => ({
+      kind: "stale_source" as const, title: "A source needs attention", detail: sourceDetail(text(row.status, 40), text(row.provider, 80)), updated_at: count(row.updated_at), priority: 1
+    }));
+    const proposals = rows(this.db.prepare("SELECT kind,score,created_at FROM mnemora_consolidation_proposals WHERE scope=? AND status='proposed' ORDER BY score DESC,created_at DESC,id DESC LIMIT ?").all(scope, limit)).map(row => ({
+      kind: "proposal" as const, title: "Memory review suggestion", detail: proposalDetail(text(row.kind, 40)), updated_at: count(row.created_at), priority: 2
+    }));
+    return [...conflicts, ...staleClaims, ...staleSources, ...proposals]
+      .sort((a, b) => a.priority - b.priority || b.updated_at - a.updated_at || a.title.localeCompare(b.title))
+      .slice(0, limit).map(({ priority: _priority, ...item }) => item);
   }
 
   private items(scope: string, section: PersonalMemorySection, limit: number, subject?: string): Array<Record<string, unknown>> {
@@ -78,3 +144,14 @@ export class PersonalMemoryInspectorService {
     return [{ report: "personal-memory-harness", status: "local_benchmark_available", command: "npm run benchmark:harness", scope, privacy: "Evaluation data is in-memory and never written to the production store." }];
   }
 }
+
+function factTitle(row: Record<string, unknown>): string {
+  const source = text(row.source_name, 160), target = text(row.target_name, 160), relationship = text(row.relationship_type, 80), subject = text(row.subject_name, 160);
+  if (source && target && relationship) return `${source} ${relationship.replaceAll("_", " ")} ${target}`;
+  if (subject) return `${subject}: verified memory`;
+  return "Verified memory item";
+}
+function conflictDetail(category: string): string { return category ? `Review needed: ${category.replaceAll("_", " ")}.` : "Review needed before relying on it."; }
+function claimDetail(status: string): string { return ({ stale: "The supporting evidence is out of date.", contradicted: "New evidence conflicts with it.", flagged: "The evidence needs review.", unverifiable: "The evidence could not be verified." })[status] ?? "The evidence needs review."; }
+function sourceDetail(status: string, provider: string): string { const subject = provider ? `The ${provider} source` : "This source"; return ({ changed: `${subject} changed after capture.`, deleted: `${subject} is no longer available.`, missing: `${subject} cannot currently be found.` })[status] ?? `${subject} needs review.`; }
+function proposalDetail(kind: string): string { return ({ duplicate_episode: "Possible duplicate memory.", conflict_review: "Possible memory conflict.", staleness_review: "Possible outdated memory.", session_digest: "A session summary is ready for review." })[kind] ?? "A memory review is ready."; }

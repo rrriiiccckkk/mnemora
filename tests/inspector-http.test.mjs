@@ -5,8 +5,8 @@ import { startInspector } from "../dist/inspector/http.js";
 
 const graph = {
   overview: () => ({ kind: "overview" }), graph: input => ({ kind: "graph", input }), entity: input => ({ kind: "entity", input }),
-  research: input => ({ kind: "research", input }), trust: input => ({ kind: "trust", input }), consolidation: input => ({ kind: "consolidation", input }), memory: input => ({ kind: "memory", input }), intelligence: async input => ({ kind: "intelligence", input }), healthSummary: () => ({ kind: "health" }),
-  operationPreview: () => ({ preview: true }), operationConfirm: () => ({ confirmed: true })
+  research: input => ({ kind: "research", input }), trust: input => ({ kind: "trust", input }), consolidation: input => ({ kind: "consolidation", input }), scopes: () => ({ default_scope: "default", scopes: [{ id: "default" }] }), memory: input => ({ kind: "memory", input }), memoryWorkbench: input => ({ kind: "memory_workbench", input }), intelligence: async input => ({ kind: "intelligence", input }), healthSummary: () => ({ kind: "health" }),
+  operationPreview: () => ({ preview: true }), operationConfirm: () => ({ confirmed: true }), memoryCorrectionPreview: () => ({ preview: true }), memoryCorrectionConfirm: () => ({ confirmed: true })
 };
 
 test("Inspector binds loopback and enforces one-time bootstrap, session, origin, and security headers", async () => {
@@ -28,7 +28,9 @@ test("Inspector binds loopback and enforces one-time bootstrap, session, origin,
     const trust = await request(url, "/api/trust", { cookie, origin: url.origin });
     assert.deepEqual(trust.json, { kind: "trust" });
     assert.deepEqual((await request(url, "/api/consolidation", { cookie, origin: url.origin })).json, { kind: "consolidation" });
+    assert.deepEqual((await request(url, "/api/scopes", { cookie, origin: url.origin })).json, { default_scope: "default", scopes: [{ id: "default" }] });
     assert.deepEqual((await request(url, "/api/memory", { cookie, origin: url.origin })).json, { kind: "memory" });
+    assert.deepEqual((await request(url, "/api/memory-workbench", { cookie, origin: url.origin })).json, { kind: "memory_workbench" });
     assert.deepEqual((await request(url, "/api/intelligence", { cookie, origin: url.origin })).json, { kind: "intelligence" });
     assert.equal((await request(url, "/api/operations/preview", { method: "POST", cookie, origin: url.origin, body: {} })).status, 404);
   } finally { await running.close(); }
@@ -48,6 +50,8 @@ test("operation routes are conditional and require CSRF; methods, media, bodies,
     const cookie = boot.headers["set-cookie"][0].split(";", 1)[0], base = { cookie, origin: url.origin };
     assert.equal((await request(url, "/api/operations/preview", { ...base, method: "POST", body: {} })).status, 403);
     assert.equal((await request(url, "/api/operations/preview", { ...base, method: "POST", csrf: boot.json.csrf, body: {} })).status, 200);
+    assert.equal((await request(url, "/api/memory-correction/preview", { ...base, method: "POST", body: {} })).status, 403);
+    assert.equal((await request(url, "/api/memory-correction/preview", { ...base, method: "POST", csrf: boot.json.csrf, body: {} })).status, 200);
     assert.equal((await request(url, "/api/graph", { ...base, method: "GET" })).status, 405);
     assert.deepEqual((await request(url, "/api/trust", { ...base, method: "POST", body: { scope: "project:alpha" } })).json, { kind: "trust", input: { scope: "project:alpha" } });
     assert.equal((await request(url, "/api/%2e%2e/health", base)).status, 404);

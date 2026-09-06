@@ -4,6 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { normalizeConfig } from "../dist/config.js";
 import { standaloneGuide, standaloneReadiness } from "../dist/standalone/readiness.js";
+import { firstUseVerification } from "../dist/standalone/first-use.js";
 import { MnemoraContextEngine } from "../dist/context-engine/engine.js";
 import { Mnemora } from "../dist/tools.js";
 import { ConversationEventRepository } from "../dist/journal/repository.js";
@@ -23,8 +24,26 @@ test("standalone is the only lifecycle, blocks incomplete ownership, and reports
   assert.equal(ready.activation, "ready");
   const legacyBlocked = standaloneReadiness(configured, ["lossless-claw"], true);
   assert.equal(legacyBlocked.activation, "blocked");
-  assert.deepEqual(standaloneGuide().standalone.unifiedRetrieval, { enabled: true, shadowMode: false });
+  assert.deepEqual(standaloneGuide().standalone.unifiedRetrieval, { enabled: true, shadowMode: true });
   assert.deepEqual(standaloneGuide().rollback.host_context_engine, { contextEngine: { enabled: false }, unifiedRetrieval: { enabled: false } });
+});
+
+test("first-use verification gives a specific next action without accepting conversation content", () => {
+  const inactive = firstUseVerification({
+    contextEngineActive: false, unifiedRetrievalEnabled: false, recallTelemetryEnabled: false,
+    activity: { events: 0, sessions: 0, lastCommittedAt: null }, recall: { totalRuns: 0, attachedRuns: 0 }
+  });
+  assert.equal(inactive.passed, 0);
+  assert.equal(inactive.checks[0].state, "blocked");
+  assert.match(inactive.nextStep, /select mnemora/i);
+
+  const noTelemetry = firstUseVerification({
+    contextEngineActive: true, unifiedRetrievalEnabled: true, recallTelemetryEnabled: false,
+    activity: { events: 2, sessions: 2, lastCommittedAt: 1_700_000_000_000 }, recall: { totalRuns: 0, attachedRuns: 0 }
+  });
+  assert.equal(noTelemetry.passed, 3);
+  assert.equal(noTelemetry.checks[3].state, "blocked");
+  assert.match(noTelemetry.nextStep, /shadowMode/);
 });
 
 test("standalone ContextEngine retains committed long-session source events across restart without taking host compaction ownership", async () => {

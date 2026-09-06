@@ -9,6 +9,8 @@ export interface JournalEventInput { id?: string; scope: string; sessionId: stri
 export interface JournalEvent { id: string; scope: string; sessionId: string; branchId: string; parentId?: string; sequence: number; kind: JournalEventKind; role?: JournalRole; contextDomain: JournalContextDomain; parts: JournalPart[]; contentHash: string; normalizedText?: string; identityOrigin: JournalIdentityOrigin; hostCorrelation?: string; createdAt: number; tombstoned?: true; }
 export interface JournalCapturePolicy { maxInlineChars: number; maxEventBytes: number; sensitiveContentPolicy: "redact" | "hash_only" | "metadata_only" | "drop"; replayFloodThresholdExternal?: number; replayFloodThresholdInternal?: number; }
 export interface JournalDiagnostics { enabled: boolean; events: number; sessions: number; pendingTasks: number; }
+/** Aggregate-only, scope-local evidence that completed turns were durably captured. */
+export interface JournalScopeActivity { events: number; sessions: number; lastCommittedAt: number | null; }
 
 /** A source message can be linked without interpreting or mutating the host transcript. */
 export interface JournalTurnEventInput extends JournalEventInput { parentEventOrdinal?: number; hostEntryId?: string; }

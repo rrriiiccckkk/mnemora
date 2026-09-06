@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSyncInstance } from "@photostructure/sqlite";
 import { normalizeScope } from "../scope.js";
 import { captureText } from "./capture-policy.js";
-import type { JournalCapturePolicy, JournalDerivedTask, JournalDiagnostics, JournalEvent, JournalEventInput, JournalPart, JournalTurnCaptureInput, JournalTurnReceipt } from "./types.js";
+import type { JournalCapturePolicy, JournalDerivedTask, JournalDiagnostics, JournalEvent, JournalEventInput, JournalPart, JournalScopeActivity, JournalTurnCaptureInput, JournalTurnReceipt } from "./types.js";
 
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const safeId = (value: string, fallback: string) => value.trim() && value.length <= 512 && !/[\u0000-\u001f]/.test(value) ? value : fallback;
@@ -269,6 +269,15 @@ export class ConversationEventRepository {
     const counts = this.db.prepare("SELECT COUNT(*) AS events,COUNT(DISTINCT scope || ':' || session_id) AS sessions FROM mnemora_conversation_events WHERE deleted_at IS NULL").get() as { events: number; sessions: number };
     const pending = this.db.prepare("SELECT COUNT(*) AS value FROM mnemora_derived_tasks WHERE status IN ('pending','running')").get() as { value: number };
     return { enabled, events: Number(counts.events), sessions: Number(counts.sessions), pendingTasks: Number(pending.value) };
+  }
+
+  /** Read-only first-use signal. It exposes no event IDs, messages, or sources. */
+  activity(scope: string): JournalScopeActivity {
+    const safeScope = normalizeScope(scope);
+    const counts = this.db.prepare("SELECT COUNT(*) AS events,COUNT(DISTINCT session_id) AS sessions FROM mnemora_conversation_events WHERE scope=? AND deleted_at IS NULL").get(safeScope) as { events: number; sessions: number };
+    const latest = this.db.prepare("SELECT MAX(committed_at) AS committed_at FROM mnemora_commits WHERE scope=? AND status='committed'").get(safeScope) as { committed_at?: number | null };
+    const committedAt = Number(latest.committed_at);
+    return { events: Number(counts.events), sessions: Number(counts.sessions), lastCommittedAt: Number.isSafeInteger(committedAt) && committedAt >= 0 ? committedAt : null };
   }
 
   private capturePart(part: JournalPart): JournalPart[] {

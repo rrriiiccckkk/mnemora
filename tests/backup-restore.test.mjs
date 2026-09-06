@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "@photostructure/sqlite";
 import { tmpdir } from "node:os";
@@ -95,6 +95,19 @@ test("artifact registry survives restart and reports missing recovery files with
     unlinkSync(artifactPath);
     assert.deepEqual(restarted.health(), { status: "degraded", artifacts: { backups: 1, recovery_points: 0, available: 0, missing: 1 }, latest_created_at: 1_700_000_000_000 });
   } finally { await cleanup(directory); }
+});
+
+test("artifact registry leaves its in-memory entries unchanged when manifest replacement fails", () => {
+  const directory = mkdtempSync(join(tmpdir(), "mnemora-artifact-register-failure-")), artifactPath = join(directory, ".persist.sqlite");
+  try {
+    writeFileSync(artifactPath, "fixture");
+    const registry = new ArtifactRegistry(directory);
+    // A directory at the manifest path prevents the atomic replacement while still
+    // allowing a candidate manifest to be written beside it.
+    mkdirSync(join(directory, ".mnemora-artifacts.json"));
+    assert.throws(() => registry.register({ artifact_id: "artifact:failed", kind: "backup", path: artifactPath, sha256: "a".repeat(64), integrity: "ok", graph_revision: 4, created_at: 1_700_000_000_000 }));
+    assert.deepEqual(registry.list(), []);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test("artifact registry rejects a new entry at capacity while preserving every existing registration across restart", () => {
