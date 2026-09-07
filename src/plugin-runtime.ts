@@ -7,7 +7,8 @@ import { ConversationJournalService } from "./journal/service.js";
 import type { JournalDerivedTaskKind, JournalTurnReceipt } from "./journal/types.js";
 import { MnemoraContextEngine } from "./context-engine/engine.js";
 import { standaloneReadiness, type StandaloneReadiness } from "./standalone/readiness.js";
-import type { ContextEngine, ContextEngineFactoryContext } from "openclaw/plugin-sdk";
+import type { HarnessContextEngine as ContextEngine } from "openclaw/plugin-sdk/agent-harness-runtime";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import { ConsolidationService } from "./consolidation/service.js";
 import { ReflectionService } from "./cognition/reflection.js";
 import { ReasoningRuntimeShadowService, type ReasoningRuntimeTelemetryConfig } from "./cognition/reasoning-runtime-telemetry.js";
@@ -24,6 +25,7 @@ import { GraphHygieneService } from "./hygiene/service.js";
 type Scalar = string | number | boolean | null | undefined;
 type SdkLogger = { debug?(message: string, fields?: Record<string, unknown>): void; info?(message: string, fields?: Record<string, unknown>): void; warn?(message: string, fields?: Record<string, unknown>): void };
 type UnknownRecord = Record<string, unknown>;
+type ContextEngineFactoryContext = Parameters<Parameters<OpenClawPluginApi["registerContextEngine"]>[1]>[0];
 
 const record = (value: unknown): UnknownRecord | undefined => value && typeof value === "object" && !Array.isArray(value) ? value as UnknownRecord : undefined;
 

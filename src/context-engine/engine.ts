@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { delegateCompactionToRuntime, type ContextEngine } from "openclaw/plugin-sdk";
+import { delegateCompactionToRuntime } from "openclaw/plugin-sdk/core";
+import type { HarnessContextEngine as ContextEngine } from "openclaw/plugin-sdk/agent-harness-runtime";
 import type { MnemoraConfig } from "../index.js";
 import { ConversationEventRepository } from "../journal/repository.js";
 import type { JournalDerivedTaskKind, JournalEventInput, JournalEventKind, JournalRole, JournalTurnReceipt } from "../journal/types.js";
@@ -26,6 +27,48 @@ type AssembleParams = Parameters<ContextEngine["assemble"]>[0];
 type CompactParams = Parameters<ContextEngine["compact"]>[0];
 type MaintainParams = Parameters<NonNullable<ContextEngine["maintain"]>>[0];
 type RuntimeMessage = IngestParams["message"];
+/** Structural compatibility shim for the durable-turn contract introduced
+ * after the oldest SDK Mnemora still supports. Keeping it local lets the
+ * plugin load on an older host while current hosts can discover the actual
+ * runtime members without a type assertion that hides protocol drift. */
+type DurableContextEngineInfo = ContextEngine["info"] & {
+  acceptedHostParams: readonly string[];
+  transcriptSemantics: {
+    currentTurnFence: "before-current-turn-entry-v1";
+    turnAdvancementIdempotency: "atomic-idempotent-v1";
+  };
+};
+type DurableTurnAdmission = {
+  logicalTurnId: string;
+  agentId: string;
+  sessionId: string;
+  sessionKey: string;
+  storePath: string;
+  generation: string;
+  entryId: string;
+  activeMessagePosition: number;
+};
+type DurableTurnTerminal = {
+  agentId: string;
+  sessionId: string;
+  sessionKey: string;
+  storePath: string;
+  generation: string;
+  entryId: string;
+  activeMessagePosition: number;
+};
+type DurableCommitTurnParams = {
+  advancementKey: string;
+  admission: DurableTurnAdmission;
+  terminal: DurableTurnTerminal;
+  messages: RuntimeMessage[];
+  sessionId: string;
+  sessionKey?: string;
+  isHeartbeat?: boolean;
+  runtimeSettings?: unknown;
+  runtimeContext?: CompactParams["runtimeContext"];
+};
+type DurableCapture = { advancementKey: string; payloadHash: string; admissionEntryId: string; terminalEntryId: string };
 type ContextTurnLifecycle = {
   derivedTaskKinds?(): readonly JournalDerivedTaskKind[];
   onCompletedTurn?(turn: CompletedTurn, receipt: JournalTurnReceipt): Promise<void> | void;
@@ -45,7 +88,7 @@ const asHostMessage = (message: RuntimeMessage): HostMessage => message as unkno
  * compaction through the host's documented rewrite capability.
  */
 export class MnemoraContextEngine implements ContextEngine {
-  readonly info: ContextEngine["info"];
+  readonly info: DurableContextEngineInfo;
 
   constructor(private readonly config: MnemoraConfig, private readonly openGraph: () => import("../tools.js").Mnemora, private readonly delegate = delegateCompactionToRuntime, private readonly lifecycle: ContextTurnLifecycle = {}) {
     const ownsCompaction = config.contextEngine?.compaction?.enabled === true;
@@ -53,6 +96,11 @@ export class MnemoraContextEngine implements ContextEngine {
       id: "mnemora",
       name: "Mnemora",
       version: mnemoraVersion,
+      acceptedHostParams: ["sessionKey", "prompt", "runtimeSettings", "sessionTarget", "runtimeContext", "abortSignal"],
+      transcriptSemantics: {
+        currentTurnFence: "before-current-turn-entry-v1",
+        turnAdvancementIdempotency: "atomic-idempotent-v1"
+      },
       ownsCompaction,
       turnMaintenanceMode: ownsCompaction ? "background" : undefined,
       hostRequirements: {
@@ -123,18 +171,59 @@ export class MnemoraContextEngine implements ContextEngine {
     if (!messages.length) return;
     let graph: ReturnType<MnemoraContextEngine["openGraph"]> | undefined;
     let receipt: JournalTurnReceipt | undefined;
+    let durablyCommitted = false;
     try {
       graph = this.openGraph();
-      receipt = this.capture(graph.store.db, params.sessionId, messages, { isHeartbeat: params.isHeartbeat, baseIndex: start, source: "after_turn" });
+      durablyCommitted = this.hasCommittedTurn(graph.store.db, params.sessionId, messages);
+      if (!durablyCommitted) receipt = this.capture(graph.store.db, params.sessionId, messages, { isHeartbeat: params.isHeartbeat, baseIndex: start, source: "after_turn" });
     } catch (error) {
       this.reportCaptureFailure("after_turn", messages.length, error);
     } finally { try { graph?.close(); } catch { /* host capture remains fail-open */ } }
+    // Newer hosts call commitTurn for an accepted durable range before this
+    // compatibility callback. Never manufacture a second receipt, extraction,
+    // or replay signal from the same range; compaction remains best-effort.
+    if (durablyCommitted) {
+      if (!params.isHeartbeat) await this.proactiveCompact(params);
+      return;
+    }
     const turn = this.completedTurn(params.sessionId, messages, Boolean(params.isHeartbeat), params.runtimeContext?.llm);
     // Derived work is optional. Durable capture has already committed and the
     // host must never lose a completed turn because extraction or an optional
     // local lifecycle callback later fails.
     if (turn && receipt) try { await this.lifecycle.onCompletedTurn?.(turn, receipt); } catch { /* fail open */ }
     if (receipt && !params.isHeartbeat) await this.proactiveCompact(params);
+  }
+
+  /** Commit exactly the host-admitted message range. This is deliberately not
+   * fail-open: throwing leaves the host outbox able to retry the same opaque
+   * advancement key, while a successful retry returns `duplicate`. */
+  async commitTurn(params: DurableCommitTurnParams): Promise<{ status: "committed" | "duplicate" }> {
+    const durable = this.validateDurableTurn(params);
+    let graph: ReturnType<MnemoraContextEngine["openGraph"]> | undefined;
+    let receipt: JournalTurnReceipt | undefined;
+    try {
+      graph = this.openGraph();
+      receipt = this.captureRequired(graph.store.db, params.sessionId, params.messages, {
+        isHeartbeat: params.isHeartbeat,
+        baseIndex: durable.admission.activeMessagePosition,
+        source: "commit_turn",
+        durable
+      });
+    } catch (error) {
+      this.reportCaptureFailure("commit_turn", Array.isArray(params.messages) ? params.messages.length : 0, error);
+      throw error;
+    } finally { try { graph?.close(); } catch { /* per-operation handles are never host authority */ } }
+
+    // Excluded and stateless sessions intentionally persist nothing. As with
+    // OpenClaw's own documented pattern, acknowledgement is an idempotent
+    // no-op rather than a false durable receipt.
+    if (!receipt) return { status: "committed" };
+    if (receipt.advancementStatus === "duplicate") return { status: "duplicate" };
+
+    const turn = this.completedTurn(params.sessionId, params.messages, Boolean(params.isHeartbeat), params.runtimeContext?.llm);
+    if (turn && !params.isHeartbeat) try { await this.lifecycle.onCompletedTurn?.(turn, receipt); } catch { /* derived work never revokes an accepted host turn */ }
+    if (!params.isHeartbeat) await this.proactiveCompact({ sessionId: params.sessionId, runtimeContext: params.runtimeContext });
+    return { status: "committed" };
   }
 
   async assemble(params: AssembleParams): Promise<Awaited<ReturnType<ContextEngine["assemble"]>>> {
@@ -252,7 +341,7 @@ export class MnemoraContextEngine implements ContextEngine {
 
   async dispose(): Promise<void> { /* SQLite handles are opened per operation and deterministically closed. */ }
 
-  private async proactiveCompact(params: AfterTurnParams): Promise<void> {
+  private async proactiveCompact(params: Pick<AfterTurnParams, "sessionId" | "runtimeContext" | "tokenBudget">): Promise<void> {
     const options = this.config.contextEngine?.compaction, runtime = params.runtimeContext;
     if (!options?.enabled || !runtime?.rewriteTranscriptEntries) return;
     const budget = this.runtimeBudget(params.tokenBudget ?? runtime.tokenBudget);
@@ -321,31 +410,66 @@ export class MnemoraContextEngine implements ContextEngine {
     return [...messages.slice(0, index), summary, ...messages.slice(index)];
   }
 
-  private capture(db: import("@photostructure/sqlite").DatabaseSyncInstance, sessionId: string, messages: readonly RuntimeMessage[], options: { isHeartbeat?: boolean; baseIndex: number; source: string }): JournalTurnReceipt | undefined {
-    if (!Array.isArray(messages) || messages.length < 1 || messages.length > 512) {
-      this.reportCaptureFailure(options.source, Array.isArray(messages) ? messages.length : 0, new Error("invalid_journal_turn"));
+  private capture(db: import("@photostructure/sqlite").DatabaseSyncInstance, sessionId: string, messages: readonly RuntimeMessage[], options: { isHeartbeat?: boolean; baseIndex: number; source: string; durable?: DurableCapture }): JournalTurnReceipt | undefined {
+    // Legacy lifecycle capture remains deliberately fail-open. commitTurn uses
+    // captureRequired instead so an accepted host turn can be retried safely.
+    try { return this.captureRequired(db, sessionId, messages, options); }
+    catch (error) {
+      this.reportCaptureFailure(options.source, Array.isArray(messages) ? messages.length : 0, error);
       return undefined;
     }
+  }
+
+  private captureRequired(db: import("@photostructure/sqlite").DatabaseSyncInstance, sessionId: string, messages: readonly RuntimeMessage[], options: { isHeartbeat?: boolean; baseIndex: number; source: string; durable?: DurableCapture }): JournalTurnReceipt | undefined {
+    if (!Array.isArray(messages) || messages.length < 1 || messages.length > 512) throw new Error("invalid_journal_turn");
     if (sessionWriteDisposition(sessionId, this.config.conversationJournal) !== "writable" || this.isExcludedAgent(this.activeAgentId(messages))) return undefined;
-    // Host lifecycle input is untrusted. Invalid cardinality or identifiers
-    // must fail open for the host turn, never turn a persistence boundary into
-    // a ContextEngine exception.
-    try {
-      const repository = new ConversationEventRepository(db, this.policy());
-      repository.enforceRetention(this.config.conversationJournal?.retentionDays ?? 0, Date.now(), this.scope());
-      repository.cancelUnsupportedDerivedTasks(this.scope(), ["summary_l1", "summary_l2"]);
-      const inputs = messages.map((message, index) => {
-        const value = this.toJournalInput(sessionId, message, options.baseIndex + index, options), host = asHostMessage(message), hostEntryId = typeof host.id === "string" && host.id.trim() ? host.id.trim().slice(0, 512) : undefined;
-        return hostEntryId ? { ...value, hostEntryId } : value;
-      });
-      const correlation = `context-turn:${digest(`${sessionId}\u0000${options.source}\u0000${inputs.map(input => input.hostCorrelation ?? "").join("\u0000")}`)}`;
-      const receipt = repository.captureTurn({ scope: this.scope(), sessionId, hostCorrelation: correlation, events: inputs, derivedTaskKinds: this.lifecycle.derivedTaskKinds?.() ?? [] });
-      if (receipt.inserted) new ToolPayloadArtifactService(this.config, db).archiveCaptured(this.scope(), receipt.events, messages.map(asHostMessage));
-      return receipt;
-    } catch (error) {
-      this.reportCaptureFailure(options.source, messages.length, error);
-      return undefined;
-    }
+    const repository = new ConversationEventRepository(db, this.policy());
+    repository.enforceRetention(this.config.conversationJournal?.retentionDays ?? 0, Date.now(), this.scope());
+    repository.cancelUnsupportedDerivedTasks(this.scope(), ["summary_l1", "summary_l2"]);
+    const inputs = messages.map((message, index) => {
+      const value = this.toJournalInput(sessionId, message, options.baseIndex + index, options), host = asHostMessage(message), hostEntryId = typeof host.id === "string" && host.id.trim() ? host.id.trim().slice(0, 512) : undefined;
+      return hostEntryId ? { ...value, hostEntryId } : value;
+    });
+    const correlation = options.durable
+      ? `durable-turn:${digest(options.durable.advancementKey)}`
+      : `context-turn:${digest(`${sessionId}\u0000${options.source}\u0000${inputs.map(input => input.hostCorrelation ?? "").join("\u0000")}`)}`;
+    const receipt = repository.captureTurn({
+      scope: this.scope(), sessionId, hostCorrelation: correlation, events: inputs,
+      derivedTaskKinds: this.lifecycle.derivedTaskKinds?.() ?? [],
+      ...(options.durable ? { advancement: { key: options.durable.advancementKey, payloadHash: options.durable.payloadHash, admissionEntryId: options.durable.admissionEntryId, terminalEntryId: options.durable.terminalEntryId } } : {})
+    });
+    if (receipt.inserted) new ToolPayloadArtifactService(this.config, db).archiveCaptured(this.scope(), receipt.events, messages.map(asHostMessage));
+    return receipt;
+  }
+
+  private hasCommittedTurn(db: import("@photostructure/sqlite").DatabaseSyncInstance, sessionId: string, messages: readonly RuntimeMessage[]): boolean {
+    const terminal = messages.length ? asHostMessage(messages[messages.length - 1]!) : undefined;
+    const terminalEntryId = terminal && typeof terminal.id === "string" ? terminal.id.trim() : "";
+    return terminalEntryId.length > 0 && terminalEntryId.length <= 512 && !/[\u0000-\u001f]/.test(terminalEntryId)
+      ? new ConversationEventRepository(db, this.policy()).hasCommittedTurnAdvancement(this.scope(), sessionId, terminalEntryId)
+      : false;
+  }
+
+  private validateDurableTurn(params: DurableCommitTurnParams): DurableCapture & { admission: DurableTurnAdmission } {
+    const field = (value: unknown): string | undefined => typeof value === "string" && value.trim().length > 0 && value.trim().length <= 512 && !/[\u0000-\u001f]/.test(value) ? value.trim() : undefined;
+    const validPosition = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
+    const key = field(params.advancementKey), admission = params.admission, terminal = params.terminal;
+    if (!key || !Array.isArray(params.messages) || params.messages.length < 1 || params.messages.length > 512 || !admission || !terminal ||
+      !field(params.sessionId) || !field(admission.logicalTurnId) || admission.logicalTurnId !== key ||
+      !field(admission.agentId) || !field(admission.sessionId) || admission.sessionId !== params.sessionId || !field(admission.sessionKey) ||
+      (params.sessionKey !== undefined && params.sessionKey !== admission.sessionKey) || !field(admission.storePath) || !field(admission.entryId) ||
+      !field(terminal.agentId) || terminal.agentId !== admission.agentId || !field(terminal.sessionId) || terminal.sessionId !== admission.sessionId ||
+      !field(terminal.sessionKey) || terminal.sessionKey !== admission.sessionKey || !field(terminal.storePath) || terminal.storePath !== admission.storePath ||
+      !field(terminal.entryId) || !validPosition(admission.activeMessagePosition) || !validPosition(terminal.activeMessagePosition) ||
+      terminal.activeMessagePosition < admission.activeMessagePosition || params.messages.length !== terminal.activeMessagePosition - admission.activeMessagePosition + 1 ||
+       !field(admission.generation) || !field(terminal.generation) || terminal.generation !== admission.generation) throw new Error("invalid_durable_turn");
+    return {
+      advancementKey: key,
+      payloadHash: durablePayloadHash({ advancementKey: key, admission, terminal, messages: params.messages, sessionId: params.sessionId, sessionKey: params.sessionKey, isHeartbeat: params.isHeartbeat === true }),
+      admissionEntryId: admission.entryId,
+      terminalEntryId: terminal.entryId,
+      admission
+    };
   }
 
   private reportCaptureFailure(source: string, messageCount: number, error: unknown): void {
@@ -417,6 +541,26 @@ export class MnemoraContextEngine implements ContextEngine {
     const identity = explicitId ? `id:${explicitId}` : `position:${source}:${ordinal}:timestamp:${timestamp}:role:${String(message.role ?? "")}:text:${messageText(message, 4096)}`;
     return `context:${digest(`${sessionId}\u0000${identity}`)}`;
   }
+}
+
+/** Stable opaque receipt fingerprint. It deliberately covers host admission
+ * anchors and every accepted message, so a reused advancement key can never
+ * silently certify a different turn after a retry. */
+function durablePayloadHash(value: unknown): string {
+  return digest(JSON.stringify(canonicalizeDurablePayload(value)));
+}
+
+function canonicalizeDurablePayload(value: unknown, depth = 0): unknown {
+  if (depth > 32) throw new Error("invalid_durable_turn");
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (Array.isArray(value)) return value.map(item => canonicalizeDurablePayload(item, depth + 1));
+  if (typeof value !== "object") throw new Error("invalid_durable_turn");
+  const record = value as Record<string, unknown>;
+  return Object.fromEntries(Object.keys(record).sort().flatMap(key => {
+    const entry = record[key];
+    return entry === undefined ? [] : [[key, canonicalizeDurablePayload(entry, depth + 1)]];
+  }));
 }
 
 function isCompactionEnvelope(message: HostMessage): boolean {

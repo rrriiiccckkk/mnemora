@@ -106,7 +106,7 @@ export class GraphologyStore {
     this.semanticPatterns = new SemanticPatternRepository(this.db);
     this.recovery = new DatabaseRecoveryService({
       db: this.db,
-      optionalNewTables: ["kg_scopes", "kg_memory_documents", "kg_memory_chunks", "kg_memory_lifecycle_audits", "kg_memory_import_previews", "kg_memory_import_audits", "kg_entity_identities", "kg_schema_quarantine", ...schemaDriftOptionalRestoreTables, ...semanticOptionalRestoreTables, ...relatedEdgeRefinementOptionalRestoreTables, ...relatedEdgeSemanticOptionalRestoreTables, ...graphReviewOptionalRestoreTables, ...semanticVocabularyOptionalRestoreTables, ...trustOptionalRestoreTables, ...integrationOptionalRestoreTables, ...profileOptionalRestoreTables, ...governanceOptionalRestoreTables, ...consolidationOptionalRestoreTables, ...cognitionOptionalRestoreTables, ...recallLifecycleOptionalRestoreTables, ...corpusOptionalRestoreTables],
+      optionalNewTables: ["kg_scopes", "kg_memory_documents", "kg_memory_chunks", "kg_memory_lifecycle_audits", "kg_memory_import_previews", "kg_memory_import_audits", "kg_entity_identities", "kg_schema_quarantine", "mnemora_turn_advancements", ...schemaDriftOptionalRestoreTables, ...semanticOptionalRestoreTables, ...relatedEdgeRefinementOptionalRestoreTables, ...relatedEdgeSemanticOptionalRestoreTables, ...graphReviewOptionalRestoreTables, ...semanticVocabularyOptionalRestoreTables, ...trustOptionalRestoreTables, ...integrationOptionalRestoreTables, ...profileOptionalRestoreTables, ...governanceOptionalRestoreTables, ...consolidationOptionalRestoreTables, ...cognitionOptionalRestoreTables, ...recallLifecycleOptionalRestoreTables, ...corpusOptionalRestoreTables],
       rebuildDerivedData: () => { this.ensureMemoryChunks(); this.entities.rebuild(); }
     });
     this.migrate();
@@ -295,6 +295,7 @@ export class GraphologyStore {
     if (version < 75) this.migrateSemanticVocabularyV75();
     if (version < 76) this.migrateSchemaDriftReviewV76();
     if (version < 77) this.migrateSchemaDriftVocabularyReconciliationV77();
+    if (version < 78) this.migrateDurableTurnAdvancementsV78();
     this.repairCanonicalCorpusFts();
     this.db.exec(`PRAGMA user_version=${SUPPORTED_SCHEMA_VERSION}`);
   }
@@ -470,6 +471,10 @@ export class GraphologyStore {
    * review metadata for historic candidates newly allowed by the vocabulary,
    * so a read-only decision report never depends on opening a worklist first. */
   private migrateSchemaDriftVocabularyReconciliationV77(): void { this.schemaDriftReviews.reconcileAll(); }
+
+  /** Schema v78 adds opaque host turn-advancement receipts only. Existing
+   * journal events and capture receipts remain authoritative and unchanged. */
+  private migrateDurableTurnAdvancementsV78(): void { this.db.exec(journalSchemaSql); }
 
   /** Schema v58 only adds durable receipts for explicitly confirmed consolidation
    * lifecycle actions. Existing evidence, episodes, and proposals are not

@@ -85,6 +85,19 @@ CREATE TABLE IF NOT EXISTS mnemora_host_message_links (
   FOREIGN KEY(scope) REFERENCES kg_scopes(id)
 );
 CREATE INDEX IF NOT EXISTS idx_mnemora_host_message_links_scope_entry ON mnemora_host_message_links(scope,entry_id);
+-- A host durable-turn key and its Mnemora receipt are written in the same
+-- transaction. The hash detects a retried key paired with altered input;
+-- message text never appears in this accounting table.
+CREATE TABLE IF NOT EXISTS mnemora_turn_advancements (
+  advancement_key TEXT PRIMARY KEY, payload_hash TEXT NOT NULL,
+  scope TEXT NOT NULL, session_id TEXT NOT NULL, receipt_id TEXT NOT NULL,
+  admission_entry_id TEXT NOT NULL, terminal_entry_id TEXT NOT NULL,
+  message_count INTEGER NOT NULL CHECK(message_count>=1), created_at INTEGER NOT NULL,
+  UNIQUE(scope,receipt_id),
+  CHECK(length(advancement_key)<=512 AND length(payload_hash)=64 AND length(admission_entry_id)<=512 AND length(terminal_entry_id)<=512),
+  FOREIGN KEY(receipt_id) REFERENCES mnemora_capture_receipts(id), FOREIGN KEY(scope) REFERENCES kg_scopes(id)
+);
+CREATE INDEX IF NOT EXISTS idx_mnemora_turn_advancements_terminal ON mnemora_turn_advancements(scope,session_id,terminal_entry_id);
 CREATE INDEX IF NOT EXISTS idx_mnemora_derived_tasks_recovery ON mnemora_derived_tasks(scope,status,lease_expires_at,created_at);
 -- Public-provider migration state deliberately contains references and hashes
 -- only. Provider content is never copied into migration metadata.

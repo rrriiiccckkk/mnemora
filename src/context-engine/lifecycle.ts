@@ -2,7 +2,7 @@
  * Public-lifecycle values passed between the ContextEngine and optional local
  * services. They deliberately contain no hook envelope or host-private state.
  */
-import type { ContextEngine } from "openclaw/plugin-sdk";
+import type { HarnessContextEngine as ContextEngine } from "openclaw/plugin-sdk/agent-harness-runtime";
 
 /** Public, host-owned model completion exposed by the ContextEngine runtime.
  * Mnemora never receives provider credentials or private host state through this

@@ -59,7 +59,7 @@
     "typebox": "1.1.39"
   },
   "peerDependencies": {
-    "openclaw": ">=2026.6.11"
+    "openclaw": ">=2026.9.2"
   },
   "peerDependenciesMeta": {
     "openclaw": {
@@ -69,11 +69,13 @@
   "devDependencies": {
     "@types/node": "^26.1.1",
     "esbuild": "^0.28.1",
-    "openclaw": "2026.6.11",
+    "openclaw": "2026.9.2",
     "playwright": "^1.61.1",
     "typescript": "^5.5.0"
   },
-  "bin": { "mnemora": "dist/cli.js" },
+  "bin": {
+    "mnemora": "dist/cli.js"
+  },
   "files": [
     "dist/",
     "openclaw.plugin.json",
@@ -87,10 +89,10 @@
       "./dist/plugin.js"
     ],
     "compat": {
-      "pluginApi": ">=2026.6.11",
-      "minGatewayVersion": "2026.6.11",
+      "pluginApi": ">=2026.9.2",
+      "minGatewayVersion": "2026.9.2",
       "tested": [
-        "2026.6.11"
+        "2026.9.2"
       ]
     }
   }

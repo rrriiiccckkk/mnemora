@@ -129,6 +129,19 @@ test("v6.11 replay cleanup migration is additive and preserves existing journal 
   } finally { try { store?.close(); } catch {} try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
 
+test("v78 durable-turn advancement migration is additive and preserves journal evidence", () => {
+  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-v78-migration-")), dbPath = join(directory, "memory.db"); let store;
+  try {
+    store = new GraphologyStore(dbPath);
+    new ConversationEventRepository(store.db, policy).append({ scope: "default", sessionId: "s", kind: "user_message", role: "user", parts: [{ type: "text", text: "existing evidence" }] });
+    store.db.exec("DROP INDEX idx_mnemora_turn_advancements_terminal; DROP TABLE mnemora_turn_advancements; PRAGMA user_version=77"); store.close(); store = new GraphologyStore(dbPath);
+    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
+    assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM mnemora_turn_advancements").get().n, 0);
+    assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='index' AND name='idx_mnemora_turn_advancements_terminal'").get().n, 1);
+    assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM mnemora_conversation_events").get().n, 1);
+  } finally { try { store?.close(); } catch {} try { rmSync(directory, { recursive: true, force: true }); } catch {} }
+});
+
 test("v6.16 local compaction is source-linked, bounded, and never rewrites the fresh tail", async () => {
   const store = new GraphologyStore(":memory:"), journal = new ConversationEventRepository(store.db, policy);
   try {
@@ -643,17 +656,18 @@ test("public OpenClaw lifecycle bootstraps, assembles, restarts, and delegates s
     { id: "graduation-3", role: "user", content: "Keep source references before compaction.", timestamp: 3 },
     { id: "graduation-4", role: "assistant", content: "Source references will be retained.", timestamp: 4 }
   ];
-  const finalization = { contextEngine: engine, promptError: false, aborted: false, yieldAborted: false, sessionIdUsed: "graduation-session", sessionFile: "session.jsonl", messagesSnapshot: messages, prePromptMessageCount: 0, warn() {} };
-  await lifecycle.bootstrapHarnessContextEngine({ contextEngine: engine, hadSessionFile: false, sessionId: "graduation-session", sessionFile: "session.jsonl", warn() {} });
+  const sessionKey = "agent:main:graduation-session";
+  const finalization = { contextEngine: engine, promptError: false, aborted: false, yieldAborted: false, sessionIdUsed: "graduation-session", sessionKey, sessionFile: "session.jsonl", messagesSnapshot: messages, prePromptMessageCount: 0, warn() {} };
+  await lifecycle.bootstrapHarnessContextEngine({ contextEngine: engine, hadSessionFile: false, sessionId: "graduation-session", sessionKey, sessionFile: "session.jsonl", warn() {} });
   assert.equal((await lifecycle.finalizeHarnessContextEngineTurn(finalization)).postTurnFinalizationSucceeded, true);
   assert.equal((await lifecycle.finalizeHarnessContextEngineTurn(finalization)).postTurnFinalizationSucceeded, true);
-  const assembled = await lifecycle.assembleHarnessContextEngine({ contextEngine: engine, sessionId: "graduation-session", messages: [{ id: "current", role: "user", content: "Help me write TypeScript", timestamp: 5 }], prompt: "TypeScript coding", tokenBudget: 512, modelId: "fixture" });
+  const assembled = await lifecycle.assembleHarnessContextEngine({ contextEngine: engine, sessionId: "graduation-session", sessionKey, agentId: "main", messages: [{ id: "current", role: "user", content: "Help me write TypeScript", timestamp: 5 }], prompt: "TypeScript coding", tokenBudget: 512, modelId: "fixture" });
   assert.match(assembled?.systemPromptAddition ?? "", /MNEMORA_MEMORY/);
   assert.match(assembled?.systemPromptAddition ?? "", /source=mnemora:\/\//);
-  const compacted = await lifecycle.compactContextEngineWithSafetyTimeout(engine, { sessionId: "graduation-session", sessionFile: "session.jsonl", currentTokenCount: 100 }, 1_000);
+  const compacted = await lifecycle.compactContextEngineWithSafetyTimeout(engine, { sessionId: "graduation-session", sessionKey, sessionFile: "session.jsonl", currentTokenCount: 100 }, 1_000);
   assert.equal(compacted.ok, true); assert.equal(compacted.compacted, true); assert.equal(delegated, 1);
   const restarted = new MnemoraContextEngine(config, open);
-  assert.equal((await lifecycle.bootstrapHarnessContextEngine({ contextEngine: restarted, hadSessionFile: true, sessionId: "graduation-session", sessionFile: "session.jsonl", warn() {} })), undefined);
+  assert.equal((await lifecycle.bootstrapHarnessContextEngine({ contextEngine: restarted, hadSessionFile: true, sessionId: "graduation-session", sessionKey, sessionFile: "session.jsonl", warn() {} })), undefined);
   const graph = open();
   try {
     assert.equal(graph.store.db.prepare("SELECT COUNT(*) AS n FROM mnemora_conversation_events WHERE session_id='graduation-session'").get().n, 4);
@@ -758,6 +772,48 @@ test("ContextEngine completes one safe derived lifecycle after its durable after
     assert.equal(turns.length, 1);
     assert.deepEqual(turns[0].turn, { sessionId: "lifecycle", userText: "Keep this bounded.", assistantText: "Acknowledged." });
     assert.deepEqual(turns[0].receipt.tasks.map(task => task.kind), ["auto_extract"]);
+  } finally { try { rmSync(directory, { recursive: true, force: true }); } catch {} }
+});
+
+test("ContextEngine atomically commits an admitted durable turn and rejects a mutated retry", async () => {
+  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-durable-turn-")), dbPath = join(directory, "memory.db");
+  const config = normalizeConfig({ dbPath, contextEngine: { enabled: true } });
+  const completed = [];
+  const open = () => { const store = new GraphologyStore(dbPath); return { store, close() { store.close(); } }; };
+  const engine = new MnemoraContextEngine(config, open, undefined, {
+    derivedTaskKinds: () => ["auto_extract"],
+    onCompletedTurn: (turn, receipt) => { completed.push({ turn, receipt }); }
+  });
+  const messages = [
+    { id: "admitted-user", role: "user", content: "Keep this exact durable turn." },
+    { id: "durable-tool", role: "tool", content: "tool output" },
+    { id: "accepted-terminal", role: "assistant", content: "Accepted and committed." }
+  ];
+  const params = {
+    advancementKey: "logical-turn-1",
+    admission: { logicalTurnId: "logical-turn-1", agentId: "main", sessionId: "durable-session", sessionKey: "agent:main:durable", storePath: "host.sqlite", generation: "generation-3", entryId: "admitted-user", activeMessagePosition: 12 },
+    terminal: { agentId: "main", sessionId: "durable-session", sessionKey: "agent:main:durable", storePath: "host.sqlite", generation: "generation-3", entryId: "accepted-terminal", activeMessagePosition: 14 },
+    sessionId: "durable-session",
+    sessionKey: "agent:main:durable",
+    messages
+  };
+  try {
+    assert.deepEqual(engine.info.transcriptSemantics, { currentTurnFence: "before-current-turn-entry-v1", turnAdvancementIdempotency: "atomic-idempotent-v1" });
+    assert.ok(engine.info.acceptedHostParams.includes("runtimeContext"));
+    assert.deepEqual(await engine.commitTurn(params), { status: "committed" });
+    assert.deepEqual(await engine.commitTurn(params), { status: "duplicate" });
+    // Current OpenClaw retains afterTurn for post-turn maintenance. Its legacy
+    // callback must observe the receipt and never capture this range again.
+    await engine.afterTurn({ sessionId: "durable-session", prePromptMessageCount: 0, messages });
+    assert.equal(completed.length, 1);
+    const graph = open();
+    try {
+      assert.equal(graph.store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_conversation_events WHERE session_id='durable-session'").get().value, 3);
+      assert.equal(graph.store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_commits WHERE scope='default'").get().value, 1);
+      assert.equal(graph.store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_turn_advancements WHERE advancement_key='logical-turn-1'").get().value, 1);
+      assert.equal(graph.store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_derived_tasks WHERE kind='auto_extract'").get().value, 1);
+    } finally { graph.close(); }
+    await assert.rejects(() => engine.commitTurn({ ...params, messages: [...messages.slice(0, 2), { ...messages[2], content: "altered retry" }] }), /turn_advancement_key_collision/);
   } finally { try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
 

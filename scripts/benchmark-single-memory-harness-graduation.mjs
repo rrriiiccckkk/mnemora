@@ -36,10 +36,11 @@ try {
   assert.equal(runtime.standalone.activation, "ready");
   const lifecycle = await import("openclaw/plugin-sdk/agent-harness-runtime");
   const engine = new MnemoraContextEngine(config, open);
-  await lifecycle.bootstrapHarnessContextEngine({ contextEngine: engine, hadSessionFile: false, sessionId: "graduation", sessionFile: "session.jsonl", warn() {} });
+  const sessionKey = "agent:main:graduation";
+  await lifecycle.bootstrapHarnessContextEngine({ contextEngine: engine, hadSessionFile: false, sessionId: "graduation", sessionKey, sessionFile: "session.jsonl", warn() {} });
   const capture = await elapsed(() => lifecycle.finalizeHarnessContextEngineTurn({
     contextEngine: engine, promptError: false, aborted: false, yieldAborted: false,
-    sessionIdUsed: "graduation", sessionFile: "session.jsonl", prePromptMessageCount: 0, warn() {},
+    sessionIdUsed: "graduation", sessionKey, sessionFile: "session.jsonl", prePromptMessageCount: 0, warn() {},
     messagesSnapshot: [
       { id: "g-1", role: "user", content: "For coding work, the user prefers TypeScript.", timestamp: 1 },
       { id: "g-2", role: "assistant", content: "I will use TypeScript.", timestamp: 2 }
@@ -47,7 +48,7 @@ try {
   }));
   assert.equal(capture.value.postTurnFinalizationSucceeded, true);
   const assemble = await elapsed(() => lifecycle.assembleHarnessContextEngine({
-    contextEngine: engine, sessionId: "graduation", messages: [{ id: "g-3", role: "user", content: "Help me code in TypeScript", timestamp: 3 }],
+    contextEngine: engine, sessionId: "graduation", sessionKey, agentId: "main", messages: [{ id: "g-3", role: "user", content: "Help me code in TypeScript", timestamp: 3 }],
     prompt: "TypeScript coding", tokenBudget: 512, modelId: "graduation-fixture"
   }));
   assert.match(assemble.value?.systemPromptAddition ?? "", /MNEMORA_MEMORY/);
@@ -68,8 +69,8 @@ try {
     assert.equal(empty.empty, true);
     assert.equal(crossScope.some(item => item.title === "Private unrelated note"), false);
     console.log(JSON.stringify({
-      benchmark: "single-memory-harness-graduation-v6",
-      host: { openclaw: "2026.6.11", lifecycle: "public-agent-harness-runtime", legacy_plugins: "disabled-in-qualified-topology" },
+      benchmark: "single-memory-harness-graduation-v7",
+      host: { openclaw: "2026.9.2", lifecycle: "durable-agent-harness-runtime", legacy_plugins: "disabled-in-qualified-topology" },
       gates: { durable_capture: true, one_prompt_producer: true, lexical_recall: true, semantic_recall: true, valid_empty_recall: true, scope_isolation: true },
       metrics: { capture_ms: capture.ms, assemble_ms: assemble.ms, lexical_retrieval_ms: lexical.ms, semantic_retrieval_ms: semantic.ms, selected_lexical_items: lexical.value.candidates.length, selected_semantic_items: semantic.value.length, token_budget: 240 }
     }, null, 2));

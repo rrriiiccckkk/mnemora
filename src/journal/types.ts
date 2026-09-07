@@ -15,6 +15,15 @@ export interface JournalScopeActivity { events: number; sessions: number; lastCo
 /** A source message can be linked without interpreting or mutating the host transcript. */
 export interface JournalTurnEventInput extends JournalEventInput { parentEventOrdinal?: number; hostEntryId?: string; }
 export type JournalDerivedTaskKind = "auto_extract" | "episode" | "smart_episode" | "summary_l1" | "summary_l2" | "consolidation" | "reflection";
-export interface JournalTurnCaptureInput { scope: string; sessionId: string; branchId?: string; hostCorrelation: string; events: readonly JournalTurnEventInput[]; derivedTaskKinds?: readonly JournalDerivedTaskKind[]; createdAt?: number; }
+/** Opaque host receipt identifying one accepted durable transcript turn.
+ * The key and payload hash are never derived from message content at read
+ * time: they make a host retry verifiable without exposing transcript data. */
+export interface JournalTurnAdvancement {
+  key: string;
+  payloadHash: string;
+  admissionEntryId: string;
+  terminalEntryId: string;
+}
+export interface JournalTurnCaptureInput { scope: string; sessionId: string; branchId?: string; hostCorrelation: string; events: readonly JournalTurnEventInput[]; derivedTaskKinds?: readonly JournalDerivedTaskKind[]; createdAt?: number; advancement?: JournalTurnAdvancement; }
 export interface JournalDerivedTask { id: string; scope: string; commitId: string; kind: JournalDerivedTaskKind | string; status: "pending" | "running" | "succeeded" | "failed" | "cancelled"; attempts: number; leaseOwner?: string; leaseExpiresAt?: number; deadlineAt?: number; errorCategory?: string; createdAt: number; updatedAt: number; }
-export interface JournalTurnReceipt { receiptId: string; commitId: string; scope: string; sessionId: string; branchId: string; events: JournalEvent[]; tasks: JournalDerivedTask[]; inserted: boolean; replaySuppressed?: boolean; }
+export interface JournalTurnReceipt { receiptId: string; commitId: string; scope: string; sessionId: string; branchId: string; events: JournalEvent[]; tasks: JournalDerivedTask[]; inserted: boolean; replaySuppressed?: boolean; advancementStatus?: "committed" | "duplicate"; }

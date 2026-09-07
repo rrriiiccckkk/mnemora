@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSyncInstance } from "@photostructure/sqlite";
 import { normalizeScope } from "../scope.js";
 import { captureText } from "./capture-policy.js";
-import type { JournalCapturePolicy, JournalDerivedTask, JournalDiagnostics, JournalEvent, JournalEventInput, JournalPart, JournalScopeActivity, JournalTurnCaptureInput, JournalTurnReceipt } from "./types.js";
+import type { JournalCapturePolicy, JournalDerivedTask, JournalDiagnostics, JournalEvent, JournalEventInput, JournalPart, JournalScopeActivity, JournalTurnAdvancement, JournalTurnCaptureInput, JournalTurnReceipt } from "./types.js";
 
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const safeId = (value: string, fallback: string) => value.trim() && value.length <= 512 && !/[\u0000-\u001f]/.test(value) ? value : fallback;
@@ -56,13 +56,27 @@ export class ConversationEventRepository {
   captureTurn(input: JournalTurnCaptureInput): JournalTurnReceipt {
     const scope = normalizeScope(input.scope), sessionId = safeId(input.sessionId, ""), branchId = safeId(input.branchId ?? "main", ""), correlation = safeId(input.hostCorrelation, "");
     if (!sessionId || !branchId || !correlation || input.events.length < 1 || input.events.length > 512) throw new Error("invalid_journal_turn");
+    const advancement = this.validateAdvancement(input.advancement);
     const now = input.createdAt ?? Date.now(), receiptId = `turn-receipt:${hash(`${scope}\u0000${correlation}`).slice(0, 48)}`, commitId = `turn-commit:${hash(`${scope}\u0000${correlation}`).slice(0, 48)}`;
     this.db.exec("BEGIN IMMEDIATE");
     try {
       this.db.prepare("INSERT OR IGNORE INTO kg_scopes(id,created_at,updated_at) VALUES(?,?,?)").run(scope, now, now);
+      if (advancement) {
+        const previous = this.db.prepare(`SELECT payload_hash,receipt_id FROM mnemora_turn_advancements WHERE advancement_key=?`).get(advancement.key) as { payload_hash?: string; receipt_id?: string } | undefined;
+        if (previous) {
+          if (previous.payload_hash !== advancement.payloadHash) throw new Error("turn_advancement_key_collision");
+          const previousReceiptId = safeId(String(previous.receipt_id ?? ""), "");
+          const previousCommit = this.db.prepare("SELECT id FROM mnemora_commits WHERE receipt_id=? AND scope=? AND status='committed'").get(previousReceiptId, scope) as { id?: string } | undefined;
+          if (!previousReceiptId || !previousCommit?.id) throw new Error("invalid_turn_advancement_receipt");
+          const receipt = this.readTurn(previousReceiptId, String(previousCommit.id), scope, sessionId, branchId);
+          this.db.exec("COMMIT");
+          return { ...receipt, inserted: false, advancementStatus: "duplicate" };
+        }
+      }
       this.pruneReplayFloodGuardsInTransaction(scope, now);
       const existing = this.db.prepare("SELECT status FROM mnemora_capture_receipts WHERE id=? AND scope=?").get(receiptId, scope) as { status?: string } | undefined;
       if (existing?.status === "committed") {
+        if (advancement) throw new Error("durable_turn_receipt_missing_advancement");
         const replaySuppressed = this.recordReplay({ scope, sessionId, correlation: `turn:${correlation}`, external: input.events.some(event => event.identityOrigin === "host"), now });
         const receipt = this.readTurn(receiptId, commitId, scope, sessionId, branchId);
         this.db.exec("COMMIT");
@@ -93,9 +107,17 @@ export class ConversationEventRepository {
         this.db.prepare("INSERT OR IGNORE INTO mnemora_derived_tasks(id,scope,commit_id,kind,status,attempts,created_at,updated_at) VALUES(?,?,?,?, 'pending',0,?,?)").run(id, scope, commitId, kind, now, now);
       }
       this.db.prepare("UPDATE mnemora_capture_receipts SET status='committed',committed_at=? WHERE id=? AND scope=?").run(now, receiptId, scope);
+      if (advancement) {
+        this.db.prepare(`INSERT INTO mnemora_turn_advancements(
+          advancement_key,payload_hash,scope,session_id,receipt_id,admission_entry_id,terminal_entry_id,message_count,created_at
+        ) VALUES(?,?,?,?,?,?,?,?,?)`).run(
+          advancement.key, advancement.payloadHash, scope, sessionId, receiptId,
+          advancement.admissionEntryId, advancement.terminalEntryId, input.events.length, now
+        );
+      }
       const receipt = this.readTurn(receiptId, commitId, scope, sessionId, branchId);
       this.db.exec("COMMIT");
-      return { ...receipt, inserted: true };
+      return { ...receipt, inserted: true, ...(advancement ? { advancementStatus: "committed" as const } : {}) };
     } catch (error) { try { this.db.exec("ROLLBACK"); } catch {} throw error; }
   }
 
@@ -205,6 +227,14 @@ export class ConversationEventRepository {
     return { event: { id, scope, sessionId, branchId, ...(parentId ? { parentId } : {}), sequence, kind: input.kind, ...(input.role ? { role: input.role } : {}), contextDomain, parts, contentHash, ...(normalizedText ? { normalizedText } : {}), identityOrigin: origin, ...(correlation ? { hostCorrelation: correlation } : {}), createdAt: now }, inserted: true };
   }
 
+  private validateAdvancement(value: JournalTurnAdvancement | undefined): JournalTurnAdvancement | undefined {
+    if (!value) return undefined;
+    const key = safeId(value.key, ""), admissionEntryId = safeId(value.admissionEntryId, ""), terminalEntryId = safeId(value.terminalEntryId, "");
+    const payloadHash = typeof value.payloadHash === "string" ? value.payloadHash.toLowerCase() : "";
+    if (!key || !admissionEntryId || !terminalEntryId || !/^[a-f0-9]{64}$/.test(payloadHash)) throw new Error("invalid_turn_advancement");
+    return { key, payloadHash, admissionEntryId, terminalEntryId };
+  }
+
   private readTurn(receiptId: string, commitId: string, scope: string, sessionId: string, branchId: string): Omit<JournalTurnReceipt, "inserted"> {
     const eventRows = this.db.prepare("SELECT event_id FROM mnemora_turn_receipt_events WHERE receipt_id=? AND scope=? ORDER BY ordinal").all(receiptId, scope) as Array<{ event_id: string }>;
     const tasks = this.db.prepare("SELECT * FROM mnemora_derived_tasks WHERE commit_id=? AND scope=? ORDER BY created_at,id").all(commitId, scope) as Array<Record<string, unknown>>;
@@ -269,6 +299,16 @@ export class ConversationEventRepository {
     const counts = this.db.prepare("SELECT COUNT(*) AS events,COUNT(DISTINCT scope || ':' || session_id) AS sessions FROM mnemora_conversation_events WHERE deleted_at IS NULL").get() as { events: number; sessions: number };
     const pending = this.db.prepare("SELECT COUNT(*) AS value FROM mnemora_derived_tasks WHERE status IN ('pending','running')").get() as { value: number };
     return { enabled, events: Number(counts.events), sessions: Number(counts.sessions), pendingTasks: Number(pending.value) };
+  }
+
+  /** Whether a successful durable host turn already owns this terminal entry.
+   * It enables an older afterTurn callback to remain side-effect free when a
+   * newer host has already called commitTurn for the same logical turn. */
+  hasCommittedTurnAdvancement(scope: string, sessionId: string, terminalEntryId: string): boolean {
+    const terminal = safeId(terminalEntryId, "");
+    if (!terminal) return false;
+    return Boolean(this.db.prepare(`SELECT 1 FROM mnemora_turn_advancements
+      WHERE scope=? AND session_id=? AND terminal_entry_id=? LIMIT 1`).get(normalizeScope(scope), safeId(sessionId, ""), terminal));
   }
 
   /** Read-only first-use signal. It exposes no event IDs, messages, or sources. */

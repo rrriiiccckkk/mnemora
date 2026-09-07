@@ -1,5 +1,5 @@
 import type { MnemoraConfig } from "../index.js";
-import type { ContextEngine } from "openclaw/plugin-sdk";
+import type { HarnessContextEngine as ContextEngine } from "openclaw/plugin-sdk/agent-harness-runtime";
 
 export type CompactionModelInput = {
   source: string;

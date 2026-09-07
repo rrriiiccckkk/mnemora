@@ -9,5 +9,6 @@ test("official gate distinguishes launch failures and empty unexpected exits", (
 
 test("official gate accepts only the known nonzero incompatibility", () => {
   assert.doesNotThrow(()=>assertKnownIncompatibility("build",{status:1,signal:null,stdout:"",stderr:"does not expose defineToolPlugin metadata"}));
+  assert.doesNotThrow(()=>assertKnownIncompatibility("build",{status:1,signal:null,stdout:"",stderr:"plugin entry does not expose tool or feature authoring metadata"}));
   assert.throws(()=>assertKnownIncompatibility("build",{status:0,signal:null,stdout:"accepted",stderr:""}),/unexpectedly accepted/);
 });

@@ -8,7 +8,7 @@ export function assertKnownIncompatibility(command, result) {
   if (result.error) throw new Error(`official OpenClaw ${command} launch failed: ${diagnostics}`);
   const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
   assert.notEqual(result.status, 0, `official OpenClaw ${command} unexpectedly accepted an advanced definePluginEntry plugin; promote this gate into verify`);
-  assert.match(output, /does not expose defineToolPlugin metadata/, `official OpenClaw ${command} failed for an unexpected reason: ${diagnostics}\n${output}`);
+  assert.match(output, /(?:does not expose defineToolPlugin metadata|does not expose tool or feature authoring metadata)/, `official OpenClaw ${command} failed for an unexpected reason: ${diagnostics}\n${output}`);
 }
 
 export function runOfficialPluginGate(spawn = spawnSync) {
@@ -16,7 +16,7 @@ export function runOfficialPluginGate(spawn = spawnSync) {
     const result = spawn(process.execPath, [cli, "plugins", command, "--entry", "./dist/plugin.js", "--root", "."], { encoding: "utf8" });
     assertKnownIncompatibility(command, result);
   }
-  console.log("official OpenClaw simple-tool gates deterministically reject definePluginEntry metadata (known 2026.6.11 incompatibility)");
+  console.log("official OpenClaw simple-tool gates deterministically reject advanced definePluginEntry metadata (known 2026.9.2 incompatibility)");
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) runOfficialPluginGate();
