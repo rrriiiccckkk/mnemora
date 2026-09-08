@@ -15,6 +15,9 @@ type RecallCandidate = { kind: "node" | "edge"; decision: "included" | "excluded
 type RecallActualAttachment = { telemetry: "available" | "disabled"; status: "matched" | "not_observed" | "not_comparable"; attached?: boolean; created_at?: number; local_selected_count?: number; graph_attached?: boolean };
 type RecallExplanation = { kind: "memory_intelligence"; view: "retrieval"; scope: string; automatic_recall_configured: boolean; strict_verification_enabled: boolean; policy: { allowed: boolean; reason: string }; candidates: RecallCandidate[]; injected: { candidates_considered: number; nodes: number; memories: number; budget_tokens: number }; actual_attachment?: RecallActualAttachment; items?: Array<Record<string, unknown>> };
 type IntelligenceView = { kind: "memory_intelligence"; view: string; scope: string; items: Array<Record<string, unknown>>; truncated: boolean };
+type TaskResumeStateItem = { kind: string; text: string; source_refs: string[]; recorded_at: number };
+type TaskResumeCandidate = { task_ref: string; title: string; goal: string; last_evidence_at: number; source_refs: string[] };
+type TaskResumeResult = { kind: "task_resume"; status: "ready" | "needs_reconfirmation"; scope: string; task: { id: string; task_ref: string; title: string; goal: string; last_verified_at: number | null; last_evidence_at: number; source_refs: string[]; artifact_refs: string[] }; completed: TaskResumeStateItem[]; pending: TaskResumeStateItem[]; blockers: TaskResumeStateItem[]; next_steps: TaskResumeStateItem[]; decisions: TaskResumeStateItem[]; needs_reconfirmation: TaskResumeStateItem[]; truncated: boolean } | { kind: "task_resume"; status: "ambiguous" | "not_found" | "query_required"; scope: string; candidates: TaskResumeCandidate[]; truncated: boolean };
 
 let graphCursor: string | null = null;
 let entityCursor: string | null = null;
@@ -46,6 +49,7 @@ function bindNavigation(): void {
     for (const item of document.querySelectorAll("nav button")) item.removeAttribute("aria-current");
     button.setAttribute("aria-current", "page");
     if (button.dataset.view === "memory") void loadMemory();
+    if (button.dataset.view === "task-resume") void loadTaskResume();
     if (button.dataset.view === "intelligence") void loadIntelligence();
     if (button.dataset.view === "graph") void loadGraph(true);
     if (button.dataset.view === "sources") { sourcesCursor = null; void loadSources(); }
@@ -56,6 +60,8 @@ function bindNavigation(): void {
 function bindForms(): void {
   $<HTMLFormElement>("#memory-form").addEventListener("submit", event => { event.preventDefault(); void loadMemory(); });
   $<HTMLSelectElement>("#memory-scope").addEventListener("change", () => void loadMemory());
+  $<HTMLFormElement>("#task-resume-form").addEventListener("submit", event => { event.preventDefault(); void loadTaskResume(); });
+  $<HTMLSelectElement>("#task-resume-scope").addEventListener("change", () => void loadTaskResume());
   $<HTMLFormElement>("#intelligence-form").addEventListener("submit", event => { event.preventDefault(); void loadIntelligence(); });
   $<HTMLSelectElement>("#intelligence-scope").addEventListener("change", () => void loadIntelligence());
   $<HTMLFormElement>("#graph-filters").addEventListener("submit", event => { event.preventDefault(); void loadGraph(true); });
@@ -79,7 +85,7 @@ async function showOverview(): Promise<void> {
 async function loadScopes(): Promise<void> {
   const result = await api<ScopeList>("/api/scopes");
   const ids = [...new Set([result.default_scope, ...result.scopes.map(scope => scope.id)])].filter(Boolean);
-  for (const selector of ["#memory-scope", "#intelligence-scope"]) {
+  for (const selector of ["#memory-scope", "#task-resume-scope", "#intelligence-scope"]) {
     const element = $<HTMLSelectElement>(selector), prior = element.value;
     element.replaceChildren(...ids.map(id => {
       const option = document.createElement("option");
@@ -101,6 +107,87 @@ async function loadMemory(): Promise<void> {
   ]);
   renderWorkbench(workbench);
   renderMemoryItems(result);
+}
+
+async function loadTaskResume(): Promise<void> {
+  const form = new FormData($<HTMLFormElement>("#task-resume-form"));
+  const query = String(form.get("query") ?? "").trim(), taskRef = String(form.get("task_ref") ?? "").trim(), limit = Number(form.get("limit") ?? 8);
+  const result = await api<TaskResumeResult>("/api/task-resume", { scope: $<HTMLSelectElement>("#task-resume-scope").value, limit, ...(query ? { query } : {}), ...(taskRef ? { task_ref: taskRef } : {}) });
+  renderTaskResume(result);
+}
+
+function renderTaskResume(result: TaskResumeResult): void {
+  const root = $<HTMLElement>("#task-resume-result");
+  root.replaceChildren();
+  if (!("task" in result)) {
+    root.append(emptyMessage(result.status === "ambiguous" ? "Choose the task to resume. Similar tasks are not merged automatically." : result.status === "query_required" ? "Enter a task query or choose one of the available task records." : "No task record matched this request in the selected scope."));
+    if (result.candidates.length) {
+      const choices = document.createElement("section");
+      choices.className = "resume-list";
+      const heading = document.createElement("h3");
+      heading.textContent = "Task candidates";
+      choices.append(heading);
+      for (const candidate of result.candidates) {
+        const item = document.createElement("article");
+        item.className = "resume-item";
+        const title = document.createElement("h4"), goal = document.createElement("p"), button = document.createElement("button");
+        title.textContent = candidate.title;
+        goal.textContent = candidate.goal;
+        button.type = "button";
+        button.textContent = "Resume this task";
+        button.addEventListener("click", () => {
+          $<HTMLInputElement>('#task-resume-form input[name="task_ref"]').value = candidate.task_ref;
+          void loadTaskResume();
+        });
+        item.append(title, goal, referenceList(candidate.source_refs), button);
+        choices.append(item);
+      }
+      root.append(choices);
+    }
+    return;
+  }
+  const overview = document.createElement("section");
+  overview.className = "resume-list";
+  const title = document.createElement("h3"), goal = document.createElement("p"), meta = document.createElement("p");
+  title.textContent = result.task.title;
+  goal.textContent = result.task.goal;
+  meta.className = "empty-state";
+  meta.textContent = `Last verified: ${result.task.last_verified_at ? new Date(result.task.last_verified_at).toLocaleString() : "Not recorded"}. Last evidence: ${new Date(result.task.last_evidence_at).toLocaleString()}.`;
+  overview.append(title, goal, meta, referenceList([...result.task.source_refs, ...result.task.artifact_refs]));
+  root.append(overview);
+  const columns = document.createElement("div");
+  columns.className = "resume-columns";
+  columns.append(resumeList("Completed", result.completed, "No accepted completed item."), resumeList("Pending", result.pending, "No accepted pending item."), resumeList("Blockers", result.blockers, "No blocker recorded."), resumeList("Next steps", result.next_steps, "No next step is evidenced."), resumeList("Decisions", result.decisions, "No accepted decision."), resumeList("Needs reconfirmation", result.needs_reconfirmation, "No reconfirmation needed."));
+  root.append(columns);
+}
+
+function resumeList(title: string, items: TaskResumeStateItem[], empty: string): HTMLElement {
+  const section = document.createElement("section");
+  section.className = title === "Needs reconfirmation" ? "resume-list resume-attention" : "resume-list";
+  const heading = document.createElement("h3");
+  heading.textContent = title;
+  section.append(heading);
+  if (!items.length) { section.append(emptyMessage(empty)); return section; }
+  for (const value of items) {
+    const item = document.createElement("article");
+    item.className = "resume-item";
+    const text = document.createElement("p");
+    text.textContent = value.text;
+    item.append(text, referenceList(value.source_refs));
+    section.append(item);
+  }
+  return section;
+}
+
+function referenceList(refs: string[]): HTMLElement {
+  const root = document.createElement("div");
+  for (const ref of refs.slice(0, 8)) {
+    const value = document.createElement("code");
+    value.className = "resume-ref";
+    value.textContent = ref;
+    root.append(value);
+  }
+  return root;
 }
 
 function renderWorkbench(value: MemoryWorkbench): void {

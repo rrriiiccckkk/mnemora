@@ -62,7 +62,10 @@ public capabilities and explicit provider adapters.
 
 ## Quick start
 
-Mnemora requires OpenClaw `2026.6.11+` and Node.js `24`.
+Mnemora requires OpenClaw `2026.9.2+` and Node.js `24.15.0+` on the Node 24
+release line (`>=24.15.0 <25`). OpenClaw refuses Node `24.14` and older Node 24
+patches because their embedded SQLite is not safe for WAL. Upgrade Node, then
+restart the OpenClaw process that loads the plugin; do not bypass that check.
 
 ```bash
 git clone https://github.com/rrriiiccckkk/mnemora.git
@@ -108,19 +111,24 @@ mnemora standalone guide
 ### Verify first use
 
 Once Mnemora is selected, use the in-chat `/mnemora verify` flow to confirm
-the installation with evidence from the running plugin rather than from a
-configuration file alone:
+the installation with linked evidence from the running plugin rather than from
+a configuration file alone:
 
-1. In one conversation, share a short fact you would be comfortable testing.
-2. Start a new conversation and ask a specific question about that fact.
-3. Run `/mnemora verify` after the response.
+1. Run `/mnemora verify start`, then include its exact one-hour marker in a
+   short fact in one conversation.
+2. Start a different conversation and ask a specific question containing that
+   same marker.
+3. Run `/mnemora verify` after Mnemora has actually attached the memory.
 
-It reports four plain-language checks: the ContextEngine slot was actually
-activated, a completed turn was saved locally, two conversations are present,
-and automatic context attached memory to a response. The final check uses the
-bounded, redacted `unifiedRetrieval.shadowMode` telemetry shown above; it
-stores only a query hash and counts, never the query or retrieved content. If
-a check is incomplete, the command names the next safe action.
+It reports four plain-language checks: the ContextEngine slot was activated,
+the current marker was durably captured, the linked attachment came from a
+different conversation, and that actual attachment contained the marker.
+Historic event counts and recall telemetry are only baseline diagnostics; they
+cannot complete this acceptance. The bounded `unifiedRetrieval.shadowMode`
+telemetry remains required to observe the attachment. The acceptance ledger
+stores only hashes of the random marker and session identities—not prompts,
+candidate text, event IDs, or retrieved content. If a check is incomplete, the
+command names the next safe action.
 
 ### Inspect and correct memory
 
@@ -131,6 +139,16 @@ Recall explanation panel separates a policy trace (what
 would be retrieved) from a real ContextEngine attachment. The latter is shown
 only when matching, redacted shadow telemetry exists; a routed query is marked
 as not comparable rather than treated as proof of attachment.
+
+### Resume a task
+
+Use `mnemora resume <task query> --scope <scope>` or
+`mnemora resume --task-ref <mnemora-task-episode-ref> --scope <scope>` to read
+a source-linked task projection. The Inspector's **Task resume** view exposes
+the same read-only result. It uses active task Episodes plus confirmed
+Decisions and TaskOutcomes; it returns bounded candidates when the task is
+ambiguous, marks unavailable evidence for reconfirmation, and never starts
+work, changes memory, or changes automatic recall.
 
 When the Inspector is explicitly started with operations enabled, a journal
 event, artifact, episode, or summary can be removed through its item card. The
@@ -506,6 +524,7 @@ source content.
 mnemora inspect
 mnemora surface core
 mnemora retrieve "What decision applies to this project?"
+mnemora resume "deployment migration" --scope project:alpha
 mnemora evaluate recall-quality ./deidentified-golden.json
 ```
 
@@ -529,7 +548,7 @@ npm run verify
 
 The verification suite runs typechecking, unit tests, build, smoke tests,
 plugin validation, compatibility checks, and offline quality benchmarks on
-Node.js 24.
+Node.js 24.19.0 (the supported Node 24 range starts at 24.15.0).
 
 ## License
 

@@ -18,6 +18,7 @@ import { sessionWriteDisposition } from "../journal/session-policy.js";
 import { SummaryRepository, type SummaryNode } from "./summary-repository.js";
 import { ToolPayloadArtifactService } from "../artifacts/tool-payload-service.js";
 import { parseMnemoraContextRef } from "../context/context-ref.js";
+import { FirstUseVerificationRepository } from "../standalone/first-use-repository.js";
 
 type BootstrapParams = Parameters<NonNullable<ContextEngine["bootstrap"]>>[0];
 type IngestParams = Parameters<ContextEngine["ingest"]>[0];
@@ -68,7 +69,15 @@ type DurableCommitTurnParams = {
   runtimeSettings?: unknown;
   runtimeContext?: CompactParams["runtimeContext"];
 };
-type DurableCapture = { advancementKey: string; payloadHash: string; admissionEntryId: string; terminalEntryId: string };
+type DurableCapture = {
+  advancementKey: string;
+  payloadHash: string;
+  agentId: string;
+  admissionEntryId: string;
+  terminalEntryId: string;
+  admissionMessagePosition: number;
+  terminalMessagePosition: number;
+};
 type ContextTurnLifecycle = {
   derivedTaskKinds?(): readonly JournalDerivedTaskKind[];
   onCompletedTurn?(turn: CompletedTurn, receipt: JournalTurnReceipt): Promise<void> | void;
@@ -81,6 +90,23 @@ const estimate = (messages: HostMessage[]) => messages.reduce((total, message) =
 const abort = (signal?: AbortSignal) => { if (signal?.aborted) throw signal.reason ?? new Error("aborted"); };
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 const asHostMessage = (message: RuntimeMessage): HostMessage => message as unknown as HostMessage;
+/** A result in this set proves that Mnemora has not changed the transcript.
+ * `runtime_rewrite_declined` is also safe: the public runtime contract
+ * explicitly returned `changed: false`. Do not add ambiguous or partial
+ * rewrite outcomes here; a second compaction could corrupt host history. */
+const LOCAL_COMPACTION_SAFE_HOST_FALLBACK_REASONS = new Set([
+  "runtime_rewrite_unavailable",
+  "protected_recent_events",
+  "minimum_events_not_reached",
+  "input_budget_exhausted",
+  "no_compaction_candidate",
+  "rate_limited",
+  "daily_budget_exhausted",
+  "circuit_open",
+  "summary_spend_backoff",
+  "summary_call_window_exhausted",
+  "runtime_rewrite_declined"
+]);
 
 /**
  * Public ContextEngine implementation. Host compaction remains the default.
@@ -174,7 +200,7 @@ export class MnemoraContextEngine implements ContextEngine {
     let durablyCommitted = false;
     try {
       graph = this.openGraph();
-      durablyCommitted = this.hasCommittedTurn(graph.store.db, params.sessionId, messages);
+      durablyCommitted = this.hasCommittedTurn(graph.store.db, params.sessionId, start, messages);
       if (!durablyCommitted) receipt = this.capture(graph.store.db, params.sessionId, messages, { isHeartbeat: params.isHeartbeat, baseIndex: start, source: "after_turn" });
     } catch (error) {
       this.reportCaptureFailure("after_turn", messages.length, error);
@@ -220,7 +246,7 @@ export class MnemoraContextEngine implements ContextEngine {
     if (!receipt) return { status: "committed" };
     if (receipt.advancementStatus === "duplicate") return { status: "duplicate" };
 
-    const turn = this.completedTurn(params.sessionId, params.messages, Boolean(params.isHeartbeat), params.runtimeContext?.llm);
+    const turn = this.completedTurn(params.sessionId, params.messages, Boolean(params.isHeartbeat), params.runtimeContext?.llm, undefined, durable.agentId);
     if (turn && !params.isHeartbeat) try { await this.lifecycle.onCompletedTurn?.(turn, receipt); } catch { /* derived work never revokes an accepted host turn */ }
     if (!params.isHeartbeat) await this.proactiveCompact({ sessionId: params.sessionId, runtimeContext: params.runtimeContext });
     return { status: "committed" };
@@ -287,6 +313,10 @@ export class MnemoraContextEngine implements ContextEngine {
         if (rendered && estimateTextTokens(rendered) <= available) {
           additions.push(rendered);
           attached = true;
+          // This optional acceptance signal has a stricter contract than
+          // aggregate recall telemetry: it requires the same opaque marker in
+          // the request and the actual attached payload, in another session.
+          try { new FirstUseVerificationRepository(graph.store.db).recordActualAttachment({ scope: this.scope(), sessionId: params.sessionId, query: retrievalQuery, attachment: rendered }); } catch { /* first-use telemetry never changes recall */ }
           // Only this successful public ContextEngine attachment counts as a
           // recall. Search, shadow diagnostics, graph expansion, and a prompt
           // that did not fit are intentionally not lifecycle signals.
@@ -326,6 +356,13 @@ export class MnemoraContextEngine implements ContextEngine {
     const options = this.config.contextEngine?.compaction;
     if (!options?.enabled) return await this.delegate(params);
     const result = await this.runLocalCompaction(params.sessionId, params.runtimeContext, params.abortSignal);
+    // `compact()` is the host's foreground overflow-recovery path. Local
+    // compaction can intentionally decline (for example, its fresh-tail or
+    // min-event guard can leave no safe candidate). That must not turn into a
+    // terminal no-op merely because Mnemora owns compaction. Delegate only when
+    // the result proves the host transcript was not changed; ambiguity remains
+    // local for explicit reconciliation rather than risking double compaction.
+    if (!result.compacted && LOCAL_COMPACTION_SAFE_HOST_FALLBACK_REASONS.has(result.reason)) return await this.delegate(params);
     return { ok: true, compacted: result.compacted, reason: result.reason, result: { ...(result.summary ? { summary: result.summary } : {}), ...(result.firstKeptEntryId ? { firstKeptEntryId: result.firstKeptEntryId } : {}), tokensBefore: result.tokensBefore, tokensAfter: result.tokensAfter, details: result.details } };
   }
 
@@ -422,7 +459,11 @@ export class MnemoraContextEngine implements ContextEngine {
 
   private captureRequired(db: import("@photostructure/sqlite").DatabaseSyncInstance, sessionId: string, messages: readonly RuntimeMessage[], options: { isHeartbeat?: boolean; baseIndex: number; source: string; durable?: DurableCapture }): JournalTurnReceipt | undefined {
     if (!Array.isArray(messages) || messages.length < 1 || messages.length > 512) throw new Error("invalid_journal_turn");
-    if (sessionWriteDisposition(sessionId, this.config.conversationJournal) !== "writable" || this.isExcludedAgent(this.activeAgentId(messages))) return undefined;
+    // A durable admission is the authoritative public host identity. Message
+    // envelopes remain useful only for legacy callbacks, where no admission
+    // identity exists to validate against the configured exclusion policy.
+    const agentId = options.durable?.agentId ?? this.activeAgentId(messages);
+    if (sessionWriteDisposition(sessionId, this.config.conversationJournal) !== "writable" || this.isExcludedAgent(agentId)) return undefined;
     const repository = new ConversationEventRepository(db, this.policy());
     repository.enforceRetention(this.config.conversationJournal?.retentionDays ?? 0, Date.now(), this.scope());
     repository.cancelUnsupportedDerivedTasks(this.scope(), ["summary_l1", "summary_l2"]);
@@ -436,29 +477,48 @@ export class MnemoraContextEngine implements ContextEngine {
     const receipt = repository.captureTurn({
       scope: this.scope(), sessionId, hostCorrelation: correlation, events: inputs,
       derivedTaskKinds: this.lifecycle.derivedTaskKinds?.() ?? [],
-      ...(options.durable ? { advancement: { key: options.durable.advancementKey, payloadHash: options.durable.payloadHash, admissionEntryId: options.durable.admissionEntryId, terminalEntryId: options.durable.terminalEntryId } } : {})
+      ...(options.durable ? { advancement: {
+        key: options.durable.advancementKey, payloadHash: options.durable.payloadHash,
+        admissionEntryId: options.durable.admissionEntryId, terminalEntryId: options.durable.terminalEntryId,
+        admissionMessagePosition: options.durable.admissionMessagePosition, terminalMessagePosition: options.durable.terminalMessagePosition
+      } } : {})
     });
-    if (receipt.inserted) new ToolPayloadArtifactService(this.config, db).archiveCaptured(this.scope(), receipt.events, messages.map(asHostMessage));
+    if (receipt.inserted) {
+      new ToolPayloadArtifactService(this.config, db).archiveCaptured(this.scope(), receipt.events, messages.map(asHostMessage));
+      // Only a successfully committed user turn can become an acceptance
+      // source. The marker itself and session id are hashed inside the ledger.
+      try {
+        const texts = messages.flatMap(message => {
+          const host = asHostMessage(message);
+          return contextDomain(host) === "user_chat" && String(host.role ?? "").toLowerCase() === "user" ? [messageText(host, 16_384)] : [];
+        });
+        new FirstUseVerificationRepository(db).recordCapture({ scope: this.scope(), sessionId, texts });
+      } catch { /* acceptance observation never changes durable capture */ }
+    }
     return receipt;
   }
 
-  private hasCommittedTurn(db: import("@photostructure/sqlite").DatabaseSyncInstance, sessionId: string, messages: readonly RuntimeMessage[]): boolean {
+  private hasCommittedTurn(db: import("@photostructure/sqlite").DatabaseSyncInstance, sessionId: string, baseIndex: number, messages: readonly RuntimeMessage[]): boolean {
     const terminal = messages.length ? asHostMessage(messages[messages.length - 1]!) : undefined;
     const terminalEntryId = terminal && typeof terminal.id === "string" ? terminal.id.trim() : "";
-    return terminalEntryId.length > 0 && terminalEntryId.length <= 512 && !/[\u0000-\u001f]/.test(terminalEntryId)
-      ? new ConversationEventRepository(db, this.policy()).hasCommittedTurnAdvancement(this.scope(), sessionId, terminalEntryId)
-      : false;
+    const hasTerminalEntryId = terminalEntryId.length > 0 && terminalEntryId.length <= 512 && !/[\u0000-\u001f]/.test(terminalEntryId);
+    return new ConversationEventRepository(db, this.policy()).hasCommittedTurnAdvancement(this.scope(), sessionId, {
+      ...(hasTerminalEntryId ? { terminalEntryId } : {}),
+      admissionMessagePosition: baseIndex,
+      terminalMessagePosition: baseIndex + messages.length - 1
+    });
   }
 
   private validateDurableTurn(params: DurableCommitTurnParams): DurableCapture & { admission: DurableTurnAdmission } {
     const field = (value: unknown): string | undefined => typeof value === "string" && value.trim().length > 0 && value.trim().length <= 512 && !/[\u0000-\u001f]/.test(value) ? value.trim() : undefined;
     const validPosition = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
     const key = field(params.advancementKey), admission = params.admission, terminal = params.terminal;
+    const admissionAgentId = admission && this.normalizePublicAgentId(admission.agentId), terminalAgentId = terminal && this.normalizePublicAgentId(terminal.agentId);
     if (!key || !Array.isArray(params.messages) || params.messages.length < 1 || params.messages.length > 512 || !admission || !terminal ||
       !field(params.sessionId) || !field(admission.logicalTurnId) || admission.logicalTurnId !== key ||
-      !field(admission.agentId) || !field(admission.sessionId) || admission.sessionId !== params.sessionId || !field(admission.sessionKey) ||
+      !admissionAgentId || !field(admission.sessionId) || admission.sessionId !== params.sessionId || !field(admission.sessionKey) ||
       (params.sessionKey !== undefined && params.sessionKey !== admission.sessionKey) || !field(admission.storePath) || !field(admission.entryId) ||
-      !field(terminal.agentId) || terminal.agentId !== admission.agentId || !field(terminal.sessionId) || terminal.sessionId !== admission.sessionId ||
+      !terminalAgentId || terminalAgentId !== admissionAgentId || !field(terminal.sessionId) || terminal.sessionId !== admission.sessionId ||
       !field(terminal.sessionKey) || terminal.sessionKey !== admission.sessionKey || !field(terminal.storePath) || terminal.storePath !== admission.storePath ||
       !field(terminal.entryId) || !validPosition(admission.activeMessagePosition) || !validPosition(terminal.activeMessagePosition) ||
       terminal.activeMessagePosition < admission.activeMessagePosition || params.messages.length !== terminal.activeMessagePosition - admission.activeMessagePosition + 1 ||
@@ -466,9 +526,12 @@ export class MnemoraContextEngine implements ContextEngine {
     return {
       advancementKey: key,
       payloadHash: durablePayloadHash({ advancementKey: key, admission, terminal, messages: params.messages, sessionId: params.sessionId, sessionKey: params.sessionKey, isHeartbeat: params.isHeartbeat === true }),
+      agentId: admissionAgentId,
       admissionEntryId: admission.entryId,
       terminalEntryId: terminal.entryId,
-      admission
+      admissionMessagePosition: admission.activeMessagePosition,
+      terminalMessagePosition: terminal.activeMessagePosition,
+      admission: { ...admission, agentId: admissionAgentId }
     };
   }
 
@@ -478,7 +541,7 @@ export class MnemoraContextEngine implements ContextEngine {
     try { this.lifecycle.onCaptureFailure?.({ source, category, messageCount: Math.max(0, Math.min(512, Number.isFinite(messageCount) ? Math.floor(messageCount) : 0)) }); } catch { /* observability must remain fail-open */ }
   }
 
-  private completedTurn(sessionId: string, messages: readonly RuntimeMessage[], isHeartbeat: boolean, runtimeLlm?: import("./lifecycle.js").RuntimeCompletion, signal?: AbortSignal): CompletedTurn | undefined {
+  private completedTurn(sessionId: string, messages: readonly RuntimeMessage[], isHeartbeat: boolean, runtimeLlm?: import("./lifecycle.js").RuntimeCompletion, signal?: AbortSignal, trustedAgentId?: string): CompletedTurn | undefined {
     if (isHeartbeat) return undefined;
     let userText: string | undefined, assistantText: string | undefined, agentId: string | undefined;
     for (const message of messages) {
@@ -490,7 +553,8 @@ export class MnemoraContextEngine implements ContextEngine {
       if (role === "user") { userText = text; assistantText = undefined; agentId = this.publicAgentId(host); }
       else if (role === "assistant") assistantText = text.replace(/<(?:mnemora_graph_context|mnemora_memory)\b[^>]*>[\s\S]*?<\/(?:mnemora_graph_context|mnemora_memory)>/gi, "").trim() || undefined;
     }
-    return userText && assistantText ? { sessionId, userText, assistantText, ...(agentId ? { agentId } : {}), ...(runtimeLlm ? { runtimeLlm } : {}), ...(signal ? { signal } : {}) } : undefined;
+    const completedAgentId = trustedAgentId ?? agentId;
+    return userText && assistantText ? { sessionId, userText, assistantText, ...(completedAgentId ? { agentId: completedAgentId } : {}), ...(runtimeLlm ? { runtimeLlm } : {}), ...(signal ? { signal } : {}) } : undefined;
   }
 
   /**
@@ -499,7 +563,10 @@ export class MnemoraContextEngine implements ContextEngine {
    * no identity for exclusion policy purposes.
    */
   private publicAgentId(message: HostMessage): string | undefined {
-    const raw = message.agentId ?? message.agent_id;
+    return this.normalizePublicAgentId(message.agentId ?? message.agent_id);
+  }
+
+  private normalizePublicAgentId(raw: unknown): string | undefined {
     if (typeof raw !== "string") return undefined;
     const value = raw.trim().toLowerCase();
     return /^[a-z0-9][a-z0-9_.:-]{0,79}$/.test(value) ? value : undefined;

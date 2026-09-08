@@ -41,7 +41,9 @@ Mnemora 是独立实现，设计上借鉴了 `lossless-claw` 与
 
 ## 快速开始
 
-Mnemora 需要 OpenClaw `2026.6.11+` 和 Node.js `24`。
+Mnemora 需要 OpenClaw `2026.9.2+` 与 Node.js `24.15.0+`，且使用 Node 24
+release line（`>=24.15.0 <25`）。OpenClaw 会拒绝 Node `24.14` 及更低的 Node 24
+补丁版本，因为其内嵌 SQLite 不适合 WAL。请升级 Node 后重启加载插件的 OpenClaw 进程；不要绕过该检查。
 
 ```bash
 git clone https://github.com/rrriiiccckkk/mnemora.git
@@ -85,16 +87,16 @@ mnemora standalone guide
 ### 验收首次使用
 
 在 ContextEngine slot 已选中后，可在对话中运行 `/mnemora verify`，用运行中插件的
-实际证据确认安装，而不是只看配置文件：
+关联证据确认安装，而不是只看配置文件：
 
-1. 在一个对话中写入一条适合测试的简短事实。
-2. 新开一个对话，对该事实提出具体问题。
-3. 回答后运行 `/mnemora verify`。
+1. 运行 `/mnemora verify start`，在一个对话的简短事实中包含它给出的、有效期一小时的精确标记。
+2. 新开一个不同对话，提出包含同一标记的具体问题。
+3. Mnemora 实际附加记忆后，运行 `/mnemora verify`。
 
-它会用四项通俗检查确认：ContextEngine slot 已实际激活、已完成的 turn 已保存到本地、
-已有两个对话、自动上下文已附加记忆。最后一项只依赖上文开启的
-`unifiedRetrieval.shadowMode` 有界脱敏遥测；它只保存 query hash 和计数，不保存 query
-或召回内容。若某项尚未完成，命令会给出下一步安全操作。
+它会用四项通俗检查确认：ContextEngine slot 已实际激活、当前标记已持久化捕获、关联附加来自不同对话、
+该实际附加包含标记。历史事件计数和召回遥测只是基础诊断，不能让验收通过。仍需开启上文的
+`unifiedRetrieval.shadowMode` 有界脱敏遥测来观察附加。验收账本只保存随机标记和会话身份的 hash，
+不保存 prompt、候选文本、event ID 或召回内容。若有检查未完成，命令会给出下一步安全操作。
 
 ### 查看和更正记忆
 
@@ -103,6 +105,11 @@ mnemora standalone guide
 Recall explanation 会明确区分“策略会检索什么”
 和“真实 ContextEngine 是否附加了内容”。后者仅在存在匹配的脱敏 shadow telemetry 时
 显示；若查询经过路由而无法比较，会明确标记为不可比较，不会当作已附加的证明。
+
+### 续接任务
+
+使用 `mnemora resume <任务查询> --scope <scope>`，或
+`mnemora resume --task-ref <mnemora-task-episode-ref> --scope <scope>`，可读取带来源的任务状态投影。Inspector 的 **Task resume** 视图提供相同的只读结果。它只使用活跃的 task Episode、已确认的 Decision 与 TaskOutcome；任务不明确时返回有界候选，来源不可用时标记为需要重新确认，绝不会启动工作、修改记忆或改变自动召回。
 
 只有显式以可操作模式启动 Inspector 时，才可从 Journal event、Artifact、Episode 或
 Summary 卡片移除错误记忆。它会先显示有界的下游影响计数，再接受一次短时有效的明确确认；
@@ -379,6 +386,7 @@ shadow 报告提供聚合的 `semanticCandidates`、`unmatched` 和 `taskTypeExc
 mnemora inspect
 mnemora surface core
 mnemora retrieve "这个项目有哪些既有决策？"
+mnemora resume "部署迁移" --scope project:alpha
 mnemora evaluate recall-quality ./deidentified-golden.json
 ```
 
@@ -394,7 +402,7 @@ Mnemora 是本地记忆运行时，不是会自动构建人格画像的系统。
 npm run verify
 ```
 
-该命令在 Node.js 24 上执行 typecheck、单元测试、构建、smoke、插件校验、兼容性校验和离线质量基准。
+该命令在 Node.js 24.19.0 上执行 typecheck、单元测试、构建、smoke、插件校验、兼容性校验和离线质量基准（支持的 Node 24 范围从 24.15.0 开始）。
 
 ## 许可证
 

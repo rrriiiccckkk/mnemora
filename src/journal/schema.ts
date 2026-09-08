@@ -92,12 +92,14 @@ CREATE TABLE IF NOT EXISTS mnemora_turn_advancements (
   advancement_key TEXT PRIMARY KEY, payload_hash TEXT NOT NULL,
   scope TEXT NOT NULL, session_id TEXT NOT NULL, receipt_id TEXT NOT NULL,
   admission_entry_id TEXT NOT NULL, terminal_entry_id TEXT NOT NULL,
+  admission_message_position INTEGER NOT NULL, terminal_message_position INTEGER NOT NULL,
   message_count INTEGER NOT NULL CHECK(message_count>=1), created_at INTEGER NOT NULL,
   UNIQUE(scope,receipt_id),
-  CHECK(length(advancement_key)<=512 AND length(payload_hash)=64 AND length(admission_entry_id)<=512 AND length(terminal_entry_id)<=512),
+  CHECK(length(advancement_key)<=512 AND length(payload_hash)=64 AND length(admission_entry_id)<=512 AND length(terminal_entry_id)<=512 AND admission_message_position>=0 AND terminal_message_position>=admission_message_position),
   FOREIGN KEY(receipt_id) REFERENCES mnemora_capture_receipts(id), FOREIGN KEY(scope) REFERENCES kg_scopes(id)
 );
 CREATE INDEX IF NOT EXISTS idx_mnemora_turn_advancements_terminal ON mnemora_turn_advancements(scope,session_id,terminal_entry_id);
+CREATE INDEX IF NOT EXISTS idx_mnemora_turn_advancements_positions ON mnemora_turn_advancements(scope,session_id,admission_message_position,terminal_message_position);
 CREATE INDEX IF NOT EXISTS idx_mnemora_derived_tasks_recovery ON mnemora_derived_tasks(scope,status,lease_expires_at,created_at);
 -- Public-provider migration state deliberately contains references and hashes
 -- only. Provider content is never copied into migration metadata.

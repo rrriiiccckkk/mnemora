@@ -34,6 +34,7 @@ import { ReasoningMemoryEmbeddingRepository } from "./cognition/reasoning-semant
 import { createEmbedder } from "./embeddings.js";
 import { RecallFeedbackRepository, ReflectionService, type RecallFeedbackKind } from "./cognition/reflection.js";
 import { CognitionGraduationService } from "./cognition/graduation.js";
+import { TaskResumeService } from "./task-resume/service.js";
 import { EvaluationRunner, serializeEvaluationReport, validateEvaluationDataset } from "./evaluation/index.js";
 import { GraphReviewDecisionGate } from "./graph-review/decision-gate.js";
 
@@ -86,6 +87,7 @@ async function main(): Promise<void> {
     else if (command === "review") printOperator(`review.${args[0] ?? "help"}`, reviewCommand(graph, args));
     else if (command === "consolidation") printOperator(`consolidation.${args[0] ?? "help"}`, consolidationCommand(graph, args));
     else if (command === "cognition") printOperator(`cognition.${args[0] ?? "help"}`, await cognitionCommand(graph, args));
+    else if (command === "resume") printOperator("resume.read", taskResumeCommand(graph, args));
     else if (command === "trust" || command === "profile" || command === "recall" || command === "governance") printOperator(`${command}.${args[0] ?? "help"}`, await operator(graph, command, args));
     else { console.error(usage()); process.exitCode = 1; }
   } catch (error) { fail(`${command ?? "help"}.${args[0] ?? ""}`.replace(/\.$/, ""), error); }
@@ -244,6 +246,19 @@ function consolidationCommand(graph: Mnemora, raw: string[]): unknown {
     throw new CliError("invalid_arguments");
   }
   throw new CliError("invalid_arguments");
+}
+
+/** Explicit, read-only task continuation. It never changes recall or schedules work. */
+function taskResumeCommand(graph: Mnemora, raw: string[]): unknown {
+  const { positional, options } = parseOptions(raw);
+  if (Object.keys(options).some(key => !["scope", "limit", "task-ref"].includes(key))) throw new CliError("invalid_arguments");
+  const query = positional.join(" ").trim(), limit = boundedLimit(option(options, "limit"));
+  return new TaskResumeService(graph.store.db).resume({
+    scope: option(options, "scope") ?? process.env.SCOPE ?? "default",
+    ...(query ? { query } : {}),
+    ...(option(options, "task-ref") ? { taskRef: option(options, "task-ref") } : {}),
+    ...(limit ? { limit } : {})
+  });
 }
 
 async function cognitionCommand(graph: Mnemora, raw: string[]): Promise<unknown> {
@@ -616,7 +631,7 @@ function recallCommand(graph: Mnemora, command: string | undefined, args: string
 
 function parseOptions(args: string[]): { positional: string[]; options: Record<string, string | true> } {
   const positional: string[] = [], options: Record<string, string | true> = {};
-  const values = new Set(["scope", "limit", "preview-hash", "issued-by", "token-budget", "max-items", "historical-at", "stale-after-days", "min-age-days", "adapter", "status", "after-id"]);
+  const values = new Set(["scope", "limit", "task-ref", "preview-hash", "issued-by", "token-budget", "max-items", "historical-at", "stale-after-days", "min-age-days", "adapter", "status", "after-id"]);
   for (let index = 0; index < args.length; index++) {
     const item = args[index];
     if (!item.startsWith("--")) { positional.push(item); continue; }
@@ -661,4 +676,4 @@ async function inspect(allowOperations: boolean): Promise<void> {
 function print(value: unknown): void { console.log(JSON.stringify(value, null, 2)); }
 function printOperator(command: string, result: unknown): void { console.log(JSON.stringify({ ok: true, command, result })); }
 function fail(command: string, error: unknown): void { console.error(JSON.stringify({ ok: false, command, error: { code: error instanceof CliError ? error.code : "operation_failed" } })); process.exitCode = 1; }
-function usage(): string { return "Usage: mnemora <ingest|search|related|stats|forget|inspect|surface|trust|profile|recall|governance|journal|retrieve|evaluate|memory-impact|review|standalone|consolidation|cognition> [...]. Operator commands return structured JSON; use `review gate --scope <scope>`, `review worklist --scope <scope> --status <pending|rejected|invalidated>`, `review vocabulary scan --scope <scope>`, `review vocabulary list --scope <scope> --status <pending|accepted|rejected>`, `review vocabulary preview <candidate_id> <accepted|rejected> --scope <scope>`, `review vocabulary confirm <candidate_id> <accepted|rejected> --scope <scope> --preview-hash <hash> --confirm`, `review anomalies preview <edge_id> --scope <scope>`, `review anomalies confirm <edge_id> --scope <scope> --preview-hash <hash> --confirm`, `journal compaction prepared`, `journal compaction reconcile <run_id> <rewrite_confirmed|rewrite_not_applied> --confirm`, `cognition status`, `cognition graduation status`, `cognition context compile <query>`, `cognition reflection preview`, `cognition feedback list`, `cognition decision list`, `cognition decision create <objective>`, `consolidation status`, `consolidation adopt preview <proposal_id>`, `consolidation adopt apply <proposal_id> --preview-hash <hash> --confirm`, `standalone guide`, `retrieve <query>`, `evaluate recall-quality <deidentified-golden.json>`, or `memory-impact preview <event|artifact|episode|summary> <id>`. Reflection, feedback, consolidation adoption, vocabulary review, and anomaly cleanup require explicit confirmation; Decision creation also requires a preview hash."; }
+function usage(): string { return "Usage: mnemora <ingest|search|related|stats|forget|inspect|surface|trust|profile|recall|governance|journal|retrieve|resume|evaluate|memory-impact|review|standalone|consolidation|cognition> [...]. Operator commands return structured JSON; use `resume <task query> --scope <scope>` or `resume --task-ref <mnemora-task-episode-ref> --scope <scope>` for a read-only, source-linked task continuation; `review gate --scope <scope>`, `review worklist --scope <scope> --status <pending|rejected|invalidated>`, `review vocabulary scan --scope <scope>`, `review vocabulary list --scope <scope> --status <pending|accepted|rejected>`, `review vocabulary preview <candidate_id> <accepted|rejected> --scope <scope>`, `review vocabulary confirm <candidate_id> <accepted|rejected> --scope <scope> --preview-hash <hash> --confirm`, `review anomalies preview <edge_id> --scope <scope>`, `review anomalies confirm <edge_id> --scope <scope> --preview-hash <hash> --confirm`, `journal compaction prepared`, `journal compaction reconcile <run_id> <rewrite_confirmed|rewrite_not_applied> --confirm`, `cognition status`, `cognition graduation status`, `cognition context compile <query>`, `cognition reflection preview`, `cognition feedback list`, `cognition decision list`, `cognition decision create <objective>`, `consolidation status`, `consolidation adopt preview <proposal_id>`, `consolidation adopt apply <proposal_id> --preview-hash <hash> --confirm`, `standalone guide`, `retrieve <query>`, `evaluate recall-quality <deidentified-golden.json>`, or `memory-impact preview <event|artifact|episode|summary> <id>`. Reflection, feedback, consolidation adoption, vocabulary review, and anomaly cleanup require explicit confirmation; Decision creation also requires a preview hash."; }

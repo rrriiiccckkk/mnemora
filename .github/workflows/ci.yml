@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        node: [24]
+        node: ["24.19.0"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

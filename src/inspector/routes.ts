@@ -11,6 +11,7 @@ export interface InspectorGraphApi {
   scopes(): unknown;
   memory(input?: unknown): unknown;
   memoryWorkbench(input?: unknown): unknown;
+  taskResume(input?: unknown): unknown;
   intelligence(input?: unknown): unknown | Promise<unknown>;
   healthSummary(): unknown;
   capabilities?(): unknown;
@@ -40,6 +41,8 @@ export function inspectorRoutes(graph: InspectorGraphApi, allowOperations: boole
   routes.set("POST /api/memory", (_q, r, body) => json(r, 200, graph.memory(body)));
   routes.set("GET /api/memory-workbench", (_q, r) => json(r, 200, graph.memoryWorkbench()));
   routes.set("POST /api/memory-workbench", (_q, r, body) => json(r, 200, graph.memoryWorkbench(body)));
+  routes.set("GET /api/task-resume", (_q, r) => json(r, 200, graph.taskResume()));
+  routes.set("POST /api/task-resume", (_q, r, body) => json(r, 200, graph.taskResume(body)));
   routes.set("GET /api/intelligence", async (_q, r) => json(r, 200, await graph.intelligence()));
   routes.set("POST /api/intelligence", async (_q, r, body) => json(r, 200, await graph.intelligence(body)));
   routes.set("GET /api/health", (_q, r) => json(r, 200, graph.healthSummary()));

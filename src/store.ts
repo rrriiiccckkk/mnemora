@@ -42,6 +42,7 @@ import { recallLifecycleOptionalRestoreTables, recallLifecycleSchemaSql } from "
 import { corpusOptionalRestoreTables, corpusSchemaSql } from "./corpus/schema.js";
 import { memoryLifecycleSchemaSql } from "./memory-lifecycle/schema.js";
 import { unifiedRecallShadowSchemaSql } from "./retrieval/schema.js";
+import { firstUseVerificationSchemaSql } from "./standalone/first-use-schema.js";
 import { relatedEdgeRefinementOptionalRestoreTables, relatedEdgeRefinementSchemaSql } from "./related-edge-refinement/schema.js";
 import { relatedEdgeSemanticOptionalRestoreTables, relatedEdgeSemanticSchemaSql } from "./related-edge-semantics/schema.js";
 import { graphReviewOptionalRestoreTables, graphReviewSchemaSql } from "./graph-review/schema.js";
@@ -106,7 +107,7 @@ export class GraphologyStore {
     this.semanticPatterns = new SemanticPatternRepository(this.db);
     this.recovery = new DatabaseRecoveryService({
       db: this.db,
-      optionalNewTables: ["kg_scopes", "kg_memory_documents", "kg_memory_chunks", "kg_memory_lifecycle_audits", "kg_memory_import_previews", "kg_memory_import_audits", "kg_entity_identities", "kg_schema_quarantine", "mnemora_turn_advancements", ...schemaDriftOptionalRestoreTables, ...semanticOptionalRestoreTables, ...relatedEdgeRefinementOptionalRestoreTables, ...relatedEdgeSemanticOptionalRestoreTables, ...graphReviewOptionalRestoreTables, ...semanticVocabularyOptionalRestoreTables, ...trustOptionalRestoreTables, ...integrationOptionalRestoreTables, ...profileOptionalRestoreTables, ...governanceOptionalRestoreTables, ...consolidationOptionalRestoreTables, ...cognitionOptionalRestoreTables, ...recallLifecycleOptionalRestoreTables, ...corpusOptionalRestoreTables],
+      optionalNewTables: ["kg_scopes", "kg_memory_documents", "kg_memory_chunks", "kg_memory_lifecycle_audits", "kg_memory_import_previews", "kg_memory_import_audits", "kg_entity_identities", "kg_schema_quarantine", "mnemora_turn_advancements", "mnemora_first_use_verifications", ...schemaDriftOptionalRestoreTables, ...semanticOptionalRestoreTables, ...relatedEdgeRefinementOptionalRestoreTables, ...relatedEdgeSemanticOptionalRestoreTables, ...graphReviewOptionalRestoreTables, ...semanticVocabularyOptionalRestoreTables, ...trustOptionalRestoreTables, ...integrationOptionalRestoreTables, ...profileOptionalRestoreTables, ...governanceOptionalRestoreTables, ...consolidationOptionalRestoreTables, ...cognitionOptionalRestoreTables, ...recallLifecycleOptionalRestoreTables, ...corpusOptionalRestoreTables],
       rebuildDerivedData: () => { this.ensureMemoryChunks(); this.entities.rebuild(); }
     });
     this.migrate();
@@ -296,6 +297,8 @@ export class GraphologyStore {
     if (version < 76) this.migrateSchemaDriftReviewV76();
     if (version < 77) this.migrateSchemaDriftVocabularyReconciliationV77();
     if (version < 78) this.migrateDurableTurnAdvancementsV78();
+    if (version < 79) this.migrateDurableTurnAdvancementPositionsV79();
+    if (version < 80) this.migrateFirstUseVerificationV80();
     this.repairCanonicalCorpusFts();
     this.db.exec(`PRAGMA user_version=${SUPPORTED_SCHEMA_VERSION}`);
   }
@@ -475,6 +478,25 @@ export class GraphologyStore {
   /** Schema v78 adds opaque host turn-advancement receipts only. Existing
    * journal events and capture receipts remain authoritative and unchanged. */
   private migrateDurableTurnAdvancementsV78(): void { this.db.exec(journalSchemaSql); }
+
+  /** Schema v79 adds public host message positions to durable advancements.
+   * Old receipts remain valid but cannot suppress an ID-less compatibility
+   * callback because they predate a verifiable public range fence. */
+  private migrateDurableTurnAdvancementPositionsV79(): void {
+    const table = this.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name=?").get("mnemora_turn_advancements") as { value?: unknown } | undefined;
+    if (Number(table?.value ?? 0) === 0) {
+      this.db.exec(journalSchemaSql);
+      return;
+    }
+    const columns = new Set((this.db.prepare("PRAGMA table_info(mnemora_turn_advancements)").all() as Array<{ name?: unknown }>).map(column => String(column.name ?? "")));
+    if (!columns.has("admission_message_position")) this.db.exec("ALTER TABLE mnemora_turn_advancements ADD COLUMN admission_message_position INTEGER");
+    if (!columns.has("terminal_message_position")) this.db.exec("ALTER TABLE mnemora_turn_advancements ADD COLUMN terminal_message_position INTEGER");
+    this.db.exec(journalSchemaSql);
+  }
+
+  /** Schema v80 creates an opaque, short-lived acceptance ledger only. It
+   * never derives a completed verification from prior capture or telemetry. */
+  private migrateFirstUseVerificationV80(): void { this.db.exec(firstUseVerificationSchemaSql); }
 
   /** Schema v58 only adds durable receipts for explicitly confirmed consolidation
    * lifecycle actions. Existing evidence, episodes, and proposals are not

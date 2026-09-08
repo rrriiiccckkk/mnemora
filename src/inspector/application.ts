@@ -12,6 +12,7 @@ import { TrustDashboardService } from "../trust/dashboard.js";
 import { ConsolidationService } from "../consolidation/service.js";
 import { PersonalMemoryInspectorService } from "../personal-memory/service.js";
 import { MemoryIntelligenceService } from "../intelligence/service.js";
+import { TaskResumeService } from "../task-resume/service.js";
 import { InspectorMemoryCorrectionService, type MemoryCorrectionKind } from "./memory-correction.js";
 import { planRecallQuery } from "../retrieval/query-routing.js";
 import type { OperationConfirmRequest, OperationPreviewRequest, OperationResult } from "../operations/types.js";
@@ -31,8 +32,9 @@ export function createInspectorApplication(options: { graph: Mnemora; allowOpera
   const consolidation = new ConsolidationService(options.graph.store.db, options.now);
   const memory = new PersonalMemoryInspectorService(options.graph.store.db, options.now);
   const intelligence = new MemoryIntelligenceService(options.graph.store.db);
+  const taskResume = new TaskResumeService(options.graph.store.db, options.now);
   const base: InspectorApplication = {
-    overview: () => read.overview(), graph: input => read.graph(input), entity: input => read.entity(input), research: input => read.research(input), sources: input => read.sources(input), trust: input => trust.get(input), consolidation: input => { const scope = configuredScope(typeof input === "object" && input !== null && typeof (input as { scope?: unknown }).scope === "string" ? (input as { scope: string }).scope : options.graph.config.scope?.default); return { scope, ...consolidation.metrics(scope), proposals: consolidation.proposals(scope, undefined, 50) }; }, scopes: () => options.graph.kg_scopes(), memory: input => memory.read({ ...(typeof input === "object" && input !== null ? input as Record<string, unknown> : {}), scope: typeof input === "object" && input !== null && typeof (input as { scope?: unknown }).scope === "string" ? (input as { scope: string }).scope : options.graph.config.scope?.default }), memoryWorkbench: input => memory.workbench({ ...(typeof input === "object" && input !== null ? input as Record<string, unknown> : {}), scope: typeof input === "object" && input !== null && typeof (input as { scope?: unknown }).scope === "string" ? (input as { scope: string }).scope : options.graph.config.scope?.default }), intelligence: input => intelligenceView(options.graph, intelligence, input), healthSummary: () => read.healthSummary(), capabilities: () => ({ operations: false })
+    overview: () => read.overview(), graph: input => read.graph(input), entity: input => read.entity(input), research: input => read.research(input), sources: input => read.sources(input), trust: input => trust.get(input), consolidation: input => { const scope = configuredScope(typeof input === "object" && input !== null && typeof (input as { scope?: unknown }).scope === "string" ? (input as { scope: string }).scope : options.graph.config.scope?.default); return { scope, ...consolidation.metrics(scope), proposals: consolidation.proposals(scope, undefined, 50) }; }, scopes: () => options.graph.kg_scopes(), memory: input => memory.read({ ...(typeof input === "object" && input !== null ? input as Record<string, unknown> : {}), scope: typeof input === "object" && input !== null && typeof (input as { scope?: unknown }).scope === "string" ? (input as { scope: string }).scope : options.graph.config.scope?.default }), memoryWorkbench: input => memory.workbench({ ...(typeof input === "object" && input !== null ? input as Record<string, unknown> : {}), scope: typeof input === "object" && input !== null && typeof (input as { scope?: unknown }).scope === "string" ? (input as { scope: string }).scope : options.graph.config.scope?.default }), taskResume: input => taskResume.resume(taskResumeInput(input, options.graph.config.scope?.default)), intelligence: input => intelligenceView(options.graph, intelligence, input), healthSummary: () => read.healthSummary(), capabilities: () => ({ operations: false })
   };
   if (!options.allowOperations) return base;
   const corrections = new InspectorMemoryCorrectionService({ db: options.graph.store.db, now: options.now, randomBytes: options.randomBytes });
@@ -59,6 +61,13 @@ export function createInspectorApplication(options: { graph: Mnemora; allowOpera
     memoryCorrectionPreview: input => corrections.preview(memoryCorrectionPreview(input, options.graph.config.scope?.default)),
     memoryCorrectionConfirm: input => corrections.confirm(memoryCorrectionConfirm(input))
   };
+}
+
+function taskResumeInput(input: unknown, defaultScope: string | undefined): { scope: string; query?: string; taskRef?: string; limit?: number } {
+  if (input !== undefined && (typeof input !== "object" || input === null || Array.isArray(input))) throw new Error("invalid_task_resume");
+  const value = (input ?? {}) as Record<string, unknown>, allowed = new Set(["scope", "query", "task_ref", "limit"]);
+  if (!Object.keys(value).every(key => allowed.has(key)) || value.scope !== undefined && typeof value.scope !== "string" || value.query !== undefined && (typeof value.query !== "string" || value.query.length > 512) || value.task_ref !== undefined && (typeof value.task_ref !== "string" || value.task_ref.length > 1024) || value.limit !== undefined && (typeof value.limit !== "number" || !Number.isInteger(value.limit) || value.limit < 1 || value.limit > 20)) throw new Error("invalid_task_resume");
+  return { scope: typeof value.scope === "string" ? value.scope : configuredScope(defaultScope), ...(typeof value.query === "string" && value.query.trim() ? { query: value.query } : {}), ...(typeof value.task_ref === "string" && value.task_ref ? { taskRef: value.task_ref } : {}), ...(typeof value.limit === "number" ? { limit: value.limit } : {}) };
 }
 
 function memoryCorrectionPreview(input: unknown, defaultScope: string | undefined): { scope?: string; kind: MemoryCorrectionKind; id: string } {

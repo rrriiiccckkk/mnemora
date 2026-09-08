@@ -129,15 +129,34 @@ test("v6.11 replay cleanup migration is additive and preserves existing journal 
   } finally { try { store?.close(); } catch {} try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
 
-test("v78 durable-turn advancement migration is additive and preserves journal evidence", () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-v78-migration-")), dbPath = join(directory, "memory.db"); let store;
+test("v79 durable-turn advancement position migration is additive and preserves journal evidence", () => {
+  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-v79-migration-")), dbPath = join(directory, "memory.db"); let store;
   try {
     store = new GraphologyStore(dbPath);
     new ConversationEventRepository(store.db, policy).append({ scope: "default", sessionId: "s", kind: "user_message", role: "user", parts: [{ type: "text", text: "existing evidence" }] });
-    store.db.exec("DROP INDEX idx_mnemora_turn_advancements_terminal; DROP TABLE mnemora_turn_advancements; PRAGMA user_version=77"); store.close(); store = new GraphologyStore(dbPath);
+    const receiptId = store.db.prepare("SELECT id FROM mnemora_capture_receipts WHERE scope='default' ORDER BY created_at LIMIT 1").get().id;
+    store.db.exec(`DROP INDEX idx_mnemora_turn_advancements_positions;
+      DROP INDEX idx_mnemora_turn_advancements_terminal;
+      DROP TABLE mnemora_turn_advancements;
+      CREATE TABLE mnemora_turn_advancements (
+        advancement_key TEXT PRIMARY KEY, payload_hash TEXT NOT NULL,
+        scope TEXT NOT NULL, session_id TEXT NOT NULL, receipt_id TEXT NOT NULL,
+        admission_entry_id TEXT NOT NULL, terminal_entry_id TEXT NOT NULL,
+        message_count INTEGER NOT NULL CHECK(message_count>=1), created_at INTEGER NOT NULL,
+        UNIQUE(scope,receipt_id),
+        CHECK(length(advancement_key)<=512 AND length(payload_hash)=64 AND length(admission_entry_id)<=512 AND length(terminal_entry_id)<=512),
+        FOREIGN KEY(receipt_id) REFERENCES mnemora_capture_receipts(id), FOREIGN KEY(scope) REFERENCES kg_scopes(id)
+      );
+      CREATE INDEX idx_mnemora_turn_advancements_terminal ON mnemora_turn_advancements(scope,session_id,terminal_entry_id);
+      INSERT INTO mnemora_turn_advancements(advancement_key,payload_hash,scope,session_id,receipt_id,admission_entry_id,terminal_entry_id,message_count,created_at)
+      VALUES('historic-turn','${"0".repeat(64)}','default','s','${receiptId}','historic-user','historic-assistant',1,1);
+      PRAGMA user_version=78`);
+    store.close(); store = new GraphologyStore(dbPath);
     assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
-    assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM mnemora_turn_advancements").get().n, 0);
+    assert.deepEqual(store.db.prepare("PRAGMA table_info(mnemora_turn_advancements)").all().map(row => row.name).filter(name => name.endsWith("message_position")), ["admission_message_position", "terminal_message_position"]);
+    assert.deepEqual({ ...store.db.prepare("SELECT admission_message_position,terminal_message_position FROM mnemora_turn_advancements WHERE advancement_key='historic-turn'").get() }, { admission_message_position: null, terminal_message_position: null });
     assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='index' AND name='idx_mnemora_turn_advancements_terminal'").get().n, 1);
+    assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='index' AND name='idx_mnemora_turn_advancements_positions'").get().n, 1);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM mnemora_conversation_events").get().n, 1);
   } finally { try { store?.close(); } catch {} try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
@@ -385,6 +404,42 @@ test("v6.3 ContextEngine uses the public host LLM and owns compaction only when 
       async rewriteTranscriptEntries(value) { rewrites++; assert.equal(value.replacements.length, 4); return { changed: true, bytesFreed: 10, rewrittenEntries: 4 }; }
     } });
     assert.equal(engine.info.ownsCompaction, true); assert.deepEqual({ ok: result.ok, compacted: result.compacted, reason: result.reason }, { ok: true, compacted: true, reason: "source_linked_incremental_compaction" }); assert.equal(completions, 1); assert.equal(rewrites, 1);
+  } finally { try { rmSync(directory, { recursive: true, force: true }); } catch {} }
+});
+
+test("ContextEngine delegates an overflow compaction only after a local pre-rewrite decline", async () => {
+  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-local-decline-")), dbPath = join(directory, "memory.db");
+  const config = normalizeConfig({ dbPath, mode: "standalone", contextEngine: { enabled: true, protectedRecentEvents: 2, compaction: { enabled: true, minEvents: 4, maxInputChars: 1000, maxOutputChars: 300, timeoutMs: 1000, maxRunsPerHour: 4, maxDailyTokens: 10000 } } });
+  const open = () => { const store = new GraphologyStore(dbPath); return { store, close() { store.close(); } }; };
+  let delegated = 0, rewrites = 0;
+  const engine = new MnemoraContextEngine(config, open, async () => ({ ok: true, compacted: true, reason: `host_delegate_${++delegated}` }));
+  try {
+    await engine.afterTurn({ sessionId: "compact", prePromptMessageCount: 0, messages: Array.from({ length: 4 }, (_value, index) => ({ id: `m${index + 1}`, role: index % 2 ? "assistant" : "user", content: `event ${index + 1}` })) });
+    const result = await engine.compact({ sessionId: "compact", sessionFile: "session.jsonl", runtimeContext: {
+      llm: { async complete() { throw new Error("must not summarize before fallback"); } },
+      async rewriteTranscriptEntries() { rewrites++; return { changed: true }; }
+    } });
+    assert.deepEqual(result, { ok: true, compacted: true, reason: "host_delegate_1" });
+    assert.equal(delegated, 1);
+    assert.equal(rewrites, 0);
+  } finally { try { rmSync(directory, { recursive: true, force: true }); } catch {} }
+});
+
+test("ContextEngine never delegates after an ambiguous local transcript rewrite", async () => {
+  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-local-unknown-")), dbPath = join(directory, "memory.db");
+  const config = normalizeConfig({ dbPath, mode: "standalone", contextEngine: { enabled: true, protectedRecentEvents: 2, compaction: { enabled: true, minEvents: 4, maxInputChars: 1000, maxOutputChars: 300, timeoutMs: 1000, maxRunsPerHour: 4, maxDailyTokens: 10000 } } });
+  const open = () => { const store = new GraphologyStore(dbPath); return { store, close() { store.close(); } }; };
+  let delegated = 0, rewrites = 0;
+  const engine = new MnemoraContextEngine(config, open, async () => ({ ok: true, compacted: true, reason: `host_delegate_${++delegated}` }));
+  try {
+    await engine.afterTurn({ sessionId: "compact", prePromptMessageCount: 0, messages: Array.from({ length: 6 }, (_value, index) => ({ id: `m${index + 1}`, role: index % 2 ? "assistant" : "user", content: `event ${index + 1}` })) });
+    const result = await engine.compact({ sessionId: "compact", sessionFile: "session.jsonl", runtimeContext: {
+      llm: { async complete() { return { text: "safe summary" }; } },
+      async rewriteTranscriptEntries() { rewrites++; throw new Error("host outcome unknown"); }
+    } });
+    assert.deepEqual({ ok: result.ok, compacted: result.compacted, reason: result.reason }, { ok: true, compacted: false, reason: "runtime_rewrite_unknown" });
+    assert.equal(delegated, 0);
+    assert.equal(rewrites, 1);
   } finally { try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
 
@@ -814,6 +869,77 @@ test("ContextEngine atomically commits an admitted durable turn and rejects a mu
       assert.equal(graph.store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_derived_tasks WHERE kind='auto_extract'").get().value, 1);
     } finally { graph.close(); }
     await assert.rejects(() => engine.commitTurn({ ...params, messages: [...messages.slice(0, 2), { ...messages[2], content: "altered retry" }] }), /turn_advancement_key_collision/);
+  } finally { try { rmSync(directory, { recursive: true, force: true }); } catch {} }
+});
+
+test("ContextEngine uses durable positions to suppress one compatibility callback without message IDs", async () => {
+  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-durable-position-")), dbPath = join(directory, "memory.db");
+  const config = normalizeConfig({ dbPath, contextEngine: { enabled: true } });
+  const completed = [];
+  const open = () => { const store = new GraphologyStore(dbPath); return { store, close() { store.close(); } }; };
+  const lifecycle = { onCompletedTurn: (turn, receipt) => { completed.push({ turn, receipt }); } };
+  const messages = [
+    { role: "user", content: "Remember the project code Cedar.", timestamp: 1 },
+    { role: "assistant", content: "Recorded.", timestamp: 2 }
+  ];
+  const prefix = Array.from({ length: 8 }, (_value, index) => ({ role: "system", content: `history ${index}` }));
+  const admission = { agentId: "main", sessionId: "review-session", sessionKey: "agent:main:review", storePath: "host.sqlite", generation: "gen-1" };
+  const turn = (key, position, entryId) => ({
+    advancementKey: key,
+    admission: { logicalTurnId: key, ...admission, entryId: `${entryId}-user`, activeMessagePosition: position },
+    terminal: { ...admission, entryId: `${entryId}-assistant`, activeMessagePosition: position + 1 },
+    sessionId: "review-session", sessionKey: admission.sessionKey, messages
+  });
+  try {
+    const committed = new MnemoraContextEngine(config, open, undefined, lifecycle);
+    assert.deepEqual(await committed.commitTurn(turn("review-turn-1", 8, "first")), { status: "committed" });
+    // A restarted plugin receives a normal public afterTurn snapshot. Its
+    // accepted messages need not carry the durable transcript entry IDs.
+    const restarted = new MnemoraContextEngine(config, open, undefined, lifecycle);
+    await restarted.afterTurn({ sessionId: "review-session", prePromptMessageCount: 8, messages: [...prefix, ...messages] });
+    // The next same-content turn is a distinct host range and must still be
+    // captured. Position, not content equivalence, identifies the callback.
+    assert.deepEqual(await restarted.commitTurn(turn("review-turn-2", 10, "second")), { status: "committed" });
+    await restarted.afterTurn({ sessionId: "review-session", prePromptMessageCount: 10, messages: [...prefix, ...messages, ...messages] });
+    assert.equal(completed.length, 2);
+    const graph = open();
+    try {
+      assert.equal(graph.store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_conversation_events WHERE session_id='review-session'").get().value, 4);
+      assert.equal(graph.store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_commits WHERE scope='default'").get().value, 2);
+      assert.equal(graph.store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_turn_advancements WHERE session_id='review-session'").get().value, 2);
+    } finally { graph.close(); }
+  } finally { try { rmSync(directory, { recursive: true, force: true }); } catch {} }
+});
+
+test("ContextEngine honors a durable admission agent exclusion without trusting message identity", async () => {
+  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-durable-agent-")), dbPath = join(directory, "memory.db");
+  const config = normalizeConfig({ dbPath, contextEngine: { enabled: true }, recall: { excludedAgentIds: ["worker"] } });
+  const completed = [];
+  const open = () => { const store = new GraphologyStore(dbPath); return { store, close() { store.close(); } }; };
+  const engine = new MnemoraContextEngine(config, open, undefined, { onCompletedTurn: (turn, receipt) => { completed.push({ turn, receipt }); } });
+  const params = (key, sessionId, messages) => ({
+    advancementKey: key,
+    admission: { logicalTurnId: key, agentId: "worker", sessionId, sessionKey: `agent:worker:${sessionId}`, storePath: "host.sqlite", generation: "gen-1", entryId: `${key}-user`, activeMessagePosition: 0 },
+    terminal: { agentId: "worker", sessionId, sessionKey: `agent:worker:${sessionId}`, storePath: "host.sqlite", generation: "gen-1", entryId: `${key}-assistant`, activeMessagePosition: 1 },
+    sessionId, sessionKey: `agent:worker:${sessionId}`, messages
+  });
+  try {
+    assert.deepEqual(await engine.commitTurn(params("excluded-without-message-id", "excluded-a", [
+      { role: "user", content: "Do not persist this durable turn." },
+      { role: "assistant", content: "No durable record." }
+    ])), { status: "committed" });
+    // A message-level claim cannot override the host-admitted worker identity.
+    assert.deepEqual(await engine.commitTurn(params("excluded-conflicting-message-id", "excluded-b", [
+      { role: "user", agentId: "main", content: "Still do not persist this durable turn." },
+      { role: "assistant", content: "No durable record." }
+    ])), { status: "committed" });
+    assert.equal(completed.length, 0);
+    const graph = open();
+    try {
+      assert.equal(graph.store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_conversation_events").get().value, 0);
+      assert.equal(graph.store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_commits").get().value, 0);
+      assert.equal(graph.store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_turn_advancements").get().value, 0);
+    } finally { graph.close(); }
   } finally { try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
 

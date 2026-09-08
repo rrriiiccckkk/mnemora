@@ -68,6 +68,7 @@ export * from "./personal-memory/index.js";
 export * from "./intelligence/index.js";
 export * from "./cognition/index.js";
 export * from "./recall-lifecycle/repository.js";
+export * from "./task-resume/index.js";
 export * from "./identity.js";
 export * from "./hygiene/index.js";
 export * from "./embedding-health/index.js";

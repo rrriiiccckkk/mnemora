@@ -23,6 +23,10 @@ export interface JournalTurnAdvancement {
   payloadHash: string;
   admissionEntryId: string;
   terminalEntryId: string;
+  /** Public host transcript positions fence the legacy callback without
+   * treating repeated message content as one logical turn. */
+  admissionMessagePosition: number;
+  terminalMessagePosition: number;
 }
 export interface JournalTurnCaptureInput { scope: string; sessionId: string; branchId?: string; hostCorrelation: string; events: readonly JournalTurnEventInput[]; derivedTaskKinds?: readonly JournalDerivedTaskKind[]; createdAt?: number; advancement?: JournalTurnAdvancement; }
 export interface JournalDerivedTask { id: string; scope: string; commitId: string; kind: JournalDerivedTaskKind | string; status: "pending" | "running" | "succeeded" | "failed" | "cancelled"; attempts: number; leaseOwner?: string; leaseExpiresAt?: number; deadlineAt?: number; errorCategory?: string; createdAt: number; updatedAt: number; }

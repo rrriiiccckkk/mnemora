@@ -87,19 +87,26 @@ test("first-use verification confirms the selected lifecycle, persisted capture,
   });
   try {
     const engine = result.contextEngines[0].factory({ config: { plugins: { slots: { contextEngine: "mnemora" } } } });
+    const started = await result.commands[0].handler({ args: "verify start" });
+    const marker = started.text.match(/mnemora-verify-[a-f0-9]{32}/i)?.[0];
+    assert.ok(marker);
     await engine.afterTurn({ sessionId: "first-use-note", prePromptMessageCount: 0, messages: [
-      { id: "note", role: "user", content: "My first-use marker is SKY-WREN-438." },
-      { id: "answer", role: "assistant", content: "I will remember SKY-WREN-438." }
+      { id: "note", role: "user", content: `My first-use marker is ${marker}.` },
+      { id: "answer", role: "assistant", content: `I will remember ${marker}.` }
     ] });
-    const assembled = await engine.assemble({ sessionId: "first-use-recall", prompt: "What is SKY-WREN-438?", messages: [{ role: "user", content: "What is SKY-WREN-438?" }], tokenBudget: 800 });
+    const sameSession = await engine.assemble({ sessionId: "first-use-note", prompt: `What is ${marker}?`, messages: [{ role: "user", content: `What is ${marker}?` }], tokenBudget: 800 });
+    assert.equal("systemPromptAddition" in sameSession, true);
+    const awaitingCrossSession = await result.commands[0].handler({ args: "verify" });
+    assert.match(awaitingCrossSession.text, /2\/4 checks complete/i);
+    const assembled = await engine.assemble({ sessionId: "first-use-recall", prompt: `What is ${marker}?`, messages: [{ role: "user", content: `What is ${marker}?` }], tokenBudget: 800 });
     assert.equal("systemPromptAddition" in assembled, true);
     await engine.afterTurn({ sessionId: "first-use-recall", prePromptMessageCount: 0, messages: [
-      { id: "query", role: "user", content: "What is SKY-WREN-438?" },
+      { id: "query", role: "user", content: `What is ${marker}?` },
       { id: "response", role: "assistant", content: "It is your first-use marker." }
     ] });
     const verification = await result.commands[0].handler({ args: "verify" });
     assert.match(verification.text, /4\/4 checks complete/i);
-    assert.doesNotMatch(verification.text, /SKY-WREN-438/);
+    assert.doesNotMatch(verification.text, new RegExp(marker, "i"));
   } finally {
     await result.hooks.find(hook => hook.name === "gateway_stop")?.handler();
     try { rmSync(directory, { recursive: true, force: true }); } catch {}

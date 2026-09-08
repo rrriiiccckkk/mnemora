@@ -61,6 +61,15 @@ pre { overflow: auto; white-space: pre-wrap; color: #bdd0c9; }
 .memory-correction-button { margin-top: 14px; border-color: var(--line); }
 
 .intelligence-result { display: grid; gap: 16px; margin-top: 22px; }
+.task-resume-result { display: grid; gap: 16px; margin-top: 22px; }
+.resume-columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.resume-list { padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: #0c1513; }
+.resume-list h3 { margin-bottom: 10px; }
+.resume-item { padding: 10px 0; border-top: 1px solid var(--line); }
+.resume-item:first-of-type { border-top: 0; }
+.resume-item p { margin: 0; color: var(--muted); }
+.resume-ref { display: block; margin-top: 6px; color: var(--mint); overflow-wrap: anywhere; font: 12px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.resume-attention h3 { color: var(--amber); }
 .recall-overview p { margin: 8px 0; }
 .recall-metrics .card strong { font-size: 24px; }
 .actual-attachment { margin-top: 14px !important; color: var(--mint); }
@@ -73,4 +82,5 @@ pre { overflow: auto; white-space: pre-wrap; color: #bdd0c9; }
   main, header { padding-right: 16px; padding-left: 16px; }
   main > section { padding: 16px; }
   .memory-columns { grid-template-columns: 1fr; }
+  .resume-columns { grid-template-columns: 1fr; }
 }

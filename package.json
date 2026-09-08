@@ -3,6 +3,9 @@
   "version": "1.27.0",
   "description": "Local-first, evidence-first memory runtime for persistent OpenClaw agents.",
   "type": "module",
+  "engines": {
+    "node": ">=24.15.0 <25"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {

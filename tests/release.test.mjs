@@ -22,6 +22,8 @@ test("v1 release metadata is independent and consistently versioned", () => {
   assert.equal(lock.version, pkg.version);
   assert.equal(lock.packages[""].version, pkg.version);
   assert.deepEqual(pkg.bin, { mnemora: "dist/cli.js" });
+  assert.deepEqual(pkg.engines, { node: ">=24.15.0 <25" });
+  assert.deepEqual(lock.packages[""].engines, pkg.engines);
   assert.equal("legacyPluginIds" in manifest, false);
   assert.match(pkg.repository.url, /rrriiiccckkk\/mnemora\.git$/);
   assert.equal(existsSync(new URL(`docs/releases/v${pkg.version}.md`, root)), true);
@@ -42,6 +44,10 @@ test("README is bilingual, concise, and describes the public integration boundar
     assert.doesNotMatch(text, /v(?:2|3|4|5|6)\./);
     assert.doesNotMatch(text, /Mnemora Mnemos|mnemora-mnemos|mnemora-graphology/i);
   }
+  assert.match(readme, /OpenClaw `2026\.9\.2\+` and Node\.js `24\.15\.0\+`/);
+  assert.match(readme, /24\.14/i);
+  assert.match(readmeZh, /OpenClaw `2026\.9\.2\+` 与 Node\.js `24\.15\.0\+`/);
+  assert.match(readmeZh, /24\.14/i);
 });
 
 test("release workflow publishes repository-owned v1 notes after exact-commit CI", () => {

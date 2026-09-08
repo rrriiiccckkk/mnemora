@@ -57,6 +57,7 @@ export class ConversationEventRepository {
     const scope = normalizeScope(input.scope), sessionId = safeId(input.sessionId, ""), branchId = safeId(input.branchId ?? "main", ""), correlation = safeId(input.hostCorrelation, "");
     if (!sessionId || !branchId || !correlation || input.events.length < 1 || input.events.length > 512) throw new Error("invalid_journal_turn");
     const advancement = this.validateAdvancement(input.advancement);
+    if (advancement && input.events.length !== advancement.terminalMessagePosition - advancement.admissionMessagePosition + 1) throw new Error("invalid_turn_advancement");
     const now = input.createdAt ?? Date.now(), receiptId = `turn-receipt:${hash(`${scope}\u0000${correlation}`).slice(0, 48)}`, commitId = `turn-commit:${hash(`${scope}\u0000${correlation}`).slice(0, 48)}`;
     this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -109,10 +110,10 @@ export class ConversationEventRepository {
       this.db.prepare("UPDATE mnemora_capture_receipts SET status='committed',committed_at=? WHERE id=? AND scope=?").run(now, receiptId, scope);
       if (advancement) {
         this.db.prepare(`INSERT INTO mnemora_turn_advancements(
-          advancement_key,payload_hash,scope,session_id,receipt_id,admission_entry_id,terminal_entry_id,message_count,created_at
-        ) VALUES(?,?,?,?,?,?,?,?,?)`).run(
+          advancement_key,payload_hash,scope,session_id,receipt_id,admission_entry_id,terminal_entry_id,admission_message_position,terminal_message_position,message_count,created_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?)`).run(
           advancement.key, advancement.payloadHash, scope, sessionId, receiptId,
-          advancement.admissionEntryId, advancement.terminalEntryId, input.events.length, now
+          advancement.admissionEntryId, advancement.terminalEntryId, advancement.admissionMessagePosition, advancement.terminalMessagePosition, input.events.length, now
         );
       }
       const receipt = this.readTurn(receiptId, commitId, scope, sessionId, branchId);
@@ -231,8 +232,11 @@ export class ConversationEventRepository {
     if (!value) return undefined;
     const key = safeId(value.key, ""), admissionEntryId = safeId(value.admissionEntryId, ""), terminalEntryId = safeId(value.terminalEntryId, "");
     const payloadHash = typeof value.payloadHash === "string" ? value.payloadHash.toLowerCase() : "";
-    if (!key || !admissionEntryId || !terminalEntryId || !/^[a-f0-9]{64}$/.test(payloadHash)) throw new Error("invalid_turn_advancement");
-    return { key, payloadHash, admissionEntryId, terminalEntryId };
+    const admissionMessagePosition = value.admissionMessagePosition, terminalMessagePosition = value.terminalMessagePosition;
+    if (!key || !admissionEntryId || !terminalEntryId || !/^[a-f0-9]{64}$/.test(payloadHash) ||
+      !Number.isSafeInteger(admissionMessagePosition) || admissionMessagePosition < 0 ||
+      !Number.isSafeInteger(terminalMessagePosition) || terminalMessagePosition < admissionMessagePosition) throw new Error("invalid_turn_advancement");
+    return { key, payloadHash, admissionEntryId, terminalEntryId, admissionMessagePosition, terminalMessagePosition };
   }
 
   private readTurn(receiptId: string, commitId: string, scope: string, sessionId: string, branchId: string): Omit<JournalTurnReceipt, "inserted"> {
@@ -301,14 +305,21 @@ export class ConversationEventRepository {
     return { enabled, events: Number(counts.events), sessions: Number(counts.sessions), pendingTasks: Number(pending.value) };
   }
 
-  /** Whether a successful durable host turn already owns this terminal entry.
-   * It enables an older afterTurn callback to remain side-effect free when a
-   * newer host has already called commitTurn for the same logical turn. */
-  hasCommittedTurnAdvancement(scope: string, sessionId: string, terminalEntryId: string): boolean {
-    const terminal = safeId(terminalEntryId, "");
-    if (!terminal) return false;
+  /** Whether a successful durable host turn owns an afterTurn range. Terminal
+   * IDs are preferred when present, while positions safely identify a public
+   * callback whose message projection omitted the envelope entry IDs. */
+  hasCommittedTurnAdvancement(scope: string, sessionId: string, identity: { terminalEntryId?: string; admissionMessagePosition?: number; terminalMessagePosition?: number }): boolean {
+    const terminal = safeId(identity.terminalEntryId ?? "", ""), safeSessionId = safeId(sessionId, "");
+    const admissionMessagePosition = identity.admissionMessagePosition, terminalMessagePosition = identity.terminalMessagePosition;
+    const positions = typeof admissionMessagePosition === "number" && typeof terminalMessagePosition === "number" && Number.isSafeInteger(admissionMessagePosition) && Number.isSafeInteger(terminalMessagePosition) && admissionMessagePosition >= 0 && terminalMessagePosition >= admissionMessagePosition
+      ? { admissionMessagePosition, terminalMessagePosition } : undefined;
+    if (!safeSessionId || (!terminal && !positions)) return false;
+    if (terminal && positions) return Boolean(this.db.prepare(`SELECT 1 FROM mnemora_turn_advancements
+      WHERE scope=? AND session_id=? AND (terminal_entry_id=? OR (admission_message_position=? AND terminal_message_position=?)) LIMIT 1`).get(normalizeScope(scope), safeSessionId, terminal, positions.admissionMessagePosition, positions.terminalMessagePosition));
+    if (terminal) return Boolean(this.db.prepare(`SELECT 1 FROM mnemora_turn_advancements
+      WHERE scope=? AND session_id=? AND terminal_entry_id=? LIMIT 1`).get(normalizeScope(scope), safeSessionId, terminal));
     return Boolean(this.db.prepare(`SELECT 1 FROM mnemora_turn_advancements
-      WHERE scope=? AND session_id=? AND terminal_entry_id=? LIMIT 1`).get(normalizeScope(scope), safeId(sessionId, ""), terminal));
+      WHERE scope=? AND session_id=? AND admission_message_position=? AND terminal_message_position=? LIMIT 1`).get(normalizeScope(scope), safeSessionId, positions!.admissionMessagePosition, positions!.terminalMessagePosition));
   }
 
   /** Read-only first-use signal. It exposes no event IDs, messages, or sources. */
