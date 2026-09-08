@@ -17,6 +17,7 @@ test("v1 release metadata is independent and consistently versioned", () => {
   assert.match(pkg.version, /^1\.\d+\.\d+$/);
   assert.equal(manifest.id, "mnemora");
   assert.equal(manifest.name, "Mnemora");
+  assert.equal(manifest.kind, "context-engine");
   assert.equal(manifest.version, pkg.version);
   assert.equal(lock.name, pkg.name);
   assert.equal(lock.version, pkg.version);

@@ -588,7 +588,7 @@ export class MnemoraContextEngine implements ContextEngine {
     const host = asHostMessage(message);
     const domain = options.isHeartbeat ? "background" : contextDomain(host);
     const rawRole = typeof host.role === "string" ? host.role.toLowerCase() : "";
-    const role: JournalRole | undefined = domain === "user_chat" && rawRole === "user" ? "user" : domain === "user_chat" && rawRole === "assistant" ? "assistant" : domain === "tool" && rawRole === "tool" ? "tool" : domain === "system" ? "system" : undefined;
+    const role: JournalRole | undefined = domain === "user_chat" && rawRole === "user" ? "user" : domain === "user_chat" && rawRole === "assistant" ? "assistant" : domain === "tool" && (rawRole === "tool" || rawRole === "toolresult") ? "tool" : domain === "system" ? "system" : undefined;
     const kind: JournalEventKind = role === "assistant" ? "assistant_message" : role === "tool" ? "tool_result" : role === "user" ? "user_message" : "system_marker";
     return {
       scope: this.scope(),

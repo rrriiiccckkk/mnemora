@@ -14,7 +14,9 @@ export function contextDomain(message: HostMessage): ContextDomain {
   const role = typeof message.role === "string" ? message.role.toLowerCase() : "";
   if (role === "user" || role === "assistant") return "user_chat";
   if (role === "system" || role === "developer" || role === "compactionsummary" || role === "branchsummary") return "system";
-  if (role === "tool") return "tool";
+  // OpenClaw's runtime emits tool completions as `toolResult`; accept the
+  // older `tool` spelling too for historical transcripts and compatible hosts.
+  if (role === "tool" || role === "toolresult") return "tool";
   return "unknown";
 }
 
@@ -72,9 +74,11 @@ export interface BoundedHostMessageSelection {
 
 /**
  * Assemble a safe, fresh tail without rewriting or truncating host messages.
- * The current user message is always preserved verbatim.  Earlier messages
- * are retained newest-first only while they fit, so an advisory configuration
- * cannot quietly turn into an unbounded prompt.
+ * The newest user message and every following eligible message are preserved
+ * verbatim, including an assistant tool call and its `toolResult`. Earlier
+ * messages are retained newest-first only while they fit. An over-budget
+ * current turn is deliberately surfaced to the host rather than broken by
+ * dropping a required tool result.
  */
 export function selectBoundHostMessages(messages: HostMessage[], budget: number): BoundedHostMessageSelection {
   const eligible = promptEligibleMessages(messages);
@@ -85,12 +89,18 @@ export function selectBoundHostMessages(messages: HostMessage[], budget: number)
   }
   const selected = new Set<number>();
   let used = 0;
-  if (currentUser >= 0) {
-    selected.add(currentUser);
-    used = estimateMessageTokens(eligible[currentUser]);
+  const freshStart = currentUser >= 0 ? currentUser : eligible.length;
+  // This is a transaction boundary, not merely a recency preference. The
+  // embedded host reassembles after tool execution; emitting the user prompt
+  // without its following tool-result message makes the provider continue a
+  // tool call with no result. Preserve the entire current-turn suffix even
+  // when it exceeds the advisory budget, matching the host-visible behavior
+  // expected by context engines such as Lossless Claw.
+  for (let index = freshStart; index < eligible.length; index++) {
+    selected.add(index);
+    used += estimateMessageTokens(eligible[index]);
   }
-  for (let index = eligible.length - 1; index >= 0; index--) {
-    if (index === currentUser) continue;
+  for (let index = freshStart - 1; index >= 0; index--) {
     const tokens = estimateMessageTokens(eligible[index]);
     if (used + tokens > maximum) break;
     selected.add(index);

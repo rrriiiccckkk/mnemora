@@ -87,7 +87,10 @@ export class ToolPayloadArtifactService {
   }
 }
 
-function isTool(message: HostMessage): boolean { return message.role?.toLowerCase() === "tool"; }
+function isTool(message: HostMessage): boolean {
+  const role = message.role?.toLowerCase();
+  return role === "tool" || role === "toolresult";
+}
 
 /** Structured/multi-modal payloads remain host-owned. Serializing them here
  * would introduce an unbounded second parser at a trust boundary. */

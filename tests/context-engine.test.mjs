@@ -483,6 +483,18 @@ test("ContextEngine exposes unavoidable active-user overflow without dropping or
   assert.equal(assembled.promptAuthority, "preassembly_may_overflow");
 });
 
+test("ContextEngine preserves OpenClaw toolResult messages in the active-turn suffix", async () => {
+  const config = normalizeConfig({ dbPath: ":memory:", contextEngine: { enabled: true, maxContextTokens: 256 } });
+  const engine = new MnemoraContextEngine(config, () => { const store = new GraphologyStore(":memory:"); return { store, close() { store.close(); } }; });
+  const current = { role: "user", id: "current", content: "Read the command result." };
+  const toolCall = { role: "assistant", content: [{ type: "toolCall", id: "call-1", name: "shell", arguments: "{}" }] };
+  const toolResult = { role: "toolResult", toolCallId: "call-1", toolName: "shell", content: [{ type: "text", text: "x".repeat(2000) }] };
+  const assembled = await engine.assemble({ sessionId: "s", messages: [{ role: "user", content: "older turn" }, current, toolCall, toolResult], tokenBudget: 256 });
+  assert.deepEqual(assembled.messages, [current, toolCall, toolResult]);
+  assert.equal(assembled.estimatedTokens > 256, true);
+  assert.equal(assembled.promptAuthority, "preassembly_may_overflow");
+});
+
 test("ContextEngine preserves the current user message verbatim and never emits a summary prompt", async () => {
   const config = normalizeConfig({ dbPath: ":memory:", contextEngine: { enabled: true, maxContextTokens: 256 } });
   const engine = new MnemoraContextEngine(config, () => { const store = new GraphologyStore(":memory:"); return { store, close() { store.close(); } }; });
@@ -748,7 +760,7 @@ test("v6.25 archives only bounded public tool strings and projects an opaque sou
   const config = normalizeConfig({ dbPath, contextEngine: { enabled: true, maxContextTokens: 8192 }, artifacts: { enabled: true, inlineThresholdChars: 1024, maxArtifactBytes: 32768, toolPayloads: { enabled: true } } });
   const open = () => { const store = new GraphologyStore(config.dbPath); return { store, close() { store.close(); } }; };
   const engine = new MnemoraContextEngine(config, open), payload = `tool output: ${"x".repeat(20000)}`;
-  const messages = [{ id: "tool-user", role: "user", content: "Inspect the generated report" }, { id: "tool-call", role: "assistant", content: "I will inspect it." }, { id: "tool-result", role: "tool", content: payload }];
+  const messages = [{ id: "tool-user", role: "user", content: "Inspect the generated report" }, { id: "tool-call", role: "assistant", content: "I will inspect it." }, { id: "tool-result", role: "toolResult", content: payload }];
   try {
     await engine.afterTurn({ sessionId: "tool-session", prePromptMessageCount: 0, messages });
     const graph = open(); let artifact;
