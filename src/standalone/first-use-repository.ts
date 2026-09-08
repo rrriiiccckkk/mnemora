@@ -24,7 +24,7 @@ export class FirstUseVerificationRepository {
         id,scope,marker_hash,status,started_at,expires_at,updated_at
       ) VALUES(?,?,?,?,?,?,?)`).run(`first-use:${randomUUID()}`, safeScope, digest(marker), "started", now, expiresAt, now);
       this.db.exec(`DELETE FROM mnemora_first_use_verifications WHERE id NOT IN (
-        SELECT id FROM mnemora_first_use_verifications ORDER BY started_at DESC,id DESC LIMIT 1000
+        SELECT id FROM mnemora_first_use_verifications ORDER BY started_at DESC,rowid DESC LIMIT 1000
       )`);
       this.db.exec("COMMIT");
       return { marker, expiresAt };
@@ -54,7 +54,7 @@ export class FirstUseVerificationRepository {
   status(scope: string): FirstUseAcceptance {
     const safeScope = normalizeScope(scope), now = this.now();
     this.db.prepare("UPDATE mnemora_first_use_verifications SET status='expired',updated_at=? WHERE scope=? AND status IN ('started','captured') AND expires_at<?").run(now, safeScope, now);
-    const row = this.db.prepare("SELECT status FROM mnemora_first_use_verifications WHERE scope=? ORDER BY started_at DESC,id DESC LIMIT 1").get(safeScope) as { status?: unknown } | undefined;
+    const row = this.db.prepare("SELECT status FROM mnemora_first_use_verifications WHERE scope=? ORDER BY started_at DESC,rowid DESC LIMIT 1").get(safeScope) as { status?: unknown } | undefined;
     switch (row?.status) {
       case "started": return { state: "awaiting_capture" };
       case "captured": return { state: "awaiting_cross_session_attachment" };
