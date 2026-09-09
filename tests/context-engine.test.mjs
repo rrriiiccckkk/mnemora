@@ -923,6 +923,34 @@ test("ContextEngine uses durable positions to suppress one compatibility callbac
   } finally { try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
 
+test("ContextEngine captures a new afterTurn range when its terminal entry ID differs despite reused positions", async () => {
+  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-reused-position-")), dbPath = join(directory, "memory.db");
+  const config = normalizeConfig({ dbPath, contextEngine: { enabled: true } });
+  const completed = [];
+  const open = () => { const store = new GraphologyStore(dbPath); return { store, close() { store.close(); } }; };
+  const engine = new MnemoraContextEngine(config, open, undefined, { onCompletedTurn: (turn, receipt) => { completed.push({ turn, receipt }); } });
+  const durable = {
+    advancementKey: "first-logical-turn",
+    admission: { logicalTurnId: "first-logical-turn", agentId: "main", sessionId: "position-reuse", sessionKey: "agent:main:position-reuse", storePath: "host.sqlite", generation: "gen-1", entryId: "first-user", activeMessagePosition: 0 },
+    terminal: { agentId: "main", sessionId: "position-reuse", sessionKey: "agent:main:position-reuse", storePath: "host.sqlite", generation: "gen-1", entryId: "first-assistant", activeMessagePosition: 1 },
+    sessionId: "position-reuse", sessionKey: "agent:main:position-reuse",
+    messages: [{ id: "first-user", role: "user", content: "First durable request." }, { id: "first-assistant", role: "assistant", content: "First durable reply." }]
+  };
+  try {
+    assert.deepEqual(await engine.commitTurn(durable), { status: "committed" });
+    await engine.afterTurn({ sessionId: "position-reuse", prePromptMessageCount: 0, messages: [
+      { id: "new-user", role: "user", content: "A distinct request after compaction." },
+      { id: "new-assistant", role: "assistant", content: "A distinct reply after compaction." }
+    ] });
+    assert.equal(completed.length, 2);
+    const graph = open();
+    try {
+      assert.equal(graph.store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_conversation_events WHERE session_id='position-reuse'").get().value, 4);
+      assert.equal(graph.store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_commits WHERE scope='default'").get().value, 2);
+    } finally { graph.close(); }
+  } finally { try { rmSync(directory, { recursive: true, force: true }); } catch {} }
+});
+
 test("ContextEngine honors a durable admission agent exclusion without trusting message identity", async () => {
   const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-durable-agent-")), dbPath = join(directory, "memory.db");
   const config = normalizeConfig({ dbPath, contextEngine: { enabled: true }, recall: { excludedAgentIds: ["worker"] } });
@@ -951,6 +979,32 @@ test("ContextEngine honors a durable admission agent exclusion without trusting 
       assert.equal(graph.store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_conversation_events").get().value, 0);
       assert.equal(graph.store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_commits").get().value, 0);
       assert.equal(graph.store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_turn_advancements").get().value, 0);
+    } finally { graph.close(); }
+  } finally { try { rmSync(directory, { recursive: true, force: true }); } catch {} }
+});
+
+test("ContextEngine carries a durable agent exclusion through a restarted afterTurn callback", async () => {
+  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-excluded-compat-")), dbPath = join(directory, "memory.db");
+  const config = normalizeConfig({ dbPath, contextEngine: { enabled: true }, recall: { excludedAgentIds: ["worker"] } });
+  const completed = [];
+  const open = () => { const store = new GraphologyStore(dbPath); return { store, close() { store.close(); } }; };
+  const messages = [{ role: "user", content: "Do not persist this worker request." }, { role: "assistant", content: "Do not persist this worker reply." }];
+  const durable = {
+    advancementKey: "excluded-compat-turn",
+    admission: { logicalTurnId: "excluded-compat-turn", agentId: "worker", sessionId: "excluded-compat", sessionKey: "agent:worker:excluded-compat", storePath: "host.sqlite", generation: "gen-1", entryId: "excluded-user", activeMessagePosition: 0 },
+    terminal: { agentId: "worker", sessionId: "excluded-compat", sessionKey: "agent:worker:excluded-compat", storePath: "host.sqlite", generation: "gen-1", entryId: "excluded-assistant", activeMessagePosition: 1 },
+    sessionId: "excluded-compat", sessionKey: "agent:worker:excluded-compat", messages
+  };
+  try {
+    const admitted = new MnemoraContextEngine(config, open, undefined, { onCompletedTurn: (turn, receipt) => { completed.push({ turn, receipt }); } });
+    assert.deepEqual(await admitted.commitTurn(durable), { status: "committed" });
+    const restarted = new MnemoraContextEngine(config, open, undefined, { onCompletedTurn: (turn, receipt) => { completed.push({ turn, receipt }); } });
+    await restarted.afterTurn({ sessionId: "excluded-compat", sessionKey: "agent:worker:excluded-compat", prePromptMessageCount: 0, messages });
+    const graph = open();
+    try {
+      assert.equal(completed.length, 0);
+      assert.equal(graph.store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_conversation_events WHERE session_id='excluded-compat'").get().value, 0);
+      assert.equal(graph.store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_derived_tasks").get().value, 0);
     } finally { graph.close(); }
   } finally { try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });

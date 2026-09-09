@@ -10,6 +10,7 @@ const parseParts = (rows: Array<{ payload: string }>): JournalPart[] => rows.map
 const RETENTION_BATCH_SIZE = 256;
 const REPLAY_GUARD_RETENTION_MS = 30 * 86_400_000;
 const REPLAY_GUARD_MAX_PER_SCOPE = 10_000;
+const POSITION_FALLBACK_TTL_MS = 5 * 60_000;
 
 export class ConversationEventRepository {
   constructor(private readonly db: DatabaseSyncInstance, private readonly policy: JournalCapturePolicy) {}
@@ -305,21 +306,56 @@ export class ConversationEventRepository {
     return { enabled, events: Number(counts.events), sessions: Number(counts.sessions), pendingTasks: Number(pending.value) };
   }
 
-  /** Whether a successful durable host turn owns an afterTurn range. Terminal
-   * IDs are preferred when present, while positions safely identify a public
-   * callback whose message projection omitted the envelope entry IDs. */
-  hasCommittedTurnAdvancement(scope: string, sessionId: string, identity: { terminalEntryId?: string; admissionMessagePosition?: number; terminalMessagePosition?: number }): boolean {
+  /** Whether a successful durable host turn owns an afterTurn range. A public
+   * terminal ID is authoritative: a distinct ID is a distinct turn even when
+   * transcript compaction reuses a displayed message position. Positions are
+   * only the compatibility fallback for a projection that omitted entry IDs. */
+  hasCommittedTurnAdvancement(scope: string, sessionId: string, identity: { terminalEntryId?: string; admissionMessagePosition?: number; terminalMessagePosition?: number }, now = Date.now()): boolean {
     const terminal = safeId(identity.terminalEntryId ?? "", ""), safeSessionId = safeId(sessionId, "");
     const admissionMessagePosition = identity.admissionMessagePosition, terminalMessagePosition = identity.terminalMessagePosition;
     const positions = typeof admissionMessagePosition === "number" && typeof terminalMessagePosition === "number" && Number.isSafeInteger(admissionMessagePosition) && Number.isSafeInteger(terminalMessagePosition) && admissionMessagePosition >= 0 && terminalMessagePosition >= admissionMessagePosition
       ? { admissionMessagePosition, terminalMessagePosition } : undefined;
     if (!safeSessionId || (!terminal && !positions)) return false;
-    if (terminal && positions) return Boolean(this.db.prepare(`SELECT 1 FROM mnemora_turn_advancements
-      WHERE scope=? AND session_id=? AND (terminal_entry_id=? OR (admission_message_position=? AND terminal_message_position=?)) LIMIT 1`).get(normalizeScope(scope), safeSessionId, terminal, positions.admissionMessagePosition, positions.terminalMessagePosition));
     if (terminal) return Boolean(this.db.prepare(`SELECT 1 FROM mnemora_turn_advancements
       WHERE scope=? AND session_id=? AND terminal_entry_id=? LIMIT 1`).get(normalizeScope(scope), safeSessionId, terminal));
+    // A projection with no entry IDs cannot prove permanent identity from its
+    // display positions. Retain the public durable range only as a bounded
+    // compatibility bridge for the immediately following legacy callback.
     return Boolean(this.db.prepare(`SELECT 1 FROM mnemora_turn_advancements
-      WHERE scope=? AND session_id=? AND admission_message_position=? AND terminal_message_position=? LIMIT 1`).get(normalizeScope(scope), safeSessionId, positions!.admissionMessagePosition, positions!.terminalMessagePosition));
+      WHERE scope=? AND session_id=? AND admission_message_position=? AND terminal_message_position=? AND created_at>=? LIMIT 1`).get(normalizeScope(scope), safeSessionId, positions!.admissionMessagePosition, positions!.terminalMessagePosition, Math.max(0, now - POSITION_FALLBACK_TTL_MS)));
+  }
+
+  /** Persist no-content coordination for a verified excluded durable turn.
+   * The row expires quickly and exists only to stop its compatibility callback
+   * from losing the durable agent exclusion when messages omit agent metadata. */
+  recordExcludedTurnSuppression(input: { scope: string; sessionId: string; sessionKey: string; terminalEntryId: string; admissionMessagePosition: number; terminalMessagePosition: number; now?: number }): void {
+    const scope = normalizeScope(input.scope), sessionId = safeId(input.sessionId, ""), sessionKey = safeId(input.sessionKey, ""), terminalEntryId = safeId(input.terminalEntryId, "");
+    const admission = input.admissionMessagePosition, terminal = input.terminalMessagePosition, now = input.now ?? Date.now();
+    if (!sessionId || !sessionKey || !terminalEntryId || !Number.isSafeInteger(admission) || admission < 0 || !Number.isSafeInteger(terminal) || terminal < admission) throw new Error("invalid_excluded_turn_suppression");
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.prepare("INSERT OR IGNORE INTO kg_scopes(id,created_at,updated_at) VALUES(?,?,?)").run(scope, now, now);
+      this.db.prepare("DELETE FROM mnemora_excluded_turn_suppressions WHERE expires_at<=?").run(now);
+      this.db.prepare(`INSERT INTO mnemora_excluded_turn_suppressions(
+        scope,session_id,session_key,terminal_entry_id,admission_message_position,terminal_message_position,expires_at,created_at
+      ) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(scope,session_id,terminal_entry_id) DO UPDATE SET
+        session_key=excluded.session_key,admission_message_position=excluded.admission_message_position,terminal_message_position=excluded.terminal_message_position,expires_at=excluded.expires_at,created_at=excluded.created_at`).run(
+        scope, sessionId, sessionKey, terminalEntryId, admission, terminal, now + POSITION_FALLBACK_TTL_MS, now
+      );
+      this.db.exec("COMMIT");
+    } catch (error) { try { this.db.exec("ROLLBACK"); } catch {} throw error; }
+  }
+
+  hasExcludedTurnSuppression(scope: string, sessionId: string, identity: { sessionKey?: string; terminalEntryId?: string; admissionMessagePosition?: number; terminalMessagePosition?: number }, now = Date.now()): boolean {
+    const safeScope = normalizeScope(scope), safeSessionId = safeId(sessionId, ""), terminal = safeId(identity.terminalEntryId ?? "", ""), sessionKey = safeId(identity.sessionKey ?? "", "");
+    const admission = identity.admissionMessagePosition, terminalPosition = identity.terminalMessagePosition;
+    const positions = typeof admission === "number" && typeof terminalPosition === "number" && Number.isSafeInteger(admission) && admission >= 0 && Number.isSafeInteger(terminalPosition) && terminalPosition >= admission;
+    if (!safeSessionId || (!terminal && !(sessionKey && positions))) return false;
+    this.db.prepare("DELETE FROM mnemora_excluded_turn_suppressions WHERE expires_at<=?").run(now);
+    if (terminal) return Boolean(this.db.prepare(`SELECT 1 FROM mnemora_excluded_turn_suppressions
+      WHERE scope=? AND session_id=? AND terminal_entry_id=? AND expires_at>? LIMIT 1`).get(safeScope, safeSessionId, terminal, now));
+    return Boolean(this.db.prepare(`SELECT 1 FROM mnemora_excluded_turn_suppressions
+      WHERE scope=? AND session_id=? AND session_key=? AND admission_message_position=? AND terminal_message_position=? AND expires_at>? LIMIT 1`).get(safeScope, safeSessionId, sessionKey, admission, terminalPosition, now));
   }
 
   /** Read-only first-use signal. It exposes no event IDs, messages, or sources. */

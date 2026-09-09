@@ -17,7 +17,7 @@ type RecallExplanation = { kind: "memory_intelligence"; view: "retrieval"; scope
 type IntelligenceView = { kind: "memory_intelligence"; view: string; scope: string; items: Array<Record<string, unknown>>; truncated: boolean };
 type TaskResumeStateItem = { kind: string; text: string; source_refs: string[]; recorded_at: number };
 type TaskResumeCandidate = { task_ref: string; title: string; goal: string; last_evidence_at: number; source_refs: string[] };
-type TaskResumeResult = { kind: "task_resume"; status: "ready" | "needs_reconfirmation"; scope: string; task: { id: string; task_ref: string; title: string; goal: string; last_verified_at: number | null; last_evidence_at: number; source_refs: string[]; artifact_refs: string[] }; completed: TaskResumeStateItem[]; pending: TaskResumeStateItem[]; blockers: TaskResumeStateItem[]; next_steps: TaskResumeStateItem[]; decisions: TaskResumeStateItem[]; needs_reconfirmation: TaskResumeStateItem[]; truncated: boolean } | { kind: "task_resume"; status: "ambiguous" | "not_found" | "query_required"; scope: string; candidates: TaskResumeCandidate[]; truncated: boolean };
+type TaskResumeResult = { kind: "task_resume"; status: "ready" | "blocked" | "needs_reconfirmation"; scope: string; task: { id: string; task_ref: string; title: string; goal: string; progress: "unknown" | "in_progress" | "blocked" | "completed" | "needs_reconfirmation"; last_verified_at: number | null; last_evidence_at: number; source_refs: string[]; artifact_refs: string[] }; completed: TaskResumeStateItem[]; pending: TaskResumeStateItem[]; blockers: TaskResumeStateItem[]; constraints: TaskResumeStateItem[]; next_steps: TaskResumeStateItem[]; decisions: TaskResumeStateItem[]; planned: TaskResumeStateItem[]; history: TaskResumeStateItem[]; needs_reconfirmation: TaskResumeStateItem[]; truncated: boolean } | { kind: "task_resume"; status: "ambiguous" | "not_found" | "query_required"; scope: string; candidates: TaskResumeCandidate[]; truncated: boolean };
 
 let graphCursor: string | null = null;
 let entityCursor: string | null = null;
@@ -152,12 +152,12 @@ function renderTaskResume(result: TaskResumeResult): void {
   title.textContent = result.task.title;
   goal.textContent = result.task.goal;
   meta.className = "empty-state";
-  meta.textContent = `Last verified: ${result.task.last_verified_at ? new Date(result.task.last_verified_at).toLocaleString() : "Not recorded"}. Last evidence: ${new Date(result.task.last_evidence_at).toLocaleString()}.`;
+  meta.textContent = `Current progress: ${result.task.progress.replaceAll("_", " ")}. Last verified: ${result.task.last_verified_at ? new Date(result.task.last_verified_at).toLocaleString() : "Not recorded"}. Last evidence: ${new Date(result.task.last_evidence_at).toLocaleString()}.`;
   overview.append(title, goal, meta, referenceList([...result.task.source_refs, ...result.task.artifact_refs]));
   root.append(overview);
   const columns = document.createElement("div");
   columns.className = "resume-columns";
-  columns.append(resumeList("Completed", result.completed, "No accepted completed item."), resumeList("Pending", result.pending, "No accepted pending item."), resumeList("Blockers", result.blockers, "No blocker recorded."), resumeList("Next steps", result.next_steps, "No next step is evidenced."), resumeList("Decisions", result.decisions, "No accepted decision."), resumeList("Needs reconfirmation", result.needs_reconfirmation, "No reconfirmation needed."));
+  columns.append(resumeList("Completed", result.completed, "No accepted completed item."), resumeList("Pending", result.pending, "No accepted pending item."), resumeList("Blockers", result.blockers, "No unresolved blocker recorded."), resumeList("Constraints", result.constraints, "No active constraint recorded."), resumeList("Next steps", result.next_steps, "No next step is evidenced."), resumeList("Decisions", result.decisions, "No accepted decision."), resumeList("Planned", result.planned, "No future decision is recorded."), resumeList("History", result.history, "No superseded or inactive history."), resumeList("Needs reconfirmation", result.needs_reconfirmation, "No reconfirmation needed."));
   root.append(columns);
 }
 

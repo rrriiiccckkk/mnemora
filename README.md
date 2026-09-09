@@ -148,7 +148,17 @@ a source-linked task projection. The Inspector's **Task resume** view exposes
 the same read-only result. It uses active task Episodes plus confirmed
 Decisions and TaskOutcomes; it returns bounded candidates when the task is
 ambiguous, marks unavailable evidence for reconfirmation, and never starts
-work, changes memory, or changes automatic recall.
+work, changes memory, or changes automatic recall. A confirmed TaskOutcome can
+optionally cite one exact Decision action and record its state (attempted,
+partial, completed, failed, cancelled, or superseded). Only an explicit link
+can suppress that action from **Next steps**; constraints are separate from
+blockers and superseded action history remains source-linked.
+
+Run `npm run benchmark:task-resume` for the 24-sequence synthetic functional
+evaluation. `mnemora evaluate task-resume-comparison <plan.json>` validates and
+reports the three-arm experiment contract without calling a model. Its bundled
+plan is intentionally reported as `real_effect_experiment_not_run` until an
+authorized, de-identified measurement is supplied.
 
 When the Inspector is explicitly started with operations enabled, a journal
 event, artifact, episode, or summary can be removed through its item card. The

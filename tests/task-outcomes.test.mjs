@@ -15,7 +15,7 @@ test("task outcomes are previewed, evidence-linked, immutable, and scope-bound",
   let now = 10_000;
   const store = new GraphologyStore(":memory:");
   try {
-    assert.equal(SUPPORTED_SCHEMA_VERSION, 80);
+    assert.equal(SUPPORTED_SCHEMA_VERSION, 82);
     const event = new ConversationEventRepository(store.db, policy).append({ scope: "project:a", sessionId: "s", kind: "user_message", role: "user", parts: [{ type: "text", text: "run safe migration" }] });
     const task = new EpisodeRepository(store.db).create({ scope: "project:a", kind: "task", summary: "Run safe migration", sourceEventIds: [event.id], importance: .8, confidence: .9 });
     const taskRef = createMnemoraContextRef({ scope: "project:a", kind: "episode", id: task.id });
@@ -49,6 +49,22 @@ test("schema v41 adds the outcome ledger without rebuilding v40 data", () => {
     try {
       assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
       assert.equal(migrated.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='mnemora_task_outcomes'").get().count, 1);
+    } finally { migrated.close(); }
+  } finally { try { legacy?.close(); } catch {} try { rmSync(path, { force: true }); } catch {} }
+});
+
+test("schema v82 adds nullable action links without rewriting existing outcome history", () => {
+  const path = join(tmpdir(), `mnemora-task-actions-${process.pid}-${Date.now()}.db`);
+  let legacy;
+  try {
+    legacy = new GraphologyStore(path);
+    legacy.db.exec("DROP INDEX IF EXISTS idx_mnemora_task_outcomes_scope_task_action; ALTER TABLE mnemora_task_outcomes DROP COLUMN action_state; ALTER TABLE mnemora_task_outcomes DROP COLUMN action_ref; PRAGMA user_version=81");
+    legacy.close(); legacy = undefined;
+    const migrated = new GraphologyStore(path);
+    try {
+      assert.equal(migrated.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
+      assert.deepEqual(migrated.db.prepare("PRAGMA table_info(mnemora_task_outcomes)").all().map(row => row.name).filter(name => name.startsWith("action_")), ["action_ref", "action_state"]);
+      assert.equal(migrated.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='index' AND name='idx_mnemora_task_outcomes_scope_task_action'").get().count, 1);
     } finally { migrated.close(); }
   } finally { try { legacy?.close(); } catch {} try { rmSync(path, { force: true }); } catch {} }
 });

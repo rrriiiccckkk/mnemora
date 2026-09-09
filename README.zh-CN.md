@@ -109,7 +109,9 @@ Recall explanation 会明确区分“策略会检索什么”
 ### 续接任务
 
 使用 `mnemora resume <任务查询> --scope <scope>`，或
-`mnemora resume --task-ref <mnemora-task-episode-ref> --scope <scope>`，可读取带来源的任务状态投影。Inspector 的 **Task resume** 视图提供相同的只读结果。它只使用活跃的 task Episode、已确认的 Decision 与 TaskOutcome；任务不明确时返回有界候选，来源不可用时标记为需要重新确认，绝不会启动工作、修改记忆或改变自动召回。
+`mnemora resume --task-ref <mnemora-task-episode-ref> --scope <scope>`，可读取带来源的任务状态投影。Inspector 的 **Task resume** 视图提供相同的只读结果。它只使用活跃的 task Episode、已确认的 Decision 与 TaskOutcome；任务不明确时返回有界候选，来源不可用时标记为需要重新确认，绝不会启动工作、修改记忆或改变自动召回。已确认的 TaskOutcome 可显式关联一个确定的 Decision 动作，并记录尝试、部分完成、完成、失败、取消或替代；只有这种显式关联才能把动作移出 **Next steps**。约束与阻塞分开呈现，已替代动作仍保留带来源的历史。
+
+运行 `npm run benchmark:task-resume` 可执行 24 条合成多会话功能序列。`mnemora evaluate task-resume-comparison <plan.json>` 只验证并报告三组对照实验契约，不会调用模型；内置计划会明确显示为 `real_effect_experiment_not_run`，直到获得授权的去标识化测量结果。
 
 只有显式以可操作模式启动 Inspector 时，才可从 Journal event、Artifact、Episode 或
 Summary 卡片移除错误记忆。它会先显示有界的下游影响计数，再接受一次短时有效的明确确认；

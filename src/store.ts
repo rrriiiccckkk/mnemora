@@ -16,7 +16,7 @@ import { artifactSchemaSql } from "./artifacts/schema.js";
 import { episodeSchemaSql } from "./episodes/schema.js";
 import { providerMigrationSchemaSql } from "./integrations/migration-schema.js";
 import { consolidationOptionalRestoreTables, consolidationSchemaSql } from "./consolidation/schema.js";
-import { cognitionBeliefSchemaSql, cognitionDecisionReviewSchemaSql, cognitionDecisionSchemaSql, cognitionEnforcementSchemaSql, cognitionIntegritySchemaSql, cognitionOptionalRestoreTables, cognitionOutcomeSchemaSql, cognitionPreAdmissionSchemaSql, cognitionReasoningCurationSchemaSql, cognitionReasoningDeliveryCorrectionSchemaSql, cognitionReasoningDeliveryFeedbackSchemaSql, cognitionReasoningGovernanceSchemaSql, cognitionReasoningIntakeSchemaSql, cognitionReasoningReflectionSchemaSql, cognitionReasoningRuntimeGovernanceSchemaSql, cognitionReasoningRuntimePolicySnapshotSchemaSql, cognitionReasoningRuntimeTelemetrySchemaSql, cognitionReasoningSchemaSql, cognitionReasoningSemanticSchemaSql, cognitionReasoningVerificationEventsSchemaSql, cognitionReflectionSchemaSql, cognitionSchemaSql } from "./cognition/schema.js";
+import { cognitionBeliefSchemaSql, cognitionDecisionReviewSchemaSql, cognitionDecisionSchemaSql, cognitionEnforcementSchemaSql, cognitionIntegritySchemaSql, cognitionOptionalRestoreTables, cognitionOutcomeSchemaSql, cognitionPreAdmissionSchemaSql, cognitionReasoningCurationSchemaSql, cognitionReasoningDeliveryCorrectionSchemaSql, cognitionReasoningDeliveryFeedbackSchemaSql, cognitionReasoningGovernanceSchemaSql, cognitionReasoningIntakeSchemaSql, cognitionReasoningReflectionSchemaSql, cognitionReasoningRuntimeGovernanceSchemaSql, cognitionReasoningRuntimePolicySnapshotSchemaSql, cognitionReasoningRuntimeTelemetrySchemaSql, cognitionReasoningSchemaSql, cognitionReasoningSemanticSchemaSql, cognitionReasoningVerificationEventsSchemaSql, cognitionReflectionSchemaSql, cognitionSchemaSql, cognitionTaskActionOutcomeSchemaSql } from "./cognition/schema.js";
 import { identityHash, legacyNormalizeSlug, normalizeSlug } from "./slug.js";
 import { cosineSimilarity, decodeEmbedding, encodeEmbedding, type EmbeddingIdentity } from "./embeddings.js";
 import { duplicatePairKey, entityFingerprint, scoreDuplicatePair } from "./resolution.js";
@@ -299,6 +299,8 @@ export class GraphologyStore {
     if (version < 78) this.migrateDurableTurnAdvancementsV78();
     if (version < 79) this.migrateDurableTurnAdvancementPositionsV79();
     if (version < 80) this.migrateFirstUseVerificationV80();
+    if (version < 81) this.migrateLifecycleCoordinationV81();
+    if (version < 82) this.migrateTaskActionOutcomesV82();
     this.repairCanonicalCorpusFts();
     this.db.exec(`PRAGMA user_version=${SUPPORTED_SCHEMA_VERSION}`);
   }
@@ -497,6 +499,16 @@ export class GraphologyStore {
   /** Schema v80 creates an opaque, short-lived acceptance ledger only. It
    * never derives a completed verification from prior capture or telemetry. */
   private migrateFirstUseVerificationV80(): void { this.db.exec(firstUseVerificationSchemaSql); }
+
+  /** Schema v81 adds only short-lived, content-free lifecycle coordination.
+   * It never backfills, replays, or changes any previously captured turn. */
+  private migrateLifecycleCoordinationV81(): void { this.db.exec(journalSchemaSql); }
+  private migrateTaskActionOutcomesV82(): void {
+    const columns = new Set((this.db.prepare("PRAGMA table_info(mnemora_task_outcomes)").all() as Array<{ name: string }>).map(row => row.name));
+    if (!columns.has("action_ref")) this.db.exec("ALTER TABLE mnemora_task_outcomes ADD COLUMN action_ref TEXT CHECK(action_ref IS NULL OR length(action_ref)<=1024)");
+    if (!columns.has("action_state")) this.db.exec("ALTER TABLE mnemora_task_outcomes ADD COLUMN action_state TEXT CHECK(action_state IS NULL OR action_state IN ('attempted','partial','completed','failed','cancelled','superseded'))");
+    this.db.exec(cognitionTaskActionOutcomeSchemaSql);
+  }
 
   /** Schema v58 only adds durable receipts for explicitly confirmed consolidation
    * lifecycle actions. Existing evidence, episodes, and proposals are not

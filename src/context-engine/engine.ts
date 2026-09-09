@@ -73,6 +73,7 @@ type DurableCapture = {
   advancementKey: string;
   payloadHash: string;
   agentId: string;
+  sessionKey: string;
   admissionEntryId: string;
   terminalEntryId: string;
   admissionMessagePosition: number;
@@ -198,9 +199,11 @@ export class MnemoraContextEngine implements ContextEngine {
     let graph: ReturnType<MnemoraContextEngine["openGraph"]> | undefined;
     let receipt: JournalTurnReceipt | undefined;
     let durablyCommitted = false;
+    let suppressedByExclusion = false;
     try {
       graph = this.openGraph();
-      durablyCommitted = this.hasCommittedTurn(graph.store.db, params.sessionId, start, messages);
+      suppressedByExclusion = this.hasExcludedDurableTurn(graph.store.db, params.sessionId, params.sessionKey, start, messages);
+      durablyCommitted = suppressedByExclusion || this.hasCommittedTurn(graph.store.db, params.sessionId, start, messages);
       if (!durablyCommitted) receipt = this.capture(graph.store.db, params.sessionId, messages, { isHeartbeat: params.isHeartbeat, baseIndex: start, source: "after_turn" });
     } catch (error) {
       this.reportCaptureFailure("after_turn", messages.length, error);
@@ -208,6 +211,7 @@ export class MnemoraContextEngine implements ContextEngine {
     // Newer hosts call commitTurn for an accepted durable range before this
     // compatibility callback. Never manufacture a second receipt, extraction,
     // or replay signal from the same range; compaction remains best-effort.
+    if (suppressedByExclusion) return;
     if (durablyCommitted) {
       if (!params.isHeartbeat) await this.proactiveCompact(params);
       return;
@@ -229,6 +233,14 @@ export class MnemoraContextEngine implements ContextEngine {
     let receipt: JournalTurnReceipt | undefined;
     try {
       graph = this.openGraph();
+      if (this.isExcludedAgent(durable.agentId)) {
+        new ConversationEventRepository(graph.store.db, this.policy()).recordExcludedTurnSuppression({
+          scope: this.scope(), sessionId: params.sessionId, sessionKey: durable.sessionKey,
+          terminalEntryId: durable.terminalEntryId, admissionMessagePosition: durable.admissionMessagePosition,
+          terminalMessagePosition: durable.terminalMessagePosition
+        });
+        return { status: "committed" };
+      }
       receipt = this.captureRequired(graph.store.db, params.sessionId, params.messages, {
         isHeartbeat: params.isHeartbeat,
         baseIndex: durable.admission.activeMessagePosition,
@@ -509,6 +521,18 @@ export class MnemoraContextEngine implements ContextEngine {
     });
   }
 
+  private hasExcludedDurableTurn(db: import("@photostructure/sqlite").DatabaseSyncInstance, sessionId: string, sessionKey: string | undefined, baseIndex: number, messages: readonly RuntimeMessage[]): boolean {
+    const terminal = messages.length ? asHostMessage(messages[messages.length - 1]!) : undefined;
+    const terminalEntryId = terminal && typeof terminal.id === "string" ? terminal.id.trim() : "";
+    const hasTerminalEntryId = terminalEntryId.length > 0 && terminalEntryId.length <= 512 && !/[\u0000-\u001f]/.test(terminalEntryId);
+    return new ConversationEventRepository(db, this.policy()).hasExcludedTurnSuppression(this.scope(), sessionId, {
+      ...(typeof sessionKey === "string" ? { sessionKey } : {}),
+      ...(hasTerminalEntryId ? { terminalEntryId } : {}),
+      admissionMessagePosition: baseIndex,
+      terminalMessagePosition: baseIndex + messages.length - 1
+    });
+  }
+
   private validateDurableTurn(params: DurableCommitTurnParams): DurableCapture & { admission: DurableTurnAdmission } {
     const field = (value: unknown): string | undefined => typeof value === "string" && value.trim().length > 0 && value.trim().length <= 512 && !/[\u0000-\u001f]/.test(value) ? value.trim() : undefined;
     const validPosition = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
@@ -527,6 +551,7 @@ export class MnemoraContextEngine implements ContextEngine {
       advancementKey: key,
       payloadHash: durablePayloadHash({ advancementKey: key, admission, terminal, messages: params.messages, sessionId: params.sessionId, sessionKey: params.sessionKey, isHeartbeat: params.isHeartbeat === true }),
       agentId: admissionAgentId,
+      sessionKey: admission.sessionKey,
       admissionEntryId: admission.entryId,
       terminalEntryId: terminal.entryId,
       admissionMessagePosition: admission.activeMessagePosition,

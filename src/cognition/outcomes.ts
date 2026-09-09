@@ -8,8 +8,12 @@ import { ReasoningVerificationService } from "./reasoning-verification.js";
 export type OutcomeVerdict = "success" | "partial" | "failure" | "unknown";
 export type OutcomeImpact = "helpful" | "neutral" | "harmful";
 export type OutcomeStatus = "recorded" | "superseded";
+/** A decision is the explicit planned action; these are its confirmed lifecycle updates. */
+export type TaskActionState = "attempted" | "partial" | "completed" | "failed" | "cancelled" | "superseded";
 const verdicts = new Set<OutcomeVerdict>(["success", "partial", "failure", "unknown"]);
 const impacts = new Set<OutcomeImpact>(["helpful", "neutral", "harmful"]);
+const actionStates = new Set<TaskActionState>(["attempted", "partial", "completed", "failed", "cancelled", "superseded"]);
+const actionVerdicts: Record<TaskActionState, OutcomeVerdict> = { attempted: "unknown", partial: "partial", completed: "success", failed: "failure", cancelled: "unknown", superseded: "unknown" };
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const text = (value: unknown, max: number) => typeof value === "string" && value.trim() ? value.trim().replace(/\s+/g, " ").slice(0, max) : undefined;
 
@@ -22,10 +26,14 @@ export interface TaskOutcomeInput {
   summary?: string;
   evidenceRefs: string[];
   supersedesId?: string;
+  /** Canonical decision reference for the exact chosen action this outcome updates. */
+  actionRef?: string;
+  /** Required with actionRef; task-level outcomes intentionally leave both fields absent. */
+  actionState?: TaskActionState;
 }
 export interface TaskOutcome {
   id: string; scope: string; taskRef: string; verdict: OutcomeVerdict; impact: OutcomeImpact; confidence: number; summary?: string; evidenceRefs: string[];
-  supersedesId?: string; status: OutcomeStatus; recordedAt: number;
+  supersedesId?: string; actionRef?: string; actionState?: TaskActionState; status: OutcomeStatus; recordedAt: number;
 }
 export interface OutcomePreview { status: "preview"; preview_hash: string; outcome: Omit<TaskOutcome, "id" | "status" | "recordedAt">; }
 
@@ -38,11 +46,11 @@ export class TaskOutcomeService {
 
   preview(input: TaskOutcomeInput): OutcomePreview {
     const outcome = this.normalize(input);
-    return { status: "preview", preview_hash: hash({ version: "task-outcome-preview-v1", ...outcome }), outcome };
+    return { status: "preview", preview_hash: hash({ version: "task-outcome-preview-v2", ...outcome }), outcome };
   }
 
   confirm(input: TaskOutcomeInput, previewHash: string): TaskOutcome {
-    const value = this.normalize(input), expected = hash({ version: "task-outcome-preview-v1", ...value });
+    const value = this.normalize(input), expected = hash({ version: "task-outcome-preview-v2", ...value });
     if (!previewHash || previewHash !== expected) throw new Error("invalid_outcome_preview");
     const now = this.now(), outcomeHash = hash({ ...value }), id = `task-outcome:${outcomeHash.slice(0, 40)}`;
     this.db.exec("BEGIN IMMEDIATE");
@@ -52,11 +60,11 @@ export class TaskOutcomeService {
       if (existing) { this.db.exec("COMMIT"); return this.get(existing.id, value.scope)!; }
       if (value.supersedesId) {
         const prior = this.get(value.supersedesId, value.scope);
-        if (!prior || prior.status !== "recorded" || prior.taskRef !== value.taskRef) throw new Error("invalid_outcome_supersession");
+        if (!prior || prior.status !== "recorded" || prior.taskRef !== value.taskRef || prior.actionRef !== value.actionRef) throw new Error("invalid_outcome_supersession");
         this.db.prepare("UPDATE mnemora_task_outcomes SET status='superseded',updated_at=? WHERE id=? AND scope=?").run(now, prior.id, value.scope);
         this.event(value.scope, prior.id, "recorded", "superseded", "SUPERSEDE", "explicit_correction", prior.evidenceRefs, now);
       }
-      this.db.prepare("INSERT INTO mnemora_task_outcomes(id,scope,task_ref,verdict,impact,confidence,summary,evidence_refs_json,supersedes_id,status,outcome_hash,recorded_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?, 'recorded',?,?,?,?)").run(id, value.scope, value.taskRef, value.verdict, value.impact, value.confidence, value.summary ?? null, JSON.stringify(value.evidenceRefs), value.supersedesId ?? null, outcomeHash, now, now, now);
+      this.db.prepare("INSERT INTO mnemora_task_outcomes(id,scope,task_ref,action_ref,action_state,verdict,impact,confidence,summary,evidence_refs_json,supersedes_id,status,outcome_hash,recorded_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?, 'recorded',?,?,?,?)").run(id, value.scope, value.taskRef, value.actionRef ?? null, value.actionState ?? null, value.verdict, value.impact, value.confidence, value.summary ?? null, JSON.stringify(value.evidenceRefs), value.supersedesId ?? null, outcomeHash, now, now, now);
       this.event(value.scope, id, null, "recorded", "RECORD", "operator_confirmed", value.evidenceRefs, now);
       const outcomeRef = createMnemoraContextRef({ scope: value.scope, kind: "task-outcome", id });
       new ReasoningDeliveryFeedbackRepository(this.db, () => now).observeTaskOutcome({ scope: value.scope, outcomeRef, impact: value.impact, evidenceRefs: value.evidenceRefs, withinTransaction: true });
@@ -84,14 +92,17 @@ export class TaskOutcomeService {
   }
 
   private normalize(input: TaskOutcomeInput) {
-    const scope = normalizeScope(input.scope), taskRef = this.taskReference(input.taskRef, scope).canonical;
+    const scope = normalizeScope(input.scope), task = this.taskReference(input.taskRef, scope), taskRef = task.canonical;
     if (!verdicts.has(input.verdict) || !impacts.has(input.impact)) throw new Error("invalid_task_outcome");
     const confidence = input.confidence === undefined ? .5 : Number(input.confidence);
     if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) throw new Error("invalid_task_outcome");
     const evidenceRefs = [...new Set((Array.isArray(input.evidenceRefs) ? input.evidenceRefs : []).slice(0, 50).map(value => this.evidenceReference(value, scope).canonical))];
     if (!evidenceRefs.length) throw new Error("invalid_task_outcome_evidence");
     const supersedesId = text(input.supersedesId, 256);
-    return { scope, taskRef, verdict: input.verdict, impact: input.impact, confidence, summary: text(input.summary, 2048), evidenceRefs, supersedesId };
+    const actionRef = input.actionRef === undefined ? undefined : this.actionReference(input.actionRef, scope, task).canonical;
+    const actionState = input.actionState === undefined ? undefined : input.actionState;
+    if ((actionRef === undefined) !== (actionState === undefined) || actionState !== undefined && (!actionStates.has(actionState) || actionVerdicts[actionState] !== input.verdict)) throw new Error("invalid_task_action_state");
+    return { scope, taskRef, verdict: input.verdict, impact: input.impact, confidence, summary: text(input.summary, 2048), evidenceRefs, supersedesId, actionRef, actionState };
   }
   private taskReference(value: unknown, scope: string): MnemoraContextRef {
     // A captured user turn can be the precise task anchor for an
@@ -104,6 +115,15 @@ export class TaskOutcomeService {
         ? this.db.prepare("SELECT 1 FROM mnemora_decisions WHERE id=? AND scope=?").get(reference.id, scope)
         : this.db.prepare("SELECT 1 FROM mnemora_conversation_events WHERE id=? AND scope=? AND deleted_at IS NULL AND context_domain='user_chat'").get(reference.id, scope);
     if (!exists) throw new Error("invalid_task_outcome_task");
+    return reference;
+  }
+  private actionReference(value: unknown, scope: string, task: MnemoraContextRef): MnemoraContextRef {
+    if (task.kind !== "episode") throw new Error("invalid_task_action");
+    const reference = authorizeMnemoraContextRef(value, { scope, kinds: ["decision"] });
+    const exists = this.db.prepare(`SELECT 1 FROM mnemora_decisions d
+      JOIN mnemora_decision_episodes e ON e.decision_id=d.id
+      WHERE d.id=? AND d.scope=? AND e.episode_id=? AND d.chosen_action IS NOT NULL`).get(reference.id, scope, task.id);
+    if (!exists) throw new Error("invalid_task_action");
     return reference;
   }
   private evidenceReference(value: unknown, scope: string): MnemoraContextRef {
@@ -122,7 +142,7 @@ export class TaskOutcomeService {
     this.db.prepare("INSERT INTO mnemora_task_outcome_events(id,scope,outcome_id,from_status,to_status,action,reason_code,evidence_refs_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)").run(id, scope, outcomeId, from, to, action, reason, JSON.stringify(evidenceRefs), now);
   }
   private read(row: Record<string, unknown>): TaskOutcome {
-    return { id: String(row.id), scope: String(row.scope), taskRef: String(row.task_ref), verdict: row.verdict as OutcomeVerdict, impact: row.impact as OutcomeImpact, confidence: Number(row.confidence), ...(row.summary ? { summary: String(row.summary) } : {}), evidenceRefs: json(row.evidence_refs_json), ...(row.supersedes_id ? { supersedesId: String(row.supersedes_id) } : {}), status: row.status as OutcomeStatus, recordedAt: Number(row.recorded_at) };
+    return { id: String(row.id), scope: String(row.scope), taskRef: String(row.task_ref), verdict: row.verdict as OutcomeVerdict, impact: row.impact as OutcomeImpact, confidence: Number(row.confidence), ...(row.summary ? { summary: String(row.summary) } : {}), evidenceRefs: json(row.evidence_refs_json), ...(row.supersedes_id ? { supersedesId: String(row.supersedes_id) } : {}), ...(row.action_ref ? { actionRef: String(row.action_ref) } : {}), ...(row.action_state ? { actionState: row.action_state as TaskActionState } : {}), status: row.status as OutcomeStatus, recordedAt: Number(row.recorded_at) };
   }
 }
 function json(value: unknown): string[] { try { const parsed = JSON.parse(String(value)); return Array.isArray(parsed) ? parsed.filter(item => typeof item === "string").slice(0, 50) : []; } catch { return []; } }

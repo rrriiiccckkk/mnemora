@@ -274,6 +274,10 @@ CREATE TABLE IF NOT EXISTS mnemora_reasoning_runtime_delivery_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_mnemora_reasoning_runtime_delivery_scope_created ON mnemora_reasoning_runtime_delivery_runs(scope,created_at DESC,id DESC);
 `;
+/** v1.29.0 links an accepted outcome to one exact decision action when applicable. */
+export const cognitionTaskActionOutcomeSchemaSql = `
+CREATE INDEX IF NOT EXISTS idx_mnemora_task_outcomes_scope_task_action ON mnemora_task_outcomes(scope,task_ref,action_ref,status,recorded_at DESC,id DESC);
+`;
 
 /** Schema v70 records only the normalized runtime policy observed by a live
  * ContextEngine scope. It contains no prompt, memory, evidence, or provider

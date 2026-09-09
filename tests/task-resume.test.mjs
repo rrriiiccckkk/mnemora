@@ -11,6 +11,7 @@ import { DecisionMemoryService } from "../dist/cognition/decisions.js";
 import { TaskOutcomeService } from "../dist/cognition/outcomes.js";
 import { TaskResumeService } from "../dist/task-resume/service.js";
 import { createMnemoraContextRef } from "../dist/context/context-ref.js";
+import { MemoryImpactService } from "../dist/correction/impact-service.js";
 import { Mnemora, createInspectorApplication } from "../dist/index.js";
 
 const policy = { maxInlineChars: 16_000, maxEventBytes: 262_144, sensitiveContentPolicy: "redact" };
@@ -49,8 +50,9 @@ test("task resume survives a restart with source-linked current decisions and ac
     assert.deepEqual(first.decisions.map(item => item.text), ["Use plan B"]);
     assert.deepEqual(first.completed.map(item => item.text), ["Configuration validation completed."]);
     assert.deepEqual(first.pending.map(item => item.text), ["Migration has not executed; await the upstream merge."]);
-    assert.deepEqual(first.blockers.map(item => item.text), ["Wait for the upstream merge before executing migration."]);
-    assert.equal(first.completed.concat(first.pending, first.blockers, first.decisions).every(item => item.source_refs.every(ref => ref.startsWith("mnemora://v1/scope/project%3Aalpha/"))), true);
+    assert.deepEqual(first.blockers, []);
+    assert.deepEqual(first.constraints.map(item => item.text), ["Wait for the upstream merge before executing migration."]);
+    assert.equal(first.completed.concat(first.pending, first.blockers, first.constraints, first.decisions).every(item => item.source_refs.every(ref => ref.startsWith("mnemora://v1/scope/project%3Aalpha/"))), true);
     assert.equal(Number(store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_task_outcomes").get().value), before);
     store.close();
     store = new GraphologyStore(dbPath);
@@ -91,6 +93,119 @@ test("task resume treats forgotten evidence as reconfirmation and never upgrades
     assert.deepEqual(result.completed, []);
     assert.equal(result.needs_reconfirmation.some(item => item.text.includes("unavailable")), true);
   } finally { store.close(); }
+});
+
+test("task resume keeps a future decision planned until its inclusive validity window begins", () => {
+  const store = new GraphologyStore(":memory:");
+  try {
+    const now = 1_700_000_000_000, start = now + 86_400_000, end = start + 60_000;
+    const rollout = task(store, "project:alpha", "Production cutover", "Switch the production environment at the scheduled time.", now);
+    decision(store, now, { scope: "project:alpha", objective: "Schedule the production cutover", chosenAction: "Switch the production environment", decisionMaker: "user", validFrom: start, validUntil: end, evidence: [{ sourceRef: rollout.eventRef }], episodeIds: [rollout.episode.id] });
+
+    const before = new TaskResumeService(store.db, () => start - 1).resume({ scope: "project:alpha", taskRef: rollout.taskRef });
+    assert.equal(before.status, "needs_reconfirmation");
+    assert.deepEqual(before.decisions, []);
+    assert.deepEqual(before.next_steps, []);
+    assert.deepEqual(before.planned.map(item => item.text), ["Switch the production environment"]);
+    assert.equal(before.needs_reconfirmation.some(item => item.text.includes("scheduled")), true);
+
+    const atStart = new TaskResumeService(store.db, () => start).resume({ scope: "project:alpha", taskRef: rollout.taskRef });
+    assert.equal(atStart.status, "ready");
+    assert.deepEqual(atStart.decisions.map(item => item.text), ["Switch the production environment"]);
+    assert.deepEqual(atStart.next_steps.map(item => item.text), ["Switch the production environment"]);
+
+    const atEnd = new TaskResumeService(store.db, () => end).resume({ scope: "project:alpha", taskRef: rollout.taskRef });
+    assert.equal(atEnd.status, "ready");
+    const expired = new TaskResumeService(store.db, () => end + 1).resume({ scope: "project:alpha", taskRef: rollout.taskRef });
+    assert.equal(expired.status, "needs_reconfirmation");
+    assert.deepEqual(expired.next_steps, []);
+    assert.equal(expired.needs_reconfirmation.some(item => item.text.includes("validity window")), true);
+
+    const epoch = task(store, "project:alpha", "Epoch decision", "Exercise the inclusive zero timestamp boundary.", 0);
+    decision(store, 0, { scope: "project:alpha", objective: "Record an epoch-bounded action", chosenAction: "Run the epoch action", decisionMaker: "user", validFrom: 0, validUntil: 0, evidence: [{ sourceRef: epoch.eventRef }], episodeIds: [epoch.episode.id] });
+    const atEpoch = new TaskResumeService(store.db, () => 0).resume({ scope: "project:alpha", taskRef: epoch.taskRef });
+    assert.equal(atEpoch.status, "ready");
+    assert.deepEqual(atEpoch.next_steps.map(item => item.text), ["Run the epoch action"]);
+  } finally { store.close(); }
+});
+
+test("task resume projects explicitly linked action state without mistaking child completion for task completion", () => {
+  const store = new GraphologyStore(":memory:");
+  try {
+    let now = 1_700_000_000_000;
+    const migration = task(store, "project:alpha", "Staged migration", "Validate configuration, then run the migration.", now++);
+    const check = decision(store, now++, { scope: "project:alpha", objective: "Validate migration configuration", chosenAction: "Validate configuration", decisionMaker: "user", evidence: [{ sourceRef: migration.eventRef }], episodeIds: [migration.episode.id] });
+    const execute = decision(store, now++, { scope: "project:alpha", objective: "Run the staged migration", chosenAction: "Run the migration", decisionMaker: "user", evidence: [{ sourceRef: migration.eventRef }], episodeIds: [migration.episode.id] });
+    const checkRef = createMnemoraContextRef({ scope: "project:alpha", kind: "decision", id: check.id });
+    const executeRef = createMnemoraContextRef({ scope: "project:alpha", kind: "decision", id: execute.id });
+
+    assert.throws(() => new TaskOutcomeService(store.db, () => now).preview({ scope: "project:alpha", taskRef: migration.taskRef, actionRef: checkRef, verdict: "success", impact: "helpful", evidenceRefs: [migration.eventRef] }), /invalid_task_action_state/);
+    assert.throws(() => new TaskOutcomeService(store.db, () => now).preview({ scope: "project:alpha", taskRef: migration.taskRef, actionRef: checkRef, actionState: "completed", verdict: "failure", impact: "harmful", evidenceRefs: [migration.eventRef] }), /invalid_task_action_state/);
+    outcome(store, now++, { scope: "project:alpha", taskRef: migration.taskRef, actionRef: checkRef, actionState: "completed", verdict: "success", impact: "helpful", summary: "Configuration validation completed.", evidenceRefs: [migration.eventRef] });
+    let result = new TaskResumeService(store.db, () => now).resume({ scope: "project:alpha", taskRef: migration.taskRef });
+    assert.equal(result.status, "ready");
+    assert.equal(result.task.progress, "in_progress");
+    assert.deepEqual(result.next_steps.map(item => item.text), ["Run the migration"]);
+    assert.deepEqual(result.completed.map(item => item.text), ["Configuration validation completed."]);
+
+    const failed = outcome(store, now++, { scope: "project:alpha", taskRef: migration.taskRef, actionRef: executeRef, actionState: "failed", verdict: "failure", impact: "harmful", summary: "Migration failed before changes were applied.", evidenceRefs: [migration.eventRef] });
+    result = new TaskResumeService(store.db, () => now).resume({ scope: "project:alpha", taskRef: migration.taskRef });
+    assert.equal(result.status, "blocked");
+    assert.deepEqual(result.next_steps, []);
+    assert.deepEqual(result.blockers.map(item => item.text), ["Migration failed before changes were applied."]);
+
+    outcome(store, now++, { scope: "project:alpha", taskRef: migration.taskRef, actionRef: executeRef, actionState: "completed", verdict: "success", impact: "helpful", summary: "Migration completed after recovery.", evidenceRefs: [migration.eventRef], supersedesId: failed.id });
+    result = new TaskResumeService(store.db, () => now).resume({ scope: "project:alpha", taskRef: migration.taskRef });
+    assert.equal(result.status, "ready");
+    assert.deepEqual(result.blockers, []);
+    assert.equal(result.history.some(item => item.text === "Migration failed before changes were applied."), true);
+    assert.deepEqual(result.completed.map(item => item.text), ["Migration completed after recovery.", "Configuration validation completed."]);
+  } finally { store.close(); }
+});
+
+test("forgetting action-only evidence removes its state from the current projection", () => {
+  const store = new GraphologyStore(":memory:");
+  try {
+    let now = 1_700_000_000_000;
+    const rollout = task(store, "project:alpha", "Evidence-bound rollout", "Finish the rollout only with retained action evidence.", now++);
+    const execute = decision(store, now++, { scope: "project:alpha", objective: "Complete the retained rollout", chosenAction: "Complete rollout", decisionMaker: "user", evidence: [{ sourceRef: rollout.eventRef }], episodeIds: [rollout.episode.id] });
+    const proof = new ConversationEventRepository(store.db, policy).append({ scope: "project:alpha", sessionId: "session:proof", kind: "tool_result", role: "tool", parts: [{ type: "text", text: "The rollout verifier completed." }], createdAt: now++ });
+    const proofRef = createMnemoraContextRef({ scope: "project:alpha", kind: "conversation-event", id: proof.id });
+    outcome(store, now++, { scope: "project:alpha", taskRef: rollout.taskRef, actionRef: createMnemoraContextRef({ scope: "project:alpha", kind: "decision", id: execute.id }), actionState: "completed", verdict: "success", impact: "helpful", summary: "Rollout verifier completed.", evidenceRefs: [proofRef] });
+    assert.deepEqual(new TaskResumeService(store.db, () => now).resume({ scope: "project:alpha", taskRef: rollout.taskRef }).next_steps, []);
+
+    const impact = new MemoryImpactService(store.db), preview = impact.preview({ scope: "project:alpha", kind: "event", id: proof.id });
+    assert.equal(impact.forget({ scope: "project:alpha", kind: "event", id: proof.id, previewHash: preview.previewHash, confirm: true }).status, "forgotten");
+    const result = new TaskResumeService(store.db, () => now).resume({ scope: "project:alpha", taskRef: rollout.taskRef });
+    assert.equal(result.status, "needs_reconfirmation");
+    assert.deepEqual(result.completed, []);
+    assert.deepEqual(result.next_steps, []);
+    assert.equal(result.needs_reconfirmation.some(item => item.text.includes("linked action state")), true);
+  } finally { store.close(); }
+});
+
+test("confirmed action state survives restart and requires an explicit corrected outcome", () => {
+  const directory = mkdtempSync(join(tmpdir(), "mnemora-task-action-restart-")), path = join(directory, "memory.db");
+  let store;
+  try {
+    let now = 1_700_000_000_000;
+    store = new GraphologyStore(path);
+    const rollout = task(store, "project:alpha", "Restarted rollout", "Record and correct an action after restart.", now++);
+    const execute = decision(store, now++, { scope: "project:alpha", objective: "Execute the restarted rollout", chosenAction: "Execute rollout", decisionMaker: "user", evidence: [{ sourceRef: rollout.eventRef }], episodeIds: [rollout.episode.id] });
+    const actionRef = createMnemoraContextRef({ scope: "project:alpha", kind: "decision", id: execute.id });
+    const attempted = outcome(store, now++, { scope: "project:alpha", taskRef: rollout.taskRef, actionRef, actionState: "attempted", verdict: "unknown", impact: "neutral", summary: "Rollout execution was started.", evidenceRefs: [rollout.eventRef] });
+    store.close();
+    store = new GraphologyStore(path);
+    let result = new TaskResumeService(store.db, () => now).resume({ scope: "project:alpha", taskRef: rollout.taskRef });
+    assert.equal(result.status, "needs_reconfirmation");
+    assert.deepEqual(result.next_steps, []);
+
+    outcome(store, now++, { scope: "project:alpha", taskRef: rollout.taskRef, actionRef, actionState: "completed", verdict: "success", impact: "helpful", summary: "Rollout execution completed.", evidenceRefs: [rollout.eventRef], supersedesId: attempted.id });
+    result = new TaskResumeService(store.db, () => now).resume({ scope: "project:alpha", taskRef: rollout.taskRef });
+    assert.equal(result.status, "ready");
+    assert.deepEqual(result.completed.map(item => item.text), ["Rollout execution completed."]);
+    assert.equal(result.history.some(item => item.text === "Rollout execution was started."), true);
+  } finally { try { store?.close(); } catch {} try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
 
 test("task resume abstains when only a task record exists, and Inspector and CLI expose the same read-only projection", () => {

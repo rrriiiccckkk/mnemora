@@ -100,6 +100,19 @@ CREATE TABLE IF NOT EXISTS mnemora_turn_advancements (
 );
 CREATE INDEX IF NOT EXISTS idx_mnemora_turn_advancements_terminal ON mnemora_turn_advancements(scope,session_id,terminal_entry_id);
 CREATE INDEX IF NOT EXISTS idx_mnemora_turn_advancements_positions ON mnemora_turn_advancements(scope,session_id,admission_message_position,terminal_message_position);
+-- A short-lived, content-free bridge prevents a verified excluded durable
+-- turn from being recaptured through an older afterTurn callback whose
+-- messages omit the host agent identity. It stores only public anchors.
+CREATE TABLE IF NOT EXISTS mnemora_excluded_turn_suppressions (
+  scope TEXT NOT NULL, session_id TEXT NOT NULL, session_key TEXT NOT NULL,
+  terminal_entry_id TEXT NOT NULL,
+  admission_message_position INTEGER NOT NULL, terminal_message_position INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL,
+  PRIMARY KEY(scope,session_id,terminal_entry_id),
+  CHECK(length(scope)<=80 AND length(session_id)<=512 AND length(session_key)<=512 AND length(terminal_entry_id)<=512 AND admission_message_position>=0 AND terminal_message_position>=admission_message_position),
+  FOREIGN KEY(scope) REFERENCES kg_scopes(id)
+);
+CREATE INDEX IF NOT EXISTS idx_mnemora_excluded_turn_suppressions_range ON mnemora_excluded_turn_suppressions(scope,session_id,session_key,admission_message_position,terminal_message_position,expires_at);
 CREATE INDEX IF NOT EXISTS idx_mnemora_derived_tasks_recovery ON mnemora_derived_tasks(scope,status,lease_expires_at,created_at);
 -- Public-provider migration state deliberately contains references and hashes
 -- only. Provider content is never copied into migration metadata.

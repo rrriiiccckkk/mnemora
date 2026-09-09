@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "id": "task-resume.comparison.contract.v1",
+  "status": "planned",
+  "protocol": {
+    "modelId": "operator-fixed-model",
+    "historySetId": "synthetic-task-resume-history-v2",
+    "taskSetId": "synthetic-task-resume-held-out-v2",
+    "tokenBudget": 1200,
+    "latencyBudgetMs": 30000
+  },
+  "splits": {
+    "tuningCaseIds": ["tune:01", "tune:02"],
+    "testCaseIds": ["test:01", "test:02"]
+  },
+  "arms": ["no_long_term_memory", "simple_retrieval", "mnemora"]
+}
