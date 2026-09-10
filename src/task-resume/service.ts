@@ -120,7 +120,10 @@ export class TaskResumeService {
 
   private project(task: Episode, scope: string, limit: number): TaskResumeView {
     const taskRef = episodeRef(task), taskSources = episodeSources(task), taskEvidenceRefs = [...taskSources.events, ...taskSources.artifacts], active = task.status === "active";
-    const decisions = this.linkedDecisions(scope, task.id), outcomes = this.outcomes.forTask(scope, taskRef, MAX_ITEMS + 1);
+    // Resolve complete current state before applying response presentation
+    // limits. An older completed action must not become pending merely because
+    // a busy task accumulated later outcome records.
+    const decisions = this.linkedDecisions(scope, task.id), outcomes = this.outcomes.allForTask(scope, taskRef);
     const completed: TaskResumeStateItem[] = [], pending: TaskResumeStateItem[] = [], blockers: TaskResumeStateItem[] = [], constraints: TaskResumeStateItem[] = [], nextSteps: TaskResumeStateItem[] = [], decisionItems: TaskResumeStateItem[] = [], planned: TaskResumeStateItem[] = [], history: TaskResumeStateItem[] = [], needsReconfirmation: TaskResumeStateItem[] = [];
 
     if (!active) needsReconfirmation.push({ kind: "needs_reconfirmation", text: "The task’s source episode is no longer active; confirm its current state before continuing.", source_refs: [taskRef], recorded_at: task.recordedAt });
@@ -208,7 +211,7 @@ export class TaskResumeService {
     const rows = this.db.prepare(`SELECT d.id FROM mnemora_decisions d
       JOIN mnemora_decision_episodes e ON e.decision_id=d.id
       WHERE d.scope=? AND e.episode_id=?
-      ORDER BY d.recorded_at DESC,d.id DESC LIMIT ?`).all(scope, episodeId, MAX_ITEMS + 1) as Array<{ id: string }>;
+      ORDER BY d.recorded_at DESC,d.id DESC`).all(scope, episodeId) as Array<{ id: string }>;
     for (const row of rows) {
       const decision = this.decisions.get(row.id, scope);
       if (!decision) continue;

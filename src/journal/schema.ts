@@ -89,13 +89,13 @@ CREATE INDEX IF NOT EXISTS idx_mnemora_host_message_links_scope_entry ON mnemora
 -- transaction. The hash detects a retried key paired with altered input;
 -- message text never appears in this accounting table.
 CREATE TABLE IF NOT EXISTS mnemora_turn_advancements (
-  advancement_key TEXT PRIMARY KEY, payload_hash TEXT NOT NULL,
+  advancement_key TEXT PRIMARY KEY, payload_hash TEXT NOT NULL, compatibility_fingerprint TEXT NOT NULL,
   scope TEXT NOT NULL, session_id TEXT NOT NULL, receipt_id TEXT NOT NULL,
   admission_entry_id TEXT NOT NULL, terminal_entry_id TEXT NOT NULL,
   admission_message_position INTEGER NOT NULL, terminal_message_position INTEGER NOT NULL,
   message_count INTEGER NOT NULL CHECK(message_count>=1), created_at INTEGER NOT NULL,
   UNIQUE(scope,receipt_id),
-  CHECK(length(advancement_key)<=512 AND length(payload_hash)=64 AND length(admission_entry_id)<=512 AND length(terminal_entry_id)<=512 AND admission_message_position>=0 AND terminal_message_position>=admission_message_position),
+  CHECK(length(advancement_key)<=512 AND length(payload_hash)=64 AND length(compatibility_fingerprint)=64 AND length(admission_entry_id)<=512 AND length(terminal_entry_id)<=512 AND admission_message_position>=0 AND terminal_message_position>=admission_message_position),
   FOREIGN KEY(receipt_id) REFERENCES mnemora_capture_receipts(id), FOREIGN KEY(scope) REFERENCES kg_scopes(id)
 );
 CREATE INDEX IF NOT EXISTS idx_mnemora_turn_advancements_terminal ON mnemora_turn_advancements(scope,session_id,terminal_entry_id);
@@ -106,10 +106,10 @@ CREATE INDEX IF NOT EXISTS idx_mnemora_turn_advancements_positions ON mnemora_tu
 CREATE TABLE IF NOT EXISTS mnemora_excluded_turn_suppressions (
   scope TEXT NOT NULL, session_id TEXT NOT NULL, session_key TEXT NOT NULL,
   terminal_entry_id TEXT NOT NULL,
-  admission_message_position INTEGER NOT NULL, terminal_message_position INTEGER NOT NULL,
+  admission_message_position INTEGER NOT NULL, terminal_message_position INTEGER NOT NULL, compatibility_fingerprint TEXT NOT NULL,
   expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL,
   PRIMARY KEY(scope,session_id,terminal_entry_id),
-  CHECK(length(scope)<=80 AND length(session_id)<=512 AND length(session_key)<=512 AND length(terminal_entry_id)<=512 AND admission_message_position>=0 AND terminal_message_position>=admission_message_position),
+  CHECK(length(scope)<=80 AND length(session_id)<=512 AND length(session_key)<=512 AND length(terminal_entry_id)<=512 AND length(compatibility_fingerprint)=64 AND admission_message_position>=0 AND terminal_message_position>=admission_message_position),
   FOREIGN KEY(scope) REFERENCES kg_scopes(id)
 );
 CREATE INDEX IF NOT EXISTS idx_mnemora_excluded_turn_suppressions_range ON mnemora_excluded_turn_suppressions(scope,session_id,session_key,admission_message_position,terminal_message_position,expires_at);

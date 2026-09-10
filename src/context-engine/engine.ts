@@ -72,6 +72,7 @@ type DurableCommitTurnParams = {
 type DurableCapture = {
   advancementKey: string;
   payloadHash: string;
+  compatibilityFingerprint: string;
   agentId: string;
   sessionKey: string;
   admissionEntryId: string;
@@ -237,7 +238,7 @@ export class MnemoraContextEngine implements ContextEngine {
         new ConversationEventRepository(graph.store.db, this.policy()).recordExcludedTurnSuppression({
           scope: this.scope(), sessionId: params.sessionId, sessionKey: durable.sessionKey,
           terminalEntryId: durable.terminalEntryId, admissionMessagePosition: durable.admissionMessagePosition,
-          terminalMessagePosition: durable.terminalMessagePosition
+          terminalMessagePosition: durable.terminalMessagePosition, compatibilityFingerprint: durable.compatibilityFingerprint
         });
         return { status: "committed" };
       }
@@ -490,7 +491,7 @@ export class MnemoraContextEngine implements ContextEngine {
       scope: this.scope(), sessionId, hostCorrelation: correlation, events: inputs,
       derivedTaskKinds: this.lifecycle.derivedTaskKinds?.() ?? [],
       ...(options.durable ? { advancement: {
-        key: options.durable.advancementKey, payloadHash: options.durable.payloadHash,
+        key: options.durable.advancementKey, payloadHash: options.durable.payloadHash, compatibilityFingerprint: options.durable.compatibilityFingerprint,
         admissionEntryId: options.durable.admissionEntryId, terminalEntryId: options.durable.terminalEntryId,
         admissionMessagePosition: options.durable.admissionMessagePosition, terminalMessagePosition: options.durable.terminalMessagePosition
       } } : {})
@@ -517,7 +518,8 @@ export class MnemoraContextEngine implements ContextEngine {
     return new ConversationEventRepository(db, this.policy()).hasCommittedTurnAdvancement(this.scope(), sessionId, {
       ...(hasTerminalEntryId ? { terminalEntryId } : {}),
       admissionMessagePosition: baseIndex,
-      terminalMessagePosition: baseIndex + messages.length - 1
+      terminalMessagePosition: baseIndex + messages.length - 1,
+      compatibilityFingerprint: this.compatibilityFingerprint(messages)
     });
   }
 
@@ -529,7 +531,8 @@ export class MnemoraContextEngine implements ContextEngine {
       ...(typeof sessionKey === "string" ? { sessionKey } : {}),
       ...(hasTerminalEntryId ? { terminalEntryId } : {}),
       admissionMessagePosition: baseIndex,
-      terminalMessagePosition: baseIndex + messages.length - 1
+      terminalMessagePosition: baseIndex + messages.length - 1,
+      compatibilityFingerprint: this.compatibilityFingerprint(messages)
     });
   }
 
@@ -550,6 +553,7 @@ export class MnemoraContextEngine implements ContextEngine {
     return {
       advancementKey: key,
       payloadHash: durablePayloadHash({ advancementKey: key, admission, terminal, messages: params.messages, sessionId: params.sessionId, sessionKey: params.sessionKey, isHeartbeat: params.isHeartbeat === true }),
+      compatibilityFingerprint: this.compatibilityFingerprint(params.messages),
       agentId: admissionAgentId,
       sessionKey: admission.sessionKey,
       admissionEntryId: admission.entryId,
@@ -607,6 +611,17 @@ export class MnemoraContextEngine implements ContextEngine {
 
   private isExcludedAgent(agentId: string | undefined): boolean {
     return Boolean(agentId && this.config.recall?.excludedAgentIds?.includes(agentId));
+  }
+
+  /** A bounded, one-way signature for the legacy callback that has neither
+   * stable host entry IDs nor a session key. It excludes transient IDs so a
+   * durable admission and its later projection can match, while distinct
+   * compacted content at the same displayed positions remains capturable. */
+  private compatibilityFingerprint(messages: readonly RuntimeMessage[]): string {
+    return digest(JSON.stringify(messages.map(message => {
+      const host = asHostMessage(message), timestamp = typeof host.timestamp === "number" && Number.isFinite(host.timestamp) ? Math.floor(host.timestamp) : null;
+      return { role: typeof host.role === "string" ? host.role.toLowerCase() : "", domain: contextDomain(host), text: messageText(host), timestamp };
+    })));
   }
 
   private toJournalInput(sessionId: string, message: RuntimeMessage, ordinal: number, options: { isHeartbeat?: boolean; source: string }): JournalEventInput {

@@ -16,11 +16,14 @@ export interface JournalScopeActivity { events: number; sessions: number; lastCo
 export interface JournalTurnEventInput extends JournalEventInput { parentEventOrdinal?: number; hostEntryId?: string; }
 export type JournalDerivedTaskKind = "auto_extract" | "episode" | "smart_episode" | "summary_l1" | "summary_l2" | "consolidation" | "reflection";
 /** Opaque host receipt identifying one accepted durable transcript turn.
- * The key and payload hash are never derived from message content at read
- * time: they make a host retry verifiable without exposing transcript data. */
+ * The durable key and payload hash make a host retry verifiable without
+ * exposing transcript data. The separate compatibility fingerprint is used
+ * only to match an ID-less legacy callback to that already-accepted turn. */
 export interface JournalTurnAdvancement {
   key: string;
   payloadHash: string;
+  /** One-way public-message fingerprint for an ID-less legacy callback. */
+  compatibilityFingerprint: string;
   admissionEntryId: string;
   terminalEntryId: string;
   /** Public host transcript positions fence the legacy callback without

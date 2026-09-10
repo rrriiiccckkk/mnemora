@@ -163,6 +163,24 @@ test("task resume projects explicitly linked action state without mistaking chil
   } finally { store.close(); }
 });
 
+test("task resume resolves every linked action state before limiting the displayed outcome history", () => {
+  const store = new GraphologyStore(":memory:");
+  try {
+    let now = 1_700_000_000_000;
+    const rollout = task(store, "project:alpha", "Long-lived rollout", "Do not revive a completed action after later outcomes.", now++);
+    const execute = decision(store, now++, { scope: "project:alpha", objective: "Complete the long-lived rollout", chosenAction: "Complete rollout", decisionMaker: "user", evidence: [{ sourceRef: rollout.eventRef }], episodeIds: [rollout.episode.id] });
+    const actionRef = createMnemoraContextRef({ scope: "project:alpha", kind: "decision", id: execute.id });
+    outcome(store, now++, { scope: "project:alpha", taskRef: rollout.taskRef, actionRef, actionState: "completed", verdict: "success", impact: "helpful", summary: "The rollout action completed.", evidenceRefs: [rollout.eventRef] });
+    for (let index = 0; index < 21; index++) outcome(store, now++, { scope: "project:alpha", taskRef: rollout.taskRef, verdict: "partial", impact: "neutral", summary: `Later task record ${index + 1}.`, evidenceRefs: [rollout.eventRef] });
+
+    const result = new TaskResumeService(store.db, () => now).resume({ scope: "project:alpha", taskRef: rollout.taskRef });
+    assert.deepEqual(result.next_steps, []);
+    assert.equal(result.completed.some(item => item.text === "The rollout action completed."), true);
+    assert.equal(result.pending.length, 20);
+    assert.equal(result.truncated, true);
+  } finally { store.close(); }
+});
+
 test("forgetting action-only evidence removes its state from the current projection", () => {
   const store = new GraphologyStore(":memory:");
   try {

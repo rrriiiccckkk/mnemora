@@ -11,6 +11,7 @@ const RETENTION_BATCH_SIZE = 256;
 const REPLAY_GUARD_RETENTION_MS = 30 * 86_400_000;
 const REPLAY_GUARD_MAX_PER_SCOPE = 10_000;
 const POSITION_FALLBACK_TTL_MS = 5 * 60_000;
+const safeFingerprint = (value: unknown): string | undefined => typeof value === "string" && /^[a-f0-9]{64}$/.test(value) ? value : undefined;
 
 export class ConversationEventRepository {
   constructor(private readonly db: DatabaseSyncInstance, private readonly policy: JournalCapturePolicy) {}
@@ -111,9 +112,9 @@ export class ConversationEventRepository {
       this.db.prepare("UPDATE mnemora_capture_receipts SET status='committed',committed_at=? WHERE id=? AND scope=?").run(now, receiptId, scope);
       if (advancement) {
         this.db.prepare(`INSERT INTO mnemora_turn_advancements(
-          advancement_key,payload_hash,scope,session_id,receipt_id,admission_entry_id,terminal_entry_id,admission_message_position,terminal_message_position,message_count,created_at
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?)`).run(
-          advancement.key, advancement.payloadHash, scope, sessionId, receiptId,
+          advancement_key,payload_hash,compatibility_fingerprint,scope,session_id,receipt_id,admission_entry_id,terminal_entry_id,admission_message_position,terminal_message_position,message_count,created_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+          advancement.key, advancement.payloadHash, advancement.compatibilityFingerprint, scope, sessionId, receiptId,
           advancement.admissionEntryId, advancement.terminalEntryId, advancement.admissionMessagePosition, advancement.terminalMessagePosition, input.events.length, now
         );
       }
@@ -232,12 +233,12 @@ export class ConversationEventRepository {
   private validateAdvancement(value: JournalTurnAdvancement | undefined): JournalTurnAdvancement | undefined {
     if (!value) return undefined;
     const key = safeId(value.key, ""), admissionEntryId = safeId(value.admissionEntryId, ""), terminalEntryId = safeId(value.terminalEntryId, "");
-    const payloadHash = typeof value.payloadHash === "string" ? value.payloadHash.toLowerCase() : "";
+    const payloadHash = typeof value.payloadHash === "string" ? value.payloadHash.toLowerCase() : "", compatibilityFingerprint = safeFingerprint(value.compatibilityFingerprint);
     const admissionMessagePosition = value.admissionMessagePosition, terminalMessagePosition = value.terminalMessagePosition;
-    if (!key || !admissionEntryId || !terminalEntryId || !/^[a-f0-9]{64}$/.test(payloadHash) ||
+    if (!key || !admissionEntryId || !terminalEntryId || !/^[a-f0-9]{64}$/.test(payloadHash) || !compatibilityFingerprint ||
       !Number.isSafeInteger(admissionMessagePosition) || admissionMessagePosition < 0 ||
       !Number.isSafeInteger(terminalMessagePosition) || terminalMessagePosition < admissionMessagePosition) throw new Error("invalid_turn_advancement");
-    return { key, payloadHash, admissionEntryId, terminalEntryId, admissionMessagePosition, terminalMessagePosition };
+    return { key, payloadHash, compatibilityFingerprint, admissionEntryId, terminalEntryId, admissionMessagePosition, terminalMessagePosition };
   }
 
   private readTurn(receiptId: string, commitId: string, scope: string, sessionId: string, branchId: string): Omit<JournalTurnReceipt, "inserted"> {
@@ -310,52 +311,54 @@ export class ConversationEventRepository {
    * terminal ID is authoritative: a distinct ID is a distinct turn even when
    * transcript compaction reuses a displayed message position. Positions are
    * only the compatibility fallback for a projection that omitted entry IDs. */
-  hasCommittedTurnAdvancement(scope: string, sessionId: string, identity: { terminalEntryId?: string; admissionMessagePosition?: number; terminalMessagePosition?: number }, now = Date.now()): boolean {
+  hasCommittedTurnAdvancement(scope: string, sessionId: string, identity: { terminalEntryId?: string; admissionMessagePosition?: number; terminalMessagePosition?: number; compatibilityFingerprint?: string }, now = Date.now()): boolean {
     const terminal = safeId(identity.terminalEntryId ?? "", ""), safeSessionId = safeId(sessionId, "");
+    const compatibilityFingerprint = safeFingerprint(identity.compatibilityFingerprint);
     const admissionMessagePosition = identity.admissionMessagePosition, terminalMessagePosition = identity.terminalMessagePosition;
     const positions = typeof admissionMessagePosition === "number" && typeof terminalMessagePosition === "number" && Number.isSafeInteger(admissionMessagePosition) && Number.isSafeInteger(terminalMessagePosition) && admissionMessagePosition >= 0 && terminalMessagePosition >= admissionMessagePosition
       ? { admissionMessagePosition, terminalMessagePosition } : undefined;
-    if (!safeSessionId || (!terminal && !positions)) return false;
+    if (!safeSessionId || (!terminal && !(positions && compatibilityFingerprint))) return false;
     if (terminal) return Boolean(this.db.prepare(`SELECT 1 FROM mnemora_turn_advancements
       WHERE scope=? AND session_id=? AND terminal_entry_id=? LIMIT 1`).get(normalizeScope(scope), safeSessionId, terminal));
-    // A projection with no entry IDs cannot prove permanent identity from its
-    // display positions. Retain the public durable range only as a bounded
-    // compatibility bridge for the immediately following legacy callback.
+    // Display positions can be reused by transcript compaction. A bounded
+    // legacy bridge therefore needs the same one-way message fingerprint too.
     return Boolean(this.db.prepare(`SELECT 1 FROM mnemora_turn_advancements
-      WHERE scope=? AND session_id=? AND admission_message_position=? AND terminal_message_position=? AND created_at>=? LIMIT 1`).get(normalizeScope(scope), safeSessionId, positions!.admissionMessagePosition, positions!.terminalMessagePosition, Math.max(0, now - POSITION_FALLBACK_TTL_MS)));
+      WHERE scope=? AND session_id=? AND admission_message_position=? AND terminal_message_position=? AND compatibility_fingerprint=? AND created_at>=? LIMIT 1`).get(normalizeScope(scope), safeSessionId, positions!.admissionMessagePosition, positions!.terminalMessagePosition, compatibilityFingerprint, Math.max(0, now - POSITION_FALLBACK_TTL_MS)));
   }
 
   /** Persist no-content coordination for a verified excluded durable turn.
    * The row expires quickly and exists only to stop its compatibility callback
    * from losing the durable agent exclusion when messages omit agent metadata. */
-  recordExcludedTurnSuppression(input: { scope: string; sessionId: string; sessionKey: string; terminalEntryId: string; admissionMessagePosition: number; terminalMessagePosition: number; now?: number }): void {
+  recordExcludedTurnSuppression(input: { scope: string; sessionId: string; sessionKey: string; terminalEntryId: string; admissionMessagePosition: number; terminalMessagePosition: number; compatibilityFingerprint: string; now?: number }): void {
     const scope = normalizeScope(input.scope), sessionId = safeId(input.sessionId, ""), sessionKey = safeId(input.sessionKey, ""), terminalEntryId = safeId(input.terminalEntryId, "");
-    const admission = input.admissionMessagePosition, terminal = input.terminalMessagePosition, now = input.now ?? Date.now();
-    if (!sessionId || !sessionKey || !terminalEntryId || !Number.isSafeInteger(admission) || admission < 0 || !Number.isSafeInteger(terminal) || terminal < admission) throw new Error("invalid_excluded_turn_suppression");
+    const admission = input.admissionMessagePosition, terminal = input.terminalMessagePosition, compatibilityFingerprint = safeFingerprint(input.compatibilityFingerprint), now = input.now ?? Date.now();
+    if (!sessionId || !sessionKey || !terminalEntryId || !compatibilityFingerprint || !Number.isSafeInteger(admission) || admission < 0 || !Number.isSafeInteger(terminal) || terminal < admission) throw new Error("invalid_excluded_turn_suppression");
     this.db.exec("BEGIN IMMEDIATE");
     try {
       this.db.prepare("INSERT OR IGNORE INTO kg_scopes(id,created_at,updated_at) VALUES(?,?,?)").run(scope, now, now);
       this.db.prepare("DELETE FROM mnemora_excluded_turn_suppressions WHERE expires_at<=?").run(now);
       this.db.prepare(`INSERT INTO mnemora_excluded_turn_suppressions(
-        scope,session_id,session_key,terminal_entry_id,admission_message_position,terminal_message_position,expires_at,created_at
-      ) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(scope,session_id,terminal_entry_id) DO UPDATE SET
-        session_key=excluded.session_key,admission_message_position=excluded.admission_message_position,terminal_message_position=excluded.terminal_message_position,expires_at=excluded.expires_at,created_at=excluded.created_at`).run(
-        scope, sessionId, sessionKey, terminalEntryId, admission, terminal, now + POSITION_FALLBACK_TTL_MS, now
+        scope,session_id,session_key,terminal_entry_id,admission_message_position,terminal_message_position,compatibility_fingerprint,expires_at,created_at
+      ) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(scope,session_id,terminal_entry_id) DO UPDATE SET
+        session_key=excluded.session_key,admission_message_position=excluded.admission_message_position,terminal_message_position=excluded.terminal_message_position,compatibility_fingerprint=excluded.compatibility_fingerprint,expires_at=excluded.expires_at,created_at=excluded.created_at`).run(
+        scope, sessionId, sessionKey, terminalEntryId, admission, terminal, compatibilityFingerprint, now + POSITION_FALLBACK_TTL_MS, now
       );
       this.db.exec("COMMIT");
     } catch (error) { try { this.db.exec("ROLLBACK"); } catch {} throw error; }
   }
 
-  hasExcludedTurnSuppression(scope: string, sessionId: string, identity: { sessionKey?: string; terminalEntryId?: string; admissionMessagePosition?: number; terminalMessagePosition?: number }, now = Date.now()): boolean {
-    const safeScope = normalizeScope(scope), safeSessionId = safeId(sessionId, ""), terminal = safeId(identity.terminalEntryId ?? "", ""), sessionKey = safeId(identity.sessionKey ?? "", "");
+  hasExcludedTurnSuppression(scope: string, sessionId: string, identity: { sessionKey?: string; terminalEntryId?: string; admissionMessagePosition?: number; terminalMessagePosition?: number; compatibilityFingerprint?: string }, now = Date.now()): boolean {
+    const safeScope = normalizeScope(scope), safeSessionId = safeId(sessionId, ""), sessionKey = safeId(identity.sessionKey ?? "", ""), terminal = safeId(identity.terminalEntryId ?? "", ""), compatibilityFingerprint = safeFingerprint(identity.compatibilityFingerprint);
     const admission = identity.admissionMessagePosition, terminalPosition = identity.terminalMessagePosition;
     const positions = typeof admission === "number" && typeof terminalPosition === "number" && Number.isSafeInteger(admission) && admission >= 0 && Number.isSafeInteger(terminalPosition) && terminalPosition >= admission;
-    if (!safeSessionId || (!terminal && !(sessionKey && positions))) return false;
+    if (!safeSessionId || (!terminal && !(positions && compatibilityFingerprint))) return false;
     this.db.prepare("DELETE FROM mnemora_excluded_turn_suppressions WHERE expires_at<=?").run(now);
     if (terminal) return Boolean(this.db.prepare(`SELECT 1 FROM mnemora_excluded_turn_suppressions
       WHERE scope=? AND session_id=? AND terminal_entry_id=? AND expires_at>? LIMIT 1`).get(safeScope, safeSessionId, terminal, now));
+    if (sessionKey) return Boolean(this.db.prepare(`SELECT 1 FROM mnemora_excluded_turn_suppressions
+      WHERE scope=? AND session_id=? AND session_key=? AND admission_message_position=? AND terminal_message_position=? AND compatibility_fingerprint=? AND expires_at>? LIMIT 1`).get(safeScope, safeSessionId, sessionKey, admission, terminalPosition, compatibilityFingerprint, now));
     return Boolean(this.db.prepare(`SELECT 1 FROM mnemora_excluded_turn_suppressions
-      WHERE scope=? AND session_id=? AND session_key=? AND admission_message_position=? AND terminal_message_position=? AND expires_at>? LIMIT 1`).get(safeScope, safeSessionId, sessionKey, admission, terminalPosition, now));
+      WHERE scope=? AND session_id=? AND admission_message_position=? AND terminal_message_position=? AND compatibility_fingerprint=? AND expires_at>? LIMIT 1`).get(safeScope, safeSessionId, admission, terminalPosition, compatibilityFingerprint, now));
   }
 
   /** Read-only first-use signal. It exposes no event IDs, messages, or sources. */

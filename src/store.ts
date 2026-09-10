@@ -301,6 +301,7 @@ export class GraphologyStore {
     if (version < 80) this.migrateFirstUseVerificationV80();
     if (version < 81) this.migrateLifecycleCoordinationV81();
     if (version < 82) this.migrateTaskActionOutcomesV82();
+    if (version < 83) this.migrateLegacyCallbackFingerprintsV83();
     this.repairCanonicalCorpusFts();
     this.db.exec(`PRAGMA user_version=${SUPPORTED_SCHEMA_VERSION}`);
   }
@@ -508,6 +509,21 @@ export class GraphologyStore {
     if (!columns.has("action_ref")) this.db.exec("ALTER TABLE mnemora_task_outcomes ADD COLUMN action_ref TEXT CHECK(action_ref IS NULL OR length(action_ref)<=1024)");
     if (!columns.has("action_state")) this.db.exec("ALTER TABLE mnemora_task_outcomes ADD COLUMN action_state TEXT CHECK(action_state IS NULL OR action_state IN ('attempted','partial','completed','failed','cancelled','superseded'))");
     this.db.exec(cognitionTaskActionOutcomeSchemaSql);
+  }
+
+  /** Schema v83 adds one-way matching for legacy callbacks with neither a
+   * host entry ID nor session key. Existing rows deliberately remain NULL and
+   * cannot suppress later capture without a stronger public identity. */
+  private migrateLegacyCallbackFingerprintsV83(): void {
+    for (const table of ["mnemora_turn_advancements", "mnemora_excluded_turn_suppressions"]) {
+      const exists = this.db.prepare("SELECT 1 AS value FROM sqlite_master WHERE type='table' AND name=?").get(table) as { value?: unknown } | undefined;
+      if (!exists?.value) continue;
+      const columns = new Set((this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: unknown }>).map(column => String(column.name ?? "")));
+      if (!columns.has("compatibility_fingerprint")) this.db.exec(`ALTER TABLE ${table} ADD COLUMN compatibility_fingerprint TEXT`);
+    }
+    this.db.exec(journalSchemaSql);
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_mnemora_turn_advancements_compatibility ON mnemora_turn_advancements(scope,session_id,admission_message_position,terminal_message_position,compatibility_fingerprint,created_at)");
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_mnemora_excluded_turn_suppressions_compatibility ON mnemora_excluded_turn_suppressions(scope,session_id,admission_message_position,terminal_message_position,compatibility_fingerprint,expires_at)");
   }
 
   /** Schema v58 only adds durable receipts for explicitly confirmed consolidation

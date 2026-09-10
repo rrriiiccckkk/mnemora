@@ -86,6 +86,13 @@ export class TaskOutcomeService {
     const rows = this.db.prepare("SELECT * FROM mnemora_task_outcomes WHERE scope=? AND task_ref=? ORDER BY recorded_at DESC,id DESC LIMIT ?").all(safe, task, bound(limit)) as Array<Record<string, unknown>>;
     return rows.map(row => this.read(row));
   }
+  /** Task continuation must resolve every accepted action state before it
+   * limits the response projection.  The interactive list API stays bounded. */
+  allForTask(scope: string, taskRef: string): TaskOutcome[] {
+    const safe = normalizeScope(scope), task = this.taskReference(taskRef, safe).canonical;
+    const rows = this.db.prepare("SELECT * FROM mnemora_task_outcomes WHERE scope=? AND task_ref=? ORDER BY recorded_at DESC,id DESC").all(safe, task) as Array<Record<string, unknown>>;
+    return rows.map(row => this.read(row));
+  }
   summary(scope: string) {
     const safe = normalizeScope(scope), rows = this.db.prepare("SELECT verdict,impact,COUNT(*) AS value FROM mnemora_task_outcomes WHERE scope=? AND status='recorded' GROUP BY verdict,impact").all(safe) as Array<{ verdict: OutcomeVerdict; impact: OutcomeImpact; value: number }>;
     return { scope: safe, outcomes: rows.reduce((result, row) => ({ ...result, [`${row.verdict}:${row.impact}`]: Number(row.value) }), {} as Record<string, number>) };
