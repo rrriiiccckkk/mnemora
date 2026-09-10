@@ -104,7 +104,7 @@ test("v75 schema drift review migration is additive and retains historic candida
     store.db.prepare("INSERT INTO kg_observations(id,source_entity_id,payload,source,scope,quote,confidence,created_at) VALUES(?,?,?,?,?,?,?,?)").run("obs:existing", "product:existing", "{}", "fixture", "default", "existing evidence", .9, now);
     store.db.exec("DROP TABLE kg_schema_drift_reviews; DROP TABLE kg_schema_drift_invalidations; PRAGMA user_version=75");
     store.close(); store = new GraphologyStore(path);
-    assert.equal(SUPPORTED_SCHEMA_VERSION, 82);
+    assert.equal(SUPPORTED_SCHEMA_VERSION, 83);
     assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, SUPPORTED_SCHEMA_VERSION);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM kg_observations WHERE id='obs:existing'").get().value, 1);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name='kg_schema_drift_reviews'").get().value, 1);
