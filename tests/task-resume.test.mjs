@@ -181,6 +181,60 @@ test("task resume resolves every linked action state before limiting the display
   } finally { store.close(); }
 });
 
+test("task resume preserves corrected, cancelled, and replaced action state through restart, history growth, and forgotten evidence", () => {
+  const directory = mkdtempSync(join(tmpdir(), "mnemora-task-resume-long-sequence-")), dbPath = join(directory, "memory.db");
+  let store;
+  try {
+    let now = 1_700_000_000_000;
+    store = new GraphologyStore(dbPath);
+    const rollout = task(store, "project:alpha", "Long-lived recovery rollout", "Keep accepted state stable through correction, restart, and retained history.", now++);
+    const proof = new ConversationEventRepository(store.db, policy).append({ scope: "project:alpha", sessionId: "session:long-sequence-proof", kind: "tool_result", role: "tool", parts: [{ type: "text", text: "The corrected rollout was independently verified." }], createdAt: now++ });
+    const proofRef = createMnemoraContextRef({ scope: "project:alpha", kind: "conversation-event", id: proof.id });
+    const obsolete = decision(store, now++, { scope: "project:alpha", objective: "Choose a rollout method", chosenAction: "Use the obsolete rollout method", decisionMaker: "user", evidence: [{ sourceRef: rollout.eventRef }], episodeIds: [rollout.episode.id] });
+    const corrected = decision(store, now++, { scope: "project:alpha", objective: "Choose a rollout method", chosenAction: "Run the corrected rollout method", decisionMaker: "user", evidence: [{ sourceRef: rollout.eventRef }], episodeIds: [rollout.episode.id], previousDecisionId: obsolete.id });
+    const correctedRef = createMnemoraContextRef({ scope: "project:alpha", kind: "decision", id: corrected.id });
+    const partial = outcome(store, now++, { scope: "project:alpha", taskRef: rollout.taskRef, actionRef: correctedRef, actionState: "partial", verdict: "partial", impact: "neutral", summary: "Corrected rollout is partially complete.", evidenceRefs: [proofRef] });
+    let result = new TaskResumeService(store.db, () => now).resume({ scope: "project:alpha", taskRef: rollout.taskRef, limit: 1 });
+    assert.equal(result.status, "ready");
+    assert.deepEqual(result.pending.map(item => item.text), ["Corrected rollout is partially complete."]);
+    assert.deepEqual(result.next_steps, []);
+    assert.equal(result.decisions.some(item => item.text === "Use the obsolete rollout method"), false);
+
+    const failed = outcome(store, now++, { scope: "project:alpha", taskRef: rollout.taskRef, actionRef: correctedRef, actionState: "failed", verdict: "failure", impact: "harmful", summary: "Corrected rollout failed safely.", evidenceRefs: [proofRef], supersedesId: partial.id });
+    result = new TaskResumeService(store.db, () => now).resume({ scope: "project:alpha", taskRef: rollout.taskRef, limit: 1 });
+    assert.equal(result.status, "blocked");
+    assert.deepEqual(result.blockers.map(item => item.text), ["Corrected rollout failed safely."]);
+    assert.deepEqual(result.next_steps, []);
+
+    outcome(store, now++, { scope: "project:alpha", taskRef: rollout.taskRef, actionRef: correctedRef, actionState: "completed", verdict: "success", impact: "helpful", summary: "Corrected rollout recovered and completed.", evidenceRefs: [proofRef], supersedesId: failed.id });
+    const retired = decision(store, now++, { scope: "project:alpha", objective: "Retire an unneeded rollout step", chosenAction: "Run the retired rollout step", decisionMaker: "user", evidence: [{ sourceRef: rollout.eventRef }], episodeIds: [rollout.episode.id] });
+    outcome(store, now++, { scope: "project:alpha", taskRef: rollout.taskRef, actionRef: createMnemoraContextRef({ scope: "project:alpha", kind: "decision", id: retired.id }), actionState: "cancelled", verdict: "unknown", impact: "neutral", summary: "Retired rollout step was cancelled.", evidenceRefs: [proofRef] });
+    for (let index = 0; index < 24; index++) outcome(store, now++, { scope: "project:alpha", taskRef: rollout.taskRef, verdict: "partial", impact: "neutral", summary: `Later retained task record ${index + 1}.`, evidenceRefs: [rollout.eventRef] });
+
+    result = new TaskResumeService(store.db, () => now).resume({ scope: "project:alpha", taskRef: rollout.taskRef, limit: 1 });
+    assert.equal(result.status, "ready");
+    assert.equal(result.task.progress, "in_progress");
+    assert.deepEqual(result.next_steps, []);
+    assert.deepEqual(result.completed.map(item => item.text), ["Corrected rollout recovered and completed."]);
+    assert.equal(result.truncated, true);
+
+    store.close();
+    store = new GraphologyStore(dbPath);
+    result = new TaskResumeService(store.db, () => now).resume({ scope: "project:alpha", taskRef: rollout.taskRef, limit: 1 });
+    assert.equal(result.status, "ready");
+    assert.deepEqual(result.next_steps, []);
+    assert.deepEqual(result.completed.map(item => item.text), ["Corrected rollout recovered and completed."]);
+
+    const impact = new MemoryImpactService(store.db), preview = impact.preview({ scope: "project:alpha", kind: "event", id: proof.id });
+    assert.equal(impact.forget({ scope: "project:alpha", kind: "event", id: proof.id, previewHash: preview.previewHash, confirm: true }).status, "forgotten");
+    result = new TaskResumeService(store.db, () => now).resume({ scope: "project:alpha", taskRef: rollout.taskRef, limit: 1 });
+    assert.equal(result.status, "needs_reconfirmation");
+    assert.deepEqual(result.completed, []);
+    assert.deepEqual(result.next_steps, []);
+    assert.equal(result.needs_reconfirmation.some(item => item.text.includes("linked action state has unavailable evidence")), true);
+  } finally { try { store?.close(); } catch {} try { rmSync(directory, { recursive: true, force: true }); } catch {} }
+});
+
 test("forgetting action-only evidence removes its state from the current projection", () => {
   const store = new GraphologyStore(":memory:");
   try {

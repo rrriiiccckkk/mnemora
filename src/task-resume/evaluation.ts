@@ -2,9 +2,9 @@ import { normalizeScope } from "../scope.js";
 import type { TaskResumeInput, TaskResumeResult, TaskResumeStateItem } from "./service.js";
 
 export const TASK_RESUME_EVALUATION_VERSION = 2 as const;
-const categories = new Set(["normal_resume", "action_progress", "action_correction", "action_cancellation", "action_conflict", "future_decision", "expired_decision", "forgotten_evidence", "failed_attempt", "constraints", "insufficient_memory", "ambiguity", "scope_isolation", "lifecycle_boundary"]);
+const categories = new Set(["normal_resume", "action_progress", "action_correction", "action_cancellation", "action_conflict", "future_decision", "expired_decision", "forgotten_evidence", "failed_attempt", "constraints", "insufficient_memory", "ambiguity", "scope_isolation", "lifecycle_boundary", "long_sequence"]);
 const statuses = new Set(["ready", "blocked", "needs_reconfirmation", "ambiguous", "not_found", "query_required"]);
-type TaskResumeEvaluationCategory = "normal_resume" | "action_progress" | "action_correction" | "action_cancellation" | "action_conflict" | "future_decision" | "expired_decision" | "forgotten_evidence" | "failed_attempt" | "constraints" | "insufficient_memory" | "ambiguity" | "scope_isolation" | "lifecycle_boundary";
+type TaskResumeEvaluationCategory = "normal_resume" | "action_progress" | "action_correction" | "action_cancellation" | "action_conflict" | "future_decision" | "expired_decision" | "forgotten_evidence" | "failed_attempt" | "constraints" | "insufficient_memory" | "ambiguity" | "scope_isolation" | "lifecycle_boundary" | "long_sequence";
 type TaskProgress = "unknown" | "in_progress" | "blocked" | "completed" | "needs_reconfirmation";
 
 export interface TaskResumeEvaluationCase {

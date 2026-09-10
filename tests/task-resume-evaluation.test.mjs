@@ -53,16 +53,27 @@ function seedScenario(store, item) {
   else if (item.id === "decision-without-action") { const service = new DecisionMemoryService(store.db, () => now), value = { scope, objective: "Decision without action", decisionMaker: "user", evidence: [{ sourceRef: task.sourceRef }], episodeIds: [task.episode.id] }; service.confirm(value, service.preview(value).preview_hash); }
   else if (item.id === "action-superseded") { const current = decision(store, task, "Superseded action"); outcome(store, task, { actionRef: actionRef(current), actionState: "superseded", verdict: "unknown", summary: "Action superseded" }); }
   else if (item.id === "normal-plan-restart") decision(store, task, "Restart-safe action");
+  else if (item.id === "long-state-restart-forget") {
+    const obsolete = decision(store, task, "Obsolete long-sequence action");
+    const corrected = decision(store, task, "Corrected long-sequence action", { previousDecisionId: obsolete.id });
+    const partial = outcome(store, task, { actionRef: actionRef(corrected), actionState: "partial", verdict: "partial", summary: "Long-sequence action partially complete" });
+    const failed = outcome(store, task, { actionRef: actionRef(corrected), actionState: "failed", verdict: "failure", impact: "harmful", summary: "Long-sequence action failed safely", supersedesId: partial.id });
+    outcome(store, task, { actionRef: actionRef(corrected), actionState: "completed", verdict: "success", impact: "helpful", summary: "Long-sequence action recovered", supersedesId: failed.id });
+    const retired = decision(store, task, "Retired long-sequence action");
+    outcome(store, task, { actionRef: actionRef(retired), actionState: "cancelled", verdict: "unknown", summary: "Long-sequence action cancelled" });
+    for (let index = 0; index < 24; index++) outcome(store, task, { verdict: "partial", summary: `Long-sequence retained record ${index + 1}.`, evidenceRefs: [task.sourceRef] });
+    store.db.prepare("UPDATE mnemora_conversation_events SET deleted_at=? WHERE id=?").run(now + 2, task.proof.id);
+  }
 }
 
-test("fixed task-resume evaluation covers 24 independent offline multi-session continuation sequences", () => {
+test("fixed task-resume evaluation covers 26 independent offline multi-session continuation sequences", () => {
   const store = new GraphologyStore(":memory:");
   try {
     for (const item of fixture.cases) seedScenario(store, item);
     const before = Number(store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_conversation_events").get().value);
-    const report = new TaskResumeEvaluationRunner(new TaskResumeService(store.db, () => now)).run(fixture, { caseLimit: 24 });
-    assert.deepEqual({ version: report.version, dataset: report.dataset, baseline: report.baseline, metrics: { cases: report.metrics.cases, passed: report.metrics.passed, failed: report.metrics.failed } }, { version: 2, dataset: { id: "task-resume.offline.v2", version: 2 }, baseline: { automaticRecallChanged: false, externalActions: false, maximumItemsPerCase: 8 }, metrics: { cases: 24, passed: 24, failed: 0 } });
-    assert.deepEqual(Object.keys(report.metrics.byCategory).sort(), ["action_cancellation", "action_conflict", "action_correction", "action_progress", "ambiguity", "constraints", "expired_decision", "failed_attempt", "forgotten_evidence", "future_decision", "insufficient_memory", "lifecycle_boundary", "normal_resume", "scope_isolation"]);
+    const report = new TaskResumeEvaluationRunner(new TaskResumeService(store.db, () => now)).run(fixture, { caseLimit: 26 });
+    assert.deepEqual({ version: report.version, dataset: report.dataset, baseline: report.baseline, metrics: { cases: report.metrics.cases, passed: report.metrics.passed, failed: report.metrics.failed } }, { version: 2, dataset: { id: "task-resume.offline.v2", version: 2 }, baseline: { automaticRecallChanged: false, externalActions: false, maximumItemsPerCase: 8 }, metrics: { cases: 26, passed: 26, failed: 0 } });
+    assert.deepEqual(Object.keys(report.metrics.byCategory).sort(), ["action_cancellation", "action_conflict", "action_correction", "action_progress", "ambiguity", "constraints", "expired_decision", "failed_attempt", "forgotten_evidence", "future_decision", "insufficient_memory", "lifecycle_boundary", "long_sequence", "normal_resume", "scope_isolation"]);
     assert.equal(report.results.every(item => item.mismatchCodes.length === 0), true);
     assert.equal(JSON.stringify(report).includes("other scope"), false);
     assert.equal(Number(store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_conversation_events").get().value), before);
