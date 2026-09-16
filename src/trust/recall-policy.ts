@@ -1,6 +1,8 @@
 import type { KgContextResult } from "../types.js";
 import { normalizeScope } from "../scope.js";
 import { renderContext } from "../context-renderer.js";
+import { parseMnemoraContextRef } from "../context/context-ref.js";
+import type { RetrievalCandidate } from "../retrieval/types.js";
 import { VerificationRepository } from "./verification.js";
 
 export interface RecallPolicyDecision {
@@ -12,22 +14,51 @@ export interface RecallPolicyDecision {
   context?: KgContextResult;
 }
 
+export interface AutomaticCandidateDecision {
+  candidates: RetrievalCandidate[];
+  excluded: number;
+}
+
 /** Strict policy for automatic Mnemora context only. Manual queries preserve their legacy result shape. */
 export class RecallPolicyService {
   constructor(private readonly repository: VerificationRepository, private readonly enabled: boolean, private readonly tokenBudget = 800) {}
 
+  /**
+   * This is the local-record half of automatic context admission. A reasoning
+   * strategy can be inspected through manual retrieval, but only the governed
+   * runtime delivery path can attach it. Claim eligibility shares the exact
+   * evidence policy used for graph context.
+   */
+  filterAutomaticCandidates(candidates: readonly RetrievalCandidate[], scope: string): AutomaticCandidateDecision {
+    const normalizedScope = normalizeScope(scope);
+    const claimIds = candidates.flatMap(candidate => candidate.kind === "claim" ? claimId(candidate, normalizedScope) ?? [] : []);
+    const eligibility = this.repository.automaticClaimEligibility(normalizedScope, claimIds, this.enabled);
+    const permitted = candidates.filter(candidate => {
+      if (candidate.kind === "reasoning-memory") return false;
+      if (candidate.kind !== "claim") return true;
+      const id = claimId(candidate, normalizedScope);
+      return Boolean(id && eligibility.get(id) === true);
+    });
+    return { candidates: permitted, excluded: candidates.length - permitted.length };
+  }
+
   evaluateAutomaticContext(context: KgContextResult, scope: string, options: { recordRecall?: boolean } = {}): RecallPolicyDecision {
-    if (!this.enabled) return { allowed: true, evaluated_sources: 0, excluded_sources: 0, reason: "disabled" };
     const graphEvidence = [...context.nodes.flatMap(item => item.evidence), ...context.edges.flatMap(item => item.evidence), ...context.semantic_labels.flatMap(item => item.evidence)];
     if (!graphEvidence.length) {
       const hasGraphShape = context.nodes.length > 0 || context.edges.length > 0 || context.semantic_labels.length > 0;
       return hasGraphShape
         ? { allowed: false, evaluated_sources: 0, excluded_sources: 0, reason: "unverified_evidence" }
-        : { allowed: true, evaluated_sources: 0, excluded_sources: 0, reason: "no_graph_evidence" };
+        : { allowed: true, evaluated_sources: 0, excluded_sources: 0, reason: this.enabled ? "no_graph_evidence" : "disabled" };
     }
     const claimIds = graphEvidence.map(item => item.observation_id).filter((value): value is string => typeof value === "string").slice(0, 200);
-    const eligibility = this.repository.claimEligibility(normalizeScope(scope), claimIds);
-    const permitted = (evidence: typeof graphEvidence[number]) => typeof evidence.observation_id === "string" && eligibility.get(evidence.observation_id) === true;
+    const eligibility = this.repository.automaticClaimEligibility(normalizeScope(scope), claimIds, this.enabled);
+    // Older graph evidence can lack an observation id. It has no verification
+    // state to override, so preserve legacy permissive recall only when strict
+    // verification is disabled. Any identified claim still goes through the
+    // same terminal-state and source-validity gate.
+    const permitted = (evidence: typeof graphEvidence[number]) => typeof evidence.observation_id !== "string"
+      ? !this.enabled
+      : eligibility.get(evidence.observation_id) === true;
     const nodes = context.nodes
       .map(item => ({ ...item, evidence: item.evidence.filter(permitted) }))
       .filter(item => item.evidence.length > 0);
@@ -58,8 +89,15 @@ export class RecallPolicyService {
     };
     const originalSources = new Set(graphEvidence.map(item => item.source).filter(Boolean));
     const admittedSources = new Set(allowedEvidence.map(item => item.source).filter(Boolean));
-    return { allowed: true, evaluated_sources: originalSources.size, excluded_sources: Math.max(0, originalSources.size - admittedSources.size), reason: "verified", context: allowedContext };
+    return { allowed: true, evaluated_sources: originalSources.size, excluded_sources: Math.max(0, originalSources.size - admittedSources.size), reason: this.enabled ? "verified" : "disabled", context: allowedContext };
   }
+}
+
+function claimId(candidate: RetrievalCandidate, scope: string): string | undefined {
+  try {
+    const reference = parseMnemoraContextRef(candidate.contextRef);
+    return reference.scope === scope && reference.kind === "claim" ? reference.id : undefined;
+  } catch { return undefined; }
 }
 
 function summary(evidence: Array<{ source: string; confidence: number; created_at: number }>) {

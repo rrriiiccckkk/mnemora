@@ -163,6 +163,16 @@ export class VerificationRepository {
 
   /** A strict recall decision is made per observation/claim, never per source. */
   claimEligibility(scope: string, claimIds: readonly string[]): Map<string, boolean> {
+    return this.automaticClaimEligibility(scope, claimIds, true);
+  }
+
+  /**
+   * Automatic context never revives a terminally rejected claim or a source
+   * that is no longer available. Strict verification additionally requires
+   * every linked verification to be directly verified. Manual inspection does
+   * not call this policy and may still expose those audit records.
+   */
+  automaticClaimEligibility(scope: string, claimIds: readonly string[], strictVerification: boolean): Map<string, boolean> {
     const unique = [...new Set(claimIds.filter(value => boundedId(value)))].slice(0, 200);
     const result = new Map(unique.map(id => [id, false]));
     if (!unique.length) return result;
@@ -173,7 +183,9 @@ export class VerificationRepository {
     for (const row of rows) grouped.set(row.claim_id, [...(grouped.get(row.claim_id) ?? []), row]);
     for (const id of unique) {
       const records = grouped.get(id) ?? [];
-      result.set(id, records.length > 0 && records.every(record => record.status === "verified" && record.anchor_status === "available"));
+      const sourceAvailable = records.every(record => record.anchor_status === "available");
+      const terminallyRejected = records.some(record => record.status === "rejected" || record.status === "contradicted" || record.status === "superseded");
+      result.set(id, sourceAvailable && !terminallyRejected && (!strictVerification || records.length > 0 && records.every(record => record.status === "verified")));
     }
     return result;
   }

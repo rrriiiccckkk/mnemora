@@ -5,6 +5,7 @@ import { MnemoraContextEngine } from "../dist/context-engine/engine.js";
 import { estimateMessageTokens } from "../dist/context-engine/message-safety.js";
 import { estimateTextTokens } from "../dist/context-engine/token-estimate.js";
 import { normalizeConfig } from "../dist/config.js";
+import { Mnemora } from "../dist/index.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
@@ -24,6 +25,22 @@ test("ContextEngine uses one CJK and astral-aware estimator for messages and add
   assert.equal(assembled.systemPromptAddition, addition);
   assert.equal(assembled.estimatedTokens, estimateTextTokens("当前任务") + estimateTextTokens(addition));
   assert.equal(assembled.promptAuthority, "assembled");
+});
+
+test("ContextEngine never attaches a rejected graph claim through either automatic path", async () => {
+  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-context-admission-")), dbPath = join(directory, "memory.db");
+  const extraction = { entities: [{ name: "Acme", type: "company", confidence: .9, evidence_span: "Acme supplies rejected packaging." }], relations: [] };
+  const config = normalizeConfig({ dbPath, contextEngine: { enabled: true, maxContextTokens: 1000 }, unifiedRetrieval: { enabled: true, tokenBudget: 800, maxItems: 4, minConfidence: .5 }, trustLayer: { enabled: true, verification: { enabled: true } } });
+  const graph = new Mnemora({ config, extractor: { extract: async () => extraction } });
+  try {
+    await graph.ingestItem({ text: "Acme supplies rejected packaging.", source: "report:acme", sourceRef: { provider: "memory-lancedb-pro", externalId: "acme" } });
+    const [verification] = graph.kg_verify({ operation: "list" });
+    graph.kg_verify({ operation: "transition", verification_id: verification.id, status: "rejected", support_type: "none", confirm: true });
+    const engine = new MnemoraContextEngine(config, () => new Mnemora({ config, extractor: { extract: async () => extraction } }));
+    const assembled = await engine.assemble({ sessionId: "recall", prompt: "What does Acme supply?", messages: [{ role: "user", content: "What does Acme supply?" }], tokenBudget: 1000 });
+    assert.doesNotMatch(assembled.systemPromptAddition ?? "", /rejected packaging|Acme/i);
+    assert.equal(assembled.systemPromptAddition, undefined);
+  } finally { graph.close(); try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
 
 test("ContextEngine does not replay the transcript when prePromptMessageCount is absent or NaN", async () => {

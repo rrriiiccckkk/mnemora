@@ -40,6 +40,7 @@ import { PersonalContextCompiler } from "./cognition/context-compiler.js";
 import { RecallFeedbackRepository } from "./cognition/reflection.js";
 import { createMnemoraContextRef } from "./context/context-ref.js";
 import { MemoryReranker } from "./retrieval/memory-reranker.js";
+import type { RetrievalCandidate } from "./retrieval/types.js";
 import { memoryMatchesTags, planRecallQuery } from "./retrieval/query-routing.js";
 import { UnifiedRecallShadowRepository } from "./retrieval/unified-recall-shadow.js";
 import { RecallDecayReviewService, RecallUsageRepository } from "./recall-lifecycle/repository.js";
@@ -377,6 +378,10 @@ export class Mnemora {
     const decision = this.recallPolicy.evaluateAutomaticContext(context, normalizedScope);
     try { this.retrospectiveAudits.schedule(normalizedScope); } catch { /* audit scheduling must never block recall */ }
     return decision;
+  }
+  /** Internal ContextEngine path: local candidates and graph evidence share one admission policy. */
+  filterAutomaticRecallCandidates(candidates: readonly RetrievalCandidate[], scope?: string) {
+    return this.recallPolicy.filterAutomaticCandidates(candidates, normalizeScope(scope, this.config.scope?.default ?? "default"));
   }
   /** Read-only, redacted explanation of what automatic recall would admit for this query. */
   async kg_recall_explain(input: { query: string; scope?: string; max_nodes?: number; max_depth?: number; confidence_threshold?: number; token_budget?: number; mode?: SearchMode; signal?: AbortSignal }) {
