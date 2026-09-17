@@ -19,7 +19,7 @@ const freshness = (time: number, now: number) => Math.max(.1, Math.exp(-(Math.ma
 const text = (value: unknown, maximum = 1200) => typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, maximum) : "";
 const ref = (scope: string, kind: Parameters<typeof createMnemoraContextRef>[0]["kind"], id: string) => createMnemoraContextRef({ scope, kind, id });
 const lexicalTerms = (query: string) => {
-  const normalized = query.trim().toLocaleLowerCase(), values = new Set<string>(normalized ? [normalized] : []);
+  const original = query.trim(), normalized = original.toLocaleLowerCase(), values = new Set<string>(original ? [original, normalized] : []);
   // Splitting only on punctuation treats a continuous Chinese question as one
   // opaque token.  ICU word segmentation supplies bounded lexical candidates
   // such as “喜欢”, while the original full phrase remains first for exact
