@@ -31,6 +31,29 @@ test("automatic injection requires a specific query anchor and diversifies bound
   assert.equal(selected.suppressed, 0);
 });
 
+test("automatic injection does not treat Chinese personal question framing as a specific anchor", () => {
+  const result = selectInjectionCandidates({
+    query: "我喜欢喝什么茶",
+    candidates: [
+      candidate("oolong", "Tea preference", "我喜欢喝乌龙茶", .95),
+      candidate("films", "Film preference", "我喜欢看电影", .9)
+    ],
+    maxItems: 2,
+    diversityLambda: .75
+  });
+  assert.deepEqual(result, { candidates: [], suppressed: 2, reason: "no_anchor_terms" });
+});
+
+test("automatic injection permits a specific multi-character Chinese anchor", () => {
+  const result = selectInjectionCandidates({
+    query: "乌龙茶偏好",
+    candidates: [candidate("oolong", "Tea preference", "已确认的乌龙茶偏好", .95)],
+    maxItems: 2,
+    diversityLambda: .75
+  });
+  assert.deepEqual(result.candidates.map(item => item.contextRef.split("/").at(-1)), ["oolong"]);
+});
+
 test("graph supplement requires an anchor match or a conservative semantic score", () => {
   const graph = { query: "How does the memory system work?", context: "irrelevant", nodes: [{ node: { name: "Micron Technology", description: "A semiconductor memory company", aliases: [] }, evidence: [{ quote: "Micron supplies memory chips" }], score: 1, score_components: { lexical: 1, semantic: 0, confidence: .9, freshness: 1 } }], edges: [], semantic_labels: [], sources: [], truncated: false };
   assert.deepEqual(selectGraphInjection({ query: graph.query, context: graph }), { allowed: false, candidates: 1, reason: "no_anchor_terms" });

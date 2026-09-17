@@ -62,14 +62,18 @@ export function selectGraphInjection(input: {
 
 const genericTerms = new Set([
   "a", "an", "and", "about", "does", "do", "explain", "for", "help", "how", "in", "is", "it", "me", "memory", "of", "on", "please", "system", "tell", "the", "to", "what", "with", "work",
-  "什么", "介绍", "功能", "关于", "如何", "怎么", "工作", "系统", "记忆", "这个", "那个", "问题"
+  "什么", "介绍", "功能", "关于", "如何", "怎么", "工作", "系统", "记忆", "这个", "那个", "问题", "喜欢"
 ]);
 
 function queryAnchors(queries: readonly string[]): string[] {
   const values = new Set<string>();
   for (const query of queries) for (const term of words(query)) {
     const value = term.toLocaleLowerCase();
-    if (!genericTerms.has(value) && (value.length >= 3 || /\p{Script=Han}/u.test(value))) values.add(value);
+    // A single Han character is commonly a pronoun, particle, or broad noun
+    // (for example “我” or “茶”).  It is useful for manual candidate recall
+    // but too weak to justify automatic prompt attachment.
+    const minimumLength = /\p{Script=Han}/u.test(value) ? 2 : 3;
+    if (!genericTerms.has(value) && value.length >= minimumLength) values.add(value);
   }
   return [...values].slice(0, 12);
 }

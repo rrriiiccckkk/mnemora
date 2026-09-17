@@ -18,7 +18,21 @@ const authorityWeight = (value: RetrievalAuthority) => value === "user_correctio
 const freshness = (time: number, now: number) => Math.max(.1, Math.exp(-(Math.max(0, now - time) / 86_400_000) / 365));
 const text = (value: unknown, maximum = 1200) => typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, maximum) : "";
 const ref = (scope: string, kind: Parameters<typeof createMnemoraContextRef>[0]["kind"], id: string) => createMnemoraContextRef({ scope, kind, id });
-const lexicalTerms = (query: string) => [...new Set([query, ...query.toLocaleLowerCase().split(/[^\p{L}\p{N}]+/u).filter(term => term.length >= 2)])].slice(0, 12);
+const lexicalTerms = (query: string) => {
+  const normalized = query.trim().toLocaleLowerCase(), values = new Set<string>(normalized ? [normalized] : []);
+  // Splitting only on punctuation treats a continuous Chinese question as one
+  // opaque token.  ICU word segmentation supplies bounded lexical candidates
+  // such as “喜欢”, while the original full phrase remains first for exact
+  // matches.  Automatic prompt attachment has its own stricter anchor policy.
+  try {
+    for (const segment of new Intl.Segmenter(undefined, { granularity: "word" }).segment(normalized)) {
+      if (segment.isWordLike && segment.segment.length >= 2) values.add(segment.segment);
+    }
+  } catch {
+    for (const term of normalized.split(/[^\p{L}\p{N}]+/u)) if (term.length >= 2) values.add(term);
+  }
+  return [...values].slice(0, 12);
+};
 const boundedValues = (values: readonly string[] | undefined, maximum: number, length: number) => [...new Set((values ?? []).filter(value => typeof value === "string").map(value => value.trim().toLocaleLowerCase().slice(0, length)).filter(Boolean))].slice(0, maximum);
 const clamp01 = (value: unknown, fallback: number) => Number.isFinite(Number(value)) ? Math.min(1, Math.max(0, Number(value))) : fallback;
 const intentDepth = (category: RetrievalIntentCategory | undefined) => category ? 3 : 1;
