@@ -77,6 +77,22 @@ test("task resume keeps task selection and references within the caller scope", 
   } finally { store.close(); }
 });
 
+test("task resume segments a Chinese continuation query but keeps multiple matches ambiguous", () => {
+  const store = new GraphologyStore(":memory:");
+  try {
+    const migration = task(store, "project:alpha", "数据库迁移", "将生产数据库迁移到新集群。", 20);
+    const unique = new TaskResumeService(store.db).resume({ scope: "project:alpha", query: "请继续之前的数据库迁移" });
+    assert.equal(unique.status, "needs_reconfirmation");
+    assert.equal(unique.task.task_ref, migration.taskRef);
+
+    task(store, "project:alpha", "部署迁移", "将部署流程迁移到新运行环境。", 21);
+    task(store, "project:alpha", "部署回滚", "准备独立的部署回滚方案。", 22);
+    const ambiguous = new TaskResumeService(store.db).resume({ scope: "project:alpha", query: "继续部署" });
+    assert.equal(ambiguous.status, "ambiguous");
+    assert.deepEqual(ambiguous.candidates.map(candidate => candidate.title), ["部署回滚", "部署迁移"]);
+  } finally { store.close(); }
+});
+
 test("task resume treats forgotten evidence as reconfirmation and never upgrades a failed attempt", () => {
   const store = new GraphologyStore(":memory:");
   try {
@@ -291,6 +307,11 @@ test("task resume abstains when only a task record exists, and Inspector and CLI
     assert.equal(inspector.status, "needs_reconfirmation");
     assert.equal(inspector.needs_reconfirmation.some(item => item.text.includes("No accepted decision or outcome")), true);
     assert.equal(Number(graph.store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_conversation_events").get().value), before);
+    task(graph.store, "project:alpha", "部署迁移", "将部署流程迁移到新运行环境。", 31);
+    task(graph.store, "project:alpha", "部署回滚", "准备独立的部署回滚方案。", 32);
+    const ambiguousInspector = app.taskResume({ scope: "project:alpha", query: "继续部署" });
+    assert.equal(ambiguousInspector.status, "ambiguous");
+    assert.deepEqual(ambiguousInspector.candidates.map(candidate => candidate.title), ["部署回滚", "部署迁移"]);
     graph.close();
     const cli = spawnSync(process.execPath, [join(process.cwd(), "dist", "cli.js"), "resume", "--task-ref", bare.taskRef, "--scope", "project:alpha"], { encoding: "utf8", env: { ...process.env, MNEMORA_DB: dbPath } });
     assert.equal(cli.status, 0, cli.stderr);
@@ -298,5 +319,8 @@ test("task resume abstains when only a task record exists, and Inspector and CLI
     assert.equal(output.command, "resume.read");
     assert.equal(output.result.task.task_ref, bare.taskRef);
     assert.equal(output.result.status, "needs_reconfirmation");
+    const ambiguousCli = spawnSync(process.execPath, [join(process.cwd(), "dist", "cli.js"), "resume", "继续部署", "--scope", "project:alpha"], { encoding: "utf8", env: { ...process.env, MNEMORA_DB: dbPath } });
+    assert.equal(ambiguousCli.status, 0, ambiguousCli.stderr);
+    assert.deepEqual(JSON.parse(ambiguousCli.stdout).result.candidates.map(candidate => candidate.title), ["部署回滚", "部署迁移"]);
   } finally { try { graph.close(); } catch {} try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });

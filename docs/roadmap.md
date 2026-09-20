@@ -1,5 +1,34 @@
 # Mnemora Roadmap
 
+## Current release plan (2026-09-18)
+
+Released baseline: **v1.29.4**. The historical sections below record earlier
+completed directions; this section is the active planning baseline.
+
+| Version | Product outcome | Release gate |
+| --- | --- | --- |
+| **v1.30.0 — Reliable task continuation** | A new session can clearly show which task to resume, what is complete, blocked, pending, superseded, or awaiting reconfirmation, with source links. Improve Chinese task discovery and ambiguity handling without inventing a task or a next action. | Cross-session, restart, correction, forgetting, Chinese-query, and ambiguity regressions pass from durable records through the CLI and Inspector projections. |
+| **v1.31.0 — Continuity reliability** | Make task-state capture and presentation dependable in long-lived work: preserve failed attempts, replacements, expiry, constraints, and provenance without reviving completed work or hiding uncertainty behind pagination. | End-to-end tests cover long history, multiple blockers/constraints/conflicts, stale evidence, and display limits independently from state resolution. |
+| **v1.32.0 — Measured task-resume value** | Run an authorized, de-identified comparison of no long-term memory, simple retrieval, and Mnemora under fixed model and budget conditions. | Report held-out continuation correctness, repeated steps, stale-information use, irrelevant injection, tokens, latency, and measured review time. Synthetic contracts alone are not an efficacy claim. |
+| **v1.33.0 — Governed ReasoningMemory pilot** | Apply reusable strategy memory only to a small set of verifiable procedures, such as deployment, incident response, and data migration. | Begin only if v1.32 evidence shows a benefit over simple retrieval; retain scoped canaries, explicit calibration, outcome evidence, rollback, and per-memory circuit controls. |
+
+### v2.0 threshold
+
+Do not schedule v2.0 by calendar. It requires real task-resume evidence that
+reliably outperforms simple retrieval, while corrections, forgotten sources,
+and invalid evidence no longer influence the Agent through any automatic path.
+
+### Scope discipline
+
+- Use patch releases only for targeted regressions and release-hardening.
+- Use minor releases for a complete, user-visible capability plus its
+  acceptance criteria.
+- Do not prioritize more relationship types, generic personality modeling, or
+  broad provider integration before the task-continuation and measurement
+  gates above.
+- Every release tag must point to the exact `main` commit with successful
+  Windows and Linux CI; do not bypass that release gate.
+
 ## Direction
 
 Mnemora is narrowing its next work to governed ReasoningMemory.  The goal is

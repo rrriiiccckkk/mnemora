@@ -275,7 +275,24 @@ function actionItem(outcome: TaskOutcome): TaskResumeStateItem { const kind = ou
 function historyItem(outcome: TaskOutcome, fallback?: string): TaskResumeStateItem { return { kind: "history", text: outcome.summary ?? fallback ?? (outcome.actionState ? actionMessage(outcome.actionState) : outcomeMessage(outcome.verdict)), source_refs: actionRefs(outcome), recorded_at: outcome.recordedAt }; }
 function outcomeMessage(verdict: TaskOutcome["verdict"]): string { return verdict === "failure" ? "A failed attempt was recorded." : verdict === "partial" ? "A partial outcome was recorded." : verdict === "unknown" ? "An outcome with unknown completion was recorded." : "A successful outcome was recorded."; }
 function actionMessage(state: TaskActionState | undefined): string { return state === "attempted" ? "A linked action was attempted." : state === "partial" ? "A linked action is partially complete." : state === "completed" ? "A linked action was completed." : state === "failed" ? "A linked action failed." : state === "cancelled" ? "A linked action was cancelled." : "A linked action was superseded."; }
-function tokenize(value: string): string[] { return [...new Set(value.toLowerCase().match(/[\p{L}\p{N}_-]{2,}/gu) ?? [])].slice(0, 12); }
+const cjkContinuationFillers = new Set(["继续", "之前", "上次", "昨天", "刚才", "我们", "这个", "那个", "任务", "工作", "项目", "请", "帮我", "一下", "哪里", "怎么", "什么", "进度", "状态"]);
+
+function tokenize(value: string): string[] {
+  const normalized = value.trim().toLocaleLowerCase(), terms = new Set<string>(normalized ? [normalized] : []);
+  // A task lookup is a read-only selection boundary. Segmenting a continuous
+  // Chinese continuation request lets it find known task titles, while the
+  // existing candidate branch remains responsible for any ambiguity.
+  try {
+    for (const segment of new Intl.Segmenter(undefined, { granularity: "word" }).segment(normalized)) {
+      const term = segment.segment;
+      if (!segment.isWordLike || term.length < 2 || cjkContinuationFillers.has(term)) continue;
+      terms.add(term);
+    }
+  } catch {
+    for (const term of normalized.match(/[\p{L}\p{N}_-]{2,}/gu) ?? []) terms.add(term);
+  }
+  return [...terms].slice(0, 12);
+}
 function taskScore(task: Episode, terms: string[]): number { const haystack = `${task.title ?? ""}\n${task.summary}`.toLowerCase(); return terms.reduce((score, term) => score + (haystack.includes(term) ? 1 : 0), 0); }
 function text(value: unknown, max: number): string | undefined { return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : undefined; }
 function bound(value: unknown): number { return typeof value === "number" && Number.isInteger(value) ? Math.min(MAX_ITEMS, Math.max(1, value)) : MAX_ITEMS; }
