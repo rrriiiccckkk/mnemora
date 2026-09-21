@@ -29,6 +29,31 @@ and invalid evidence no longer influence the Agent through any automatic path.
 - Every release tag must point to the exact `main` commit with successful
   Windows and Linux CI; do not bypass that release gate.
 
+### Active sequencing
+
+1. Finish **v1.30** by proving source-linked task continuation through the
+   CLI and Inspector for restart, correction, forgetting, Chinese query, and
+   ambiguous-task cases.
+2. Build **v1.31** around long-history correctness: multiple blockers,
+   replacements, expiry, constraints, conflicts, and independent display
+   limits must not hide or revive task state.
+3. Run **v1.32** as the first real decision gate. Its fixed-model comparison
+   determines whether Mnemora is better than simple retrieval on task
+   continuation, not merely whether its contracts pass.
+4. Start **v1.33** only when that evidence supports a governed, scoped
+   ReasoningMemory canary for a small set of verifiable procedures.
+
+### Deferred experimental track: associative recall
+
+The T-Mem-inspired Trigger design is a later experiment, not the next product
+milestone. It remains `off` or scope-limited `shadow` until task continuation
+and measured evaluation establish a trustworthy baseline. Any future canary
+must return only a currently eligible canonical Decision or Episode with its
+original sources; Trigger cues, bridges, predictions, and model confidence
+must never become prompt facts. Corrections, forgetting, lifecycle changes,
+and scope boundaries must invalidate the derived index before it can affect
+automatic context.
+
 ## Direction
 
 Mnemora is narrowing its next work to governed ReasoningMemory.  The goal is
