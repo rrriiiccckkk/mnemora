@@ -37,6 +37,16 @@ test("hybrid search finds cross-term Chinese concepts lexical search misses", as
   } finally { graph.close(); }
 });
 
+test("graph lexical search finds Chinese nodes from a natural-language continuation query", async () => {
+  const graph = new Mnemora({ config: { dbPath: ":memory:" } });
+  try {
+    graph.store.ingest([{ name: "服务重启", type: "technology", description: "服务重启后进程自动恢复", aliases: [], confidence: .9, evidence_span: "服务重启" }], [], "fixture");
+    const results = await graph.kg_search("服务重启的时候怎么保证不卡住，进程还能自己起来", undefined, 5, "lexical");
+    assert.deepEqual(results.map(result => result.node.name), ["服务重启"]);
+    assert.equal(results[0]?.score_components.lexical > 0, true);
+  } finally { graph.close(); }
+});
+
 test("hybrid mode falls back to exact lexical results when query embedding fails", async () => {
   const graph = graphWith({ async embed(inputs) { if (inputs.length === 1 && inputs[0] === "Murata") throw new Error("offline"); return fake.embed(inputs); } });
   try {

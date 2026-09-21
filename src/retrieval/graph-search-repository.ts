@@ -42,8 +42,9 @@ export class GraphSearchRepository {
       }
     } catch { /* malformed FTS input remains eligible for exact and LIKE matching */ }
 
-    const like = `%${escapeLike(trimmed)}%`;
-    const likeRows = this.db.prepare(`SELECT * FROM kg_nodes WHERE deleted_at IS NULL AND (? IS NULL OR type = ?) AND ${scopePredicate} AND (name LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\' OR aliases LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\') LIMIT ?`).all(nodeType ?? null, nodeType ?? null, normalizedScope ?? null, normalizedScope ?? null, like, like, like, like, limit) as NodeRow[];
+    const terms = likeTerms(trimmed);
+    const likePredicate = terms.map(() => "(name LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\' OR aliases LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')").join(" OR ");
+    const likeRows = this.db.prepare(`SELECT * FROM kg_nodes WHERE deleted_at IS NULL AND (? IS NULL OR type = ?) AND ${scopePredicate} AND (${likePredicate}) LIMIT ?`).all(nodeType ?? null, nodeType ?? null, normalizedScope ?? null, normalizedScope ?? null, ...terms.flatMap(term => { const like = `%${escapeLike(term)}%`; return [like, like, like, like]; }), limit) as NodeRow[];
     for (const row of likeRows) add(mapNode(row), .5);
 
     return [...candidates.values()]
@@ -99,5 +100,35 @@ export class GraphSearchRepository {
   }
 }
 
-function toFtsQuery(query: string): string { return (query.match(/[\p{L}\p{N}_-]+/gu) ?? []).map((term) => `"${term.replace(/"/g, '""')}"`).join(" OR "); }
+const MAX_QUERY_TERMS = 24;
+
+function toFtsQuery(query: string): string {
+  // FTS5 trigram indexes cannot match a two-character phrase. Segmenting a
+  // continuous Chinese request is not enough on its own, so add bounded Han
+  // three-character windows alongside ordinary word terms.
+  return queryTerms(query, 3, true).map(term => `"${term.replace(/"/g, '""')}"`).join(" OR ");
+}
+
+function likeTerms(query: string): string[] {
+  // Keep the full phrase for existing substring behavior, then let short
+  // Chinese terms rescue requests that a trigram index cannot represent.
+  const normalized = query.trim().toLocaleLowerCase();
+  return [...new Set([normalized, ...queryTerms(normalized, 2, true)])].filter(Boolean).slice(0, MAX_QUERY_TERMS);
+}
+
+function queryTerms(query: string, minimumLength: number, includeHanWindows: boolean): string[] {
+  const normalized = query.trim().toLocaleLowerCase(), values = new Set<string>();
+  try {
+    for (const segment of new Intl.Segmenter(undefined, { granularity: "word" }).segment(normalized)) {
+      if (segment.isWordLike && [...segment.segment].length >= minimumLength) values.add(segment.segment);
+    }
+  } catch {
+    for (const term of normalized.match(/[\p{L}\p{N}_-]+/gu) ?? []) if ([...term].length >= minimumLength) values.add(term);
+  }
+  if (includeHanWindows) for (const run of normalized.match(/\p{Script=Han}+/gu) ?? []) {
+    const characters = [...run];
+    for (let index = 0; index <= characters.length - minimumLength; index++) values.add(characters.slice(index, index + minimumLength).join(""));
+  }
+  return [...values].slice(0, MAX_QUERY_TERMS);
+}
 function escapeLike(value: string): string { return value.replace(/[\\%_]/g, (char) => `\\${char}`); }

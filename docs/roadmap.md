@@ -2,7 +2,7 @@
 
 ## Current release plan (2026-09-18)
 
-Released baseline: **v1.29.4**. The historical sections below record earlier
+Released baseline: **v1.29.6**. The historical sections below record earlier
 completed directions; this section is the active planning baseline.
 
 | Version | Product outcome | Release gate |
