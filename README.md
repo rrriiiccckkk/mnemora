@@ -152,7 +152,10 @@ work, changes memory, or changes automatic recall. A confirmed TaskOutcome can
 optionally cite one exact Decision action and record its state (attempted,
 partial, completed, failed, cancelled, or superseded). Only an explicit link
 can suppress that action from **Next steps**; constraints are separate from
-blockers and superseded action history remains source-linked.
+blockers and superseded action history remains source-linked. A detailed
+projection identifies (`truncated_sections`) only the state sections whose
+displayed records reached the caller's limit; presentation limits never change
+the fully resolved task state.
 
 Run `npm run benchmark:task-resume` for the 24-sequence synthetic functional
 evaluation. `mnemora evaluate task-resume-comparison <plan.json>` validates and

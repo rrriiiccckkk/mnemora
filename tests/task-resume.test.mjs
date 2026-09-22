@@ -216,6 +216,7 @@ test("task resume resolves every linked action state before limiting the display
     assert.equal(result.completed.some(item => item.text === "The rollout action completed."), true);
     assert.equal(result.pending.length, 20);
     assert.equal(result.truncated, true);
+    assert.deepEqual(result.truncated_sections, ["pending"]);
   } finally { store.close(); }
 });
 

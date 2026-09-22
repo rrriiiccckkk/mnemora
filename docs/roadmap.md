@@ -2,14 +2,14 @@
 
 ## Current release plan (2026-09-18)
 
-Released baseline: **v1.30.1**. The historical sections below record earlier
+Released baseline: **v1.31.0**. The historical sections below record earlier
 completed directions; this section is the active planning baseline.
 
 | Version | Product outcome | Release gate |
 | --- | --- | --- |
 | **v1.30.1 — Canonical CLI storage (released)** | The standalone CLI uses Mnemora's one canonical database by default, reports the path when it creates a database, and remains directly executable when a plugin is unpacked without an npm bin shim. | Default, explicit, and in-memory CLI paths are covered; direct CLI invocation stays executable on POSIX builds. |
 | **v1.30.0 — Reliable task continuation (released)** | A new session can clearly show which task to resume, what is complete, blocked, pending, superseded, or awaiting reconfirmation, with source links. Chinese discovery keeps multiple active matches ambiguous and does not let completed history hide a current task. | Cross-session, restart, correction, forgetting, Chinese-query, and ambiguity regressions pass from durable records through the CLI and Inspector projections. |
-| **v1.31.0 — Continuity reliability** | Make task-state capture and presentation dependable in long-lived work: preserve failed attempts, replacements, expiry, constraints, and provenance without reviving completed work or hiding uncertainty behind pagination. | End-to-end tests cover long history, multiple blockers/constraints/conflicts, stale evidence, and display limits independently from state resolution. |
+| **v1.31.0 — Continuity reliability (released)** | Task continuation resolves accepted task state before display limits and identifies exactly which long-history sections were truncated, without reviving completed work or hiding uncertainty behind pagination. | End-to-end tests cover long history, corrections, forgetting, restart, and section-specific display limits independently from state resolution. |
 | **v1.32.0 — Measured task-resume value** | Run an authorized, de-identified comparison of no long-term memory, simple retrieval, and Mnemora under fixed model and budget conditions. | Report held-out continuation correctness, repeated steps, stale-information use, irrelevant injection, tokens, latency, and measured review time. Synthetic contracts alone are not an efficacy claim. |
 | **v1.33.0 — Governed ReasoningMemory pilot** | Apply reusable strategy memory only to a small set of verifiable procedures, such as deployment, incident response, and data migration. | Begin only if v1.32 evidence shows a benefit over simple retrieval; retain scoped canaries, explicit calibration, outcome evidence, rollback, and per-memory circuit controls. |
 

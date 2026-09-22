@@ -9,6 +9,7 @@ import { normalizeScope } from "../scope.js";
 const MAX_ITEMS = 20;
 const MAX_CANDIDATES = 8;
 export type TaskResumeProgress = "unknown" | "in_progress" | "blocked" | "completed" | "needs_reconfirmation";
+export type TaskResumeSection = "completed" | "pending" | "blockers" | "constraints" | "next_steps" | "decisions" | "planned" | "history" | "needs_reconfirmation";
 
 export interface TaskResumeInput {
   scope: string;
@@ -64,6 +65,8 @@ export interface TaskResumeView {
   planned: TaskResumeStateItem[];
   history: TaskResumeStateItem[];
   needs_reconfirmation: TaskResumeStateItem[];
+  /** Section-specific limits never change state resolution; they only bound presentation. */
+  truncated_sections: TaskResumeSection[];
   truncated: boolean;
 }
 
@@ -185,17 +188,19 @@ export class TaskResumeService {
     if (!currentDecisions.length && !currentOutcomes.length && !planned.length) needsReconfirmation.push({ kind: "needs_reconfirmation", text: "No accepted decision or outcome describes the current task state; confirm progress before continuing.", source_refs: [taskRef, ...taskEvidenceRefs], recorded_at: task.recordedAt });
 
     const progress = !active || needsReconfirmation.length ? "needs_reconfirmation" : blockers.length ? "blocked" : taskOutcomes.some(outcome => outcome.verdict === "success" && this.evidenceActive(scope, outcome.evidenceRefs)) && !pending.length && !nextSteps.length ? "completed" : currentDecisions.length || currentOutcomes.length || planned.length ? "in_progress" : "unknown";
-    const allItems = [...completed, ...pending, ...blockers, ...constraints, ...nextSteps, ...decisionItems, ...planned, ...history, ...needsReconfirmation];
+    const sections: Array<[TaskResumeSection, TaskResumeStateItem[]]> = [["completed", completed], ["pending", pending], ["blockers", blockers], ["constraints", constraints], ["next_steps", nextSteps], ["decisions", decisionItems], ["planned", planned], ["history", history], ["needs_reconfirmation", needsReconfirmation]];
     const lastVerified = currentOutcomes.filter(outcome => this.evidenceActive(scope, outcome.evidenceRefs)).reduce<number | null>((latest, outcome) => latest === null || outcome.recordedAt > latest ? outcome.recordedAt : latest, null);
     const lastEvidence = Math.max(task.recordedAt, ...currentDecisions.map(item => item.recordedAt), ...planned.map(item => item.recorded_at), ...outcomes.map(item => item.recordedAt));
-    const limited = [completed, pending, blockers, constraints, nextSteps, decisionItems, planned, history, needsReconfirmation].map(items => items.slice(0, limit));
+    const truncatedSections = sections.flatMap(([name, items]) => items.length > limit ? [name] : []);
+    const limited = sections.map(([, items]) => items.slice(0, limit));
     return {
       kind: "task_resume",
       status: !active || needsReconfirmation.length ? "needs_reconfirmation" : blockers.length ? "blocked" : "ready",
       scope,
       task: { id: task.id, task_ref: taskRef, title: task.title ?? "Untitled task", goal: task.summary, progress, last_verified_at: lastVerified, last_evidence_at: lastEvidence, source_refs: taskSources.events, artifact_refs: taskSources.artifacts },
       completed: limited[0], pending: limited[1], blockers: limited[2], constraints: limited[3], next_steps: limited[4], decisions: limited[5], planned: limited[6], history: limited[7], needs_reconfirmation: limited[8],
-      truncated: allItems.length > limited.reduce((count, items) => count + items.length, 0)
+      truncated_sections: truncatedSections,
+      truncated: truncatedSections.length > 0
     };
   }
 

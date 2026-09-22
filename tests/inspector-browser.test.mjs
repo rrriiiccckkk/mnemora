@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { ConversationEventRepository, EpisodeRepository, Mnemora, createInspectorApplication, startInspector } from "../dist/index.js";
+import { TaskOutcomeService } from "../dist/cognition/outcomes.js";
+import { createMnemoraContextRef } from "../dist/context/context-ref.js";
 
 test("client bootstrap removes the secret fragment and keeps CSRF only in module memory",()=>{
   const manifest=JSON.parse(readFileSync("dist/inspector/asset-manifest.json","utf8")),bundle=readFileSync(`dist/inspector/${manifest.app}`,"utf8");
@@ -89,7 +91,13 @@ test("memory workbench lists available scopes and switches its read-only view", 
 test("task resume view submits an explicit read-only task query and renders its source-linked projection", async () => {
   const directory = mkdtempSync(join(tmpdir(), "mnemora-browser-task-resume-")), graph = new Mnemora({ config: { dbPath: ":memory:", scope: { default: "project:alpha" } } });
   const event = new ConversationEventRepository(graph.store.db, { maxInlineChars: 16_000, maxEventBytes: 262_144, sensitiveContentPolicy: "redact" }).append({ scope: "project:alpha", sessionId: "task-resume", kind: "user_message", role: "user", parts: [{ type: "text", text: "Resume the deployment migration." }] });
-  new EpisodeRepository(graph.store.db).create({ scope: "project:alpha", kind: "task", title: "Deployment migration", summary: "Move deployment after the upstream merge.", sourceEventIds: [event.id], importance: .8, confidence: .9 });
+  const episode = new EpisodeRepository(graph.store.db).create({ scope: "project:alpha", kind: "task", title: "Deployment migration", summary: "Move deployment after the upstream merge.", sourceEventIds: [event.id], importance: .8, confidence: .9 });
+  const taskRef = createMnemoraContextRef({ scope: "project:alpha", kind: "episode", id: episode.id }), eventRef = createMnemoraContextRef({ scope: "project:alpha", kind: "conversation-event", id: event.id });
+  const outcomes = new TaskOutcomeService(graph.store.db, () => 1_700_000_000_000);
+  for (let index = 0; index < 9; index++) {
+    const input = { scope: "project:alpha", taskRef, verdict: "partial", impact: "neutral", summary: `Retained task record ${index + 1}.`, evidenceRefs: [eventRef] };
+    outcomes.confirm(input, outcomes.preview(input).preview_hash);
+  }
   const application = createInspectorApplication({ graph, allowOperations: false, artifactDirectory: directory }), running = await startInspector({ graph: application, allowOperations: false }), browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage(), errors = [];
@@ -99,7 +107,8 @@ test("task resume view submits an explicit read-only task query and renders its 
     await page.locator('#task-resume-form input[name="query"]').fill("deployment migration");
     await page.locator("#task-resume-form").evaluate(form => form.requestSubmit());
     await page.waitForFunction(() => document.querySelector("#task-resume-result")?.textContent?.includes("Deployment migration"));
-    assert.match(await page.locator("#task-resume-result").textContent(), /No accepted decision or outcome/);
+    assert.match(await page.locator("#task-resume-result").textContent(), /Retained task record/);
+    assert.match(await page.locator("#task-resume-result").textContent(), /Showing first 8 records; additional pending records are not shown/);
     assert.deepEqual(errors, []);
   } finally { await browser.close(); await running.close(); graph.close(); try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
