@@ -93,6 +93,28 @@ test("task resume segments a Chinese continuation query but keeps multiple match
   } finally { store.close(); }
 });
 
+test("task resume does not make completed history ambiguous with a current matching task", () => {
+  const store = new GraphologyStore(":memory:");
+  try {
+    const completed = task(store, "project:alpha", "部署记录", "已完成的部署工作。", 30);
+    outcome(store, 31, { scope: "project:alpha", taskRef: completed.taskRef, verdict: "success", impact: "helpful", summary: "部署已完成。", evidenceRefs: [completed.eventRef] });
+    const current = task(store, "project:alpha", "部署迁移", "仍需确认的部署迁移。", 32);
+    const service = new TaskResumeService(store.db);
+
+    const selected = service.resume({ scope: "project:alpha", query: "继续部署" });
+    assert.equal(selected.status, "needs_reconfirmation");
+    assert.equal(selected.task.task_ref, current.taskRef);
+
+    const choices = service.resume({ scope: "project:alpha" });
+    assert.equal(choices.status, "query_required");
+    assert.deepEqual(choices.candidates.map(candidate => candidate.title), ["部署迁移"]);
+    assert.deepEqual(choices.candidates.map(candidate => candidate.progress), ["needs_reconfirmation"]);
+
+    const audit = service.resume({ scope: "project:alpha", taskRef: completed.taskRef });
+    assert.equal(audit.task.progress, "completed");
+  } finally { store.close(); }
+});
+
 test("task resume treats forgotten evidence as reconfirmation and never upgrades a failed attempt", () => {
   const store = new GraphologyStore(":memory:");
   try {
@@ -312,6 +334,7 @@ test("task resume abstains when only a task record exists, and Inspector and CLI
     const ambiguousInspector = app.taskResume({ scope: "project:alpha", query: "继续部署" });
     assert.equal(ambiguousInspector.status, "ambiguous");
     assert.deepEqual(ambiguousInspector.candidates.map(candidate => candidate.title), ["部署回滚", "部署迁移"]);
+    assert.deepEqual(ambiguousInspector.candidates.map(candidate => candidate.progress), ["needs_reconfirmation", "needs_reconfirmation"]);
     graph.close();
     const cli = spawnSync(process.execPath, [join(process.cwd(), "dist", "cli.js"), "resume", "--task-ref", bare.taskRef, "--scope", "project:alpha"], { encoding: "utf8", env: { ...process.env, MNEMORA_DB: dbPath } });
     assert.equal(cli.status, 0, cli.stderr);
@@ -322,5 +345,40 @@ test("task resume abstains when only a task record exists, and Inspector and CLI
     const ambiguousCli = spawnSync(process.execPath, [join(process.cwd(), "dist", "cli.js"), "resume", "继续部署", "--scope", "project:alpha"], { encoding: "utf8", env: { ...process.env, MNEMORA_DB: dbPath } });
     assert.equal(ambiguousCli.status, 0, ambiguousCli.stderr);
     assert.deepEqual(JSON.parse(ambiguousCli.stdout).result.candidates.map(candidate => candidate.title), ["部署回滚", "部署迁移"]);
+    assert.deepEqual(JSON.parse(ambiguousCli.stdout).result.candidates.map(candidate => candidate.progress), ["needs_reconfirmation", "needs_reconfirmation"]);
   } finally { try { graph.close(); } catch {} try { rmSync(directory, { recursive: true, force: true }); } catch {} }
+});
+
+test("task resume keeps corrected and forgotten state consistent through Inspector and CLI restarts", () => {
+  const directory = mkdtempSync(join(tmpdir(), "mnemora-task-resume-correction-entrypoints-")), dbPath = join(directory, "memory.db");
+  let graph;
+  try {
+    graph = new Mnemora({ config: { dbPath } });
+    const rollout = task(graph.store, "project:alpha", "生产部署", "根据已确认的方案完成生产部署。", 40);
+    const original = decision(graph.store, 41, { scope: "project:alpha", objective: "选择生产部署方案", chosenAction: "使用旧部署方案", decisionMaker: "user", evidence: [{ sourceRef: rollout.eventRef }], episodeIds: [rollout.episode.id] });
+    decision(graph.store, 42, { scope: "project:alpha", objective: "选择生产部署方案", chosenAction: "使用更正后的部署方案", decisionMaker: "user", evidence: [{ sourceRef: rollout.eventRef }], episodeIds: [rollout.episode.id], previousDecisionId: original.id });
+    const app = createInspectorApplication({ graph, allowOperations: false, artifactDirectory: directory });
+    const inspector = app.taskResume({ scope: "project:alpha", task_ref: rollout.taskRef });
+    assert.equal(inspector.status, "ready");
+    assert.deepEqual(inspector.decisions.map(item => item.text), ["使用更正后的部署方案"]);
+    graph.close(); graph = undefined;
+
+    const cliBeforeForget = spawnSync(process.execPath, [join(process.cwd(), "dist", "cli.js"), "resume", "--task-ref", rollout.taskRef, "--scope", "project:alpha"], { encoding: "utf8", env: { ...process.env, MNEMORA_DB: dbPath } });
+    assert.equal(cliBeforeForget.status, 0, cliBeforeForget.stderr);
+    assert.deepEqual(JSON.parse(cliBeforeForget.stdout).result.decisions.map(item => item.text), ["使用更正后的部署方案"]);
+
+    const store = new GraphologyStore(dbPath), impact = new MemoryImpactService(store.db), preview = impact.preview({ scope: "project:alpha", kind: "event", id: rollout.event.id });
+    assert.equal(impact.forget({ scope: "project:alpha", kind: "event", id: rollout.event.id, previewHash: preview.previewHash, confirm: true }).status, "forgotten");
+    store.close();
+
+    graph = new Mnemora({ config: { dbPath } });
+    const afterForget = createInspectorApplication({ graph, allowOperations: false, artifactDirectory: directory }).taskResume({ scope: "project:alpha", task_ref: rollout.taskRef });
+    assert.equal(afterForget.status, "needs_reconfirmation");
+    assert.deepEqual(afterForget.decisions, []);
+    graph.close(); graph = undefined;
+    const cliAfterForget = spawnSync(process.execPath, [join(process.cwd(), "dist", "cli.js"), "resume", "--task-ref", rollout.taskRef, "--scope", "project:alpha"], { encoding: "utf8", env: { ...process.env, MNEMORA_DB: dbPath } });
+    assert.equal(cliAfterForget.status, 0, cliAfterForget.stderr);
+    assert.equal(JSON.parse(cliAfterForget.stdout).result.status, "needs_reconfirmation");
+    assert.deepEqual(JSON.parse(cliAfterForget.stdout).result.decisions, []);
+  } finally { try { graph?.close(); } catch {} try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });

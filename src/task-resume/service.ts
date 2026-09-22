@@ -8,6 +8,7 @@ import { normalizeScope } from "../scope.js";
 
 const MAX_ITEMS = 20;
 const MAX_CANDIDATES = 8;
+export type TaskResumeProgress = "unknown" | "in_progress" | "blocked" | "completed" | "needs_reconfirmation";
 
 export interface TaskResumeInput {
   scope: string;
@@ -22,6 +23,8 @@ export interface TaskResumeCandidate {
   task_ref: string;
   title: string;
   goal: string;
+  /** Current source-linked state lets a human distinguish a resume target from history. */
+  progress: TaskResumeProgress;
   last_evidence_at: number;
   source_refs: string[];
 }
@@ -44,7 +47,7 @@ export interface TaskResumeView {
     title: string;
     goal: string;
     /** Only a task-level accepted outcome can say completed; child actions alone remain in progress. */
-    progress: "unknown" | "in_progress" | "blocked" | "completed" | "needs_reconfirmation";
+    progress: TaskResumeProgress;
     /** Most recent accepted outcome, if one exists. It is not a claim that the task succeeded. */
     last_verified_at: number | null;
     last_evidence_at: number;
@@ -81,6 +84,7 @@ export interface TaskResumeMissing {
 }
 
 export type TaskResumeResult = TaskResumeView | TaskResumeAmbiguous | TaskResumeMissing;
+type CandidateRecord = { task: Episode; score: number; candidate: TaskResumeCandidate };
 
 /**
  * Read-only task continuation projection.
@@ -110,11 +114,15 @@ export class TaskResumeService {
     if (input.taskRef && !task) return { kind: "task_resume", status: "not_found", scope, candidates: [], truncated: false };
     if (task) return this.project(task, scope, limit);
 
-    if (!query) return { kind: "task_resume", status: "query_required", scope, candidates: this.candidates(scope, "", MAX_CANDIDATES), truncated: this.activeTaskCount(scope) > MAX_CANDIDATES };
-    const candidates = this.candidates(scope, query, MAX_CANDIDATES + 1);
-    if (candidates.length === 1) return this.project(this.taskByReference(candidates[0].task_ref, scope)!, scope, limit);
-    const capped = candidates.slice(0, MAX_CANDIDATES);
-    if (capped.length) return { kind: "task_resume", status: "ambiguous", scope, candidates: capped, truncated: candidates.length > capped.length };
+    const candidates = this.candidateRecords(scope, query ?? ""), resumable = candidates.filter(item => item.candidate.progress !== "completed");
+    if (!query) return this.candidateResult("query_required", scope, resumable);
+    if (resumable.length === 1) return this.project(resumable[0].task, scope, limit);
+    if (resumable.length) return this.candidateResult("ambiguous", scope, resumable);
+    // A direct query remains an audit path: if it names only one completed
+    // task, show its durable result. Completed history never makes a current
+    // task ambiguous, and an explicit task reference always remains readable.
+    if (candidates.length === 1) return this.project(candidates[0].task, scope, limit);
+    if (candidates.length) return this.candidateResult("ambiguous", scope, candidates);
     return { kind: "task_resume", status: "not_found", scope, candidates: [], truncated: false };
   }
 
@@ -242,21 +250,26 @@ export class TaskResumeService {
     return task?.kind === "task" ? task : undefined;
   }
 
-  private candidates(scope: string, query: string, limit: number): TaskResumeCandidate[] {
+  private candidateRecords(scope: string, query: string): CandidateRecord[] {
     const tasks = this.taskEpisodes(scope), terms = tokenize(query), scored = tasks.map(task => ({ task, score: taskScore(task, terms) }));
     const matching = terms.length ? scored.filter(item => item.score > 0) : scored;
-    // “Continue this project” has no task identity. Present bounded candidates
-    // instead of pretending that the most recent task is authoritative.
-    return matching.sort((a, b) => b.score - a.score || b.task.recordedAt - a.task.recordedAt || a.task.id.localeCompare(b.task.id)).slice(0, limit).map(({ task }) => ({ task_ref: episodeRef(task), title: task.title ?? "Untitled task", goal: task.summary, last_evidence_at: task.recordedAt, source_refs: [...episodeSources(task).events, ...episodeSources(task).artifacts] }));
+    // “Continue this project” has no task identity. Resolve each bounded
+    // candidate through the same evidence-aware projection before selecting;
+    // callers never need to duplicate lifecycle or completion rules.
+    return matching.map(({ task, score }) => {
+      const view = this.project(task, scope, MAX_ITEMS);
+      return { task, score, candidate: { task_ref: episodeRef(task), title: task.title ?? "Untitled task", goal: task.summary, progress: view.task.progress, last_evidence_at: view.task.last_evidence_at, source_refs: [...episodeSources(task).events, ...episodeSources(task).artifacts] } };
+    }).sort((a, b) => b.score - a.score || b.candidate.last_evidence_at - a.candidate.last_evidence_at || a.task.id.localeCompare(b.task.id));
+  }
+
+  private candidateResult(status: TaskResumeAmbiguous["status"] | "query_required", scope: string, records: CandidateRecord[]): TaskResumeAmbiguous | TaskResumeMissing {
+    const capped = records.slice(0, MAX_CANDIDATES);
+    return { kind: "task_resume", status, scope, candidates: capped.map(item => item.candidate), truncated: records.length > capped.length } as TaskResumeAmbiguous | TaskResumeMissing;
   }
 
   private taskEpisodes(scope: string): Episode[] {
     const rows = this.db.prepare("SELECT id FROM mnemora_episodes WHERE scope=? AND kind='task' AND status='active' AND deleted_at IS NULL ORDER BY recorded_at DESC,id DESC LIMIT 100").all(scope) as Array<{ id: string }>;
     return rows.flatMap(row => this.episodes.get(row.id, scope) ?? []);
-  }
-
-  private activeTaskCount(scope: string): number {
-    return Number((this.db.prepare("SELECT COUNT(*) AS value FROM mnemora_episodes WHERE scope=? AND kind='task' AND status='active' AND deleted_at IS NULL").get(scope) as { value: unknown }).value);
   }
 
   private evidenceActive(scope: string, refs: string[]): boolean {

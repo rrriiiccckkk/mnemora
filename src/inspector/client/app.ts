@@ -16,7 +16,7 @@ type RecallActualAttachment = { telemetry: "available" | "disabled"; status: "ma
 type RecallExplanation = { kind: "memory_intelligence"; view: "retrieval"; scope: string; automatic_recall_configured: boolean; strict_verification_enabled: boolean; policy: { allowed: boolean; reason: string }; candidates: RecallCandidate[]; injected: { candidates_considered: number; nodes: number; memories: number; budget_tokens: number }; actual_attachment?: RecallActualAttachment; items?: Array<Record<string, unknown>> };
 type IntelligenceView = { kind: "memory_intelligence"; view: string; scope: string; items: Array<Record<string, unknown>>; truncated: boolean };
 type TaskResumeStateItem = { kind: string; text: string; source_refs: string[]; recorded_at: number };
-type TaskResumeCandidate = { task_ref: string; title: string; goal: string; last_evidence_at: number; source_refs: string[] };
+type TaskResumeCandidate = { task_ref: string; title: string; goal: string; progress: "unknown" | "in_progress" | "blocked" | "completed" | "needs_reconfirmation"; last_evidence_at: number; source_refs: string[] };
 type TaskResumeResult = { kind: "task_resume"; status: "ready" | "blocked" | "needs_reconfirmation"; scope: string; task: { id: string; task_ref: string; title: string; goal: string; progress: "unknown" | "in_progress" | "blocked" | "completed" | "needs_reconfirmation"; last_verified_at: number | null; last_evidence_at: number; source_refs: string[]; artifact_refs: string[] }; completed: TaskResumeStateItem[]; pending: TaskResumeStateItem[]; blockers: TaskResumeStateItem[]; constraints: TaskResumeStateItem[]; next_steps: TaskResumeStateItem[]; decisions: TaskResumeStateItem[]; planned: TaskResumeStateItem[]; history: TaskResumeStateItem[]; needs_reconfirmation: TaskResumeStateItem[]; truncated: boolean } | { kind: "task_resume"; status: "ambiguous" | "not_found" | "query_required"; scope: string; candidates: TaskResumeCandidate[]; truncated: boolean };
 
 let graphCursor: string | null = null;
@@ -130,16 +130,18 @@ function renderTaskResume(result: TaskResumeResult): void {
       for (const candidate of result.candidates) {
         const item = document.createElement("article");
         item.className = "resume-item";
-        const title = document.createElement("h4"), goal = document.createElement("p"), button = document.createElement("button");
+        const title = document.createElement("h4"), goal = document.createElement("p"), state = document.createElement("p"), button = document.createElement("button");
         title.textContent = candidate.title;
         goal.textContent = candidate.goal;
+        state.className = "empty-state";
+        state.textContent = `Current progress: ${candidate.progress.replaceAll("_", " ")}.`;
         button.type = "button";
-        button.textContent = "Resume this task";
+        button.textContent = candidate.progress === "completed" ? "View this task" : "Resume this task";
         button.addEventListener("click", () => {
           $<HTMLInputElement>('#task-resume-form input[name="task_ref"]').value = candidate.task_ref;
           void loadTaskResume();
         });
-        item.append(title, goal, referenceList(candidate.source_refs), button);
+        item.append(title, goal, state, referenceList(candidate.source_refs), button);
         choices.append(item);
       }
       root.append(choices);
