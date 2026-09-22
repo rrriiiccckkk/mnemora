@@ -538,6 +538,17 @@ mnemora resume "deployment migration" --scope project:alpha
 mnemora evaluate recall-quality ./deidentified-golden.json
 ```
 
+The CLI uses `~/.openclaw/mnemora.db` by default. When it creates a persistent
+database for the first time, it reports the exact path on stderr; set
+`MNEMORA_DB` to select a different database explicitly.
+
+OpenClaw installs an extension without creating npm's global `mnemora` bin
+shim. From an unpacked plugin directory, invoke the bundled CLI directly:
+
+```bash
+MNEMORA_DB=~/.openclaw/mnemora.db node dist/cli.js stats
+```
+
 The bundled `/mnemora` command provides read-only status, diagnostics, and
 explicit canonical-corpus operations. Use the `core`, `research`, or `full`
 tool surface to control how much tool schema an agent receives; the compatible

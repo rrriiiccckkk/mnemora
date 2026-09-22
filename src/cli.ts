@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { Mnemora } from "./tools.js";
 import { evaluateToolSurface } from "./openclaw.js";
 import type { ToolSurface } from "./index.js";
-import { resolveDatabasePath } from "./identity.js";
+import { expandUserPath, resolveDatabasePath } from "./identity.js";
 import type { Direction, RelationshipType } from "./relationships.js";
 import { createInspectorApplication } from "./inspector/application.js";
 import { startInspector } from "./inspector/http.js";
@@ -40,8 +40,8 @@ import { EvaluationRunner, serializeEvaluationReport, validateEvaluationDataset 
 import { GraphReviewDecisionGate } from "./graph-review/decision-gate.js";
 
 const [, , command, ...args] = process.argv;
-const cliDirectory = process.cwd();
-const dbPath = process.env.MNEMORA_DB ?? resolveDatabasePath(join(cliDirectory, "mnemora.db"));
+const dbPath = resolveDatabasePath(process.env.MNEMORA_DB);
+const initializedDatabasePath = databasePathCreated(dbPath);
 
 async function main(): Promise<void> {
   if (command === "inspect") {
@@ -63,6 +63,7 @@ async function main(): Promise<void> {
     return;
   }
   const graph = new Mnemora({ config: { dbPath } });
+  reportInitializedDatabase();
   try {
     if (command === "search") print(await graph.kg_search(args.join(" ")));
     else if (command === "related") { const [entity, ...rest] = args; print(graph.kg_related(entity, Number(process.env.DEPTH ?? 1), rest as RelationshipType[], process.env.DIRECTION as Direction | undefined)); }
@@ -674,14 +675,25 @@ class CliError extends Error { constructor(readonly code: "invalid_arguments") {
 await main();
 
 async function inspect(allowOperations: boolean): Promise<void> {
-  const graph = new Mnemora({ config: { dbPath } }); let running: Awaited<ReturnType<typeof startInspector>> | undefined;
+  const graph = new Mnemora({ config: { dbPath } }); reportInitializedDatabase(); let running: Awaited<ReturnType<typeof startInspector>> | undefined;
   try {
-    const root = process.env.MNEMORA_ARTIFACTS ?? resolve(dbPath === ":memory:" ? "." : dirname(resolve(dbPath)), ".mnemora-artifacts");
+    const root = process.env.MNEMORA_ARTIFACTS ?? resolve(dbPath === ":memory:" ? "." : dirname(expandUserPath(dbPath)), ".mnemora-artifacts");
     const application = createInspectorApplication({ graph, allowOperations, artifactDirectory: root });
     running = await startInspector({ graph: application, allowOperations });
     console.log(JSON.stringify({ url: running.url, mode: allowOperations ? "operations" : "read-only" }));
     await new Promise<void>(resolveStop => { process.once("SIGINT", resolveStop); process.once("SIGTERM", resolveStop); });
   } finally { if (running) await running.close(); graph.close(); }
+}
+
+/** A path notice makes a first-use empty result distinguishable from the intended store. */
+function databasePathCreated(path: string): string | undefined {
+  if (path === ":memory:" || path.startsWith("file::memory:")) return undefined;
+  const expanded = expandUserPath(path);
+  return existsSync(expanded) ? undefined : expanded;
+}
+
+function reportInitializedDatabase(): void {
+  if (initializedDatabasePath) console.error(`Mnemora initialized a new database at ${initializedDatabasePath}. Set MNEMORA_DB to select a different database.`);
 }
 
 function print(value: unknown): void { console.log(JSON.stringify(value, null, 2)); }

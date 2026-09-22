@@ -49,6 +49,10 @@ test("README is bilingual, concise, and describes the public integration boundar
   assert.match(readme, /24\.14/i);
   assert.match(readmeZh, /OpenClaw `2026\.9\.2\+` 与 Node\.js `24\.15\.0\+`/);
   assert.match(readmeZh, /24\.14/i);
+  for (const text of [readme, readmeZh]) {
+    assert.match(text, /~\/\.openclaw\/mnemora\.db/);
+    assert.match(text, /MNEMORA_DB=.*node dist\/cli\.js stats/);
+  }
 });
 
 test("release workflow publishes repository-owned v1 notes after exact-commit CI", () => {

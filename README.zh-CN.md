@@ -392,6 +392,16 @@ mnemora resume "部署迁移" --scope project:alpha
 mnemora evaluate recall-quality ./deidentified-golden.json
 ```
 
+CLI 默认使用 `~/.openclaw/mnemora.db`。首次创建持久化数据库时，它会在 stderr
+输出实际路径；请通过 `MNEMORA_DB` 显式选择其他数据库。
+
+OpenClaw 安装扩展时不会创建 npm 的全局 `mnemora` bin shim。若从解包后的插件目录
+调用 CLI，请直接运行随包文件：
+
+```bash
+MNEMORA_DB=~/.openclaw/mnemora.db node dist/cli.js stats
+```
+
 随包的 `/mnemora` 命令只提供只读状态、诊断和显式 canonical corpus 操作。可选择 `core`、`research` 或 `full` 工具面来控制 Agent 收到的工具 schema 数量；为兼容性，默认值是 `full`。
 
 ## 边界
