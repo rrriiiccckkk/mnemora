@@ -21,7 +21,9 @@ export interface TaskResumeComparisonResult {
   continuationCorrect: boolean;
   staleFactUsed: boolean;
   repeatedStep: boolean;
+  /** Total model tokens for this case; cannot exceed protocol.tokenBudget. */
   tokens: number;
+  /** End-to-end case latency; cannot exceed protocol.latencyBudgetMs. */
   latencyMs: number;
   /** Optional because it must be reported only when a reviewer actually measured it. */
   manualReviewMs?: number;
@@ -68,16 +70,16 @@ export function validateTaskResumeComparisonPlan(input: unknown): TaskResumeComp
   }
   if (!Array.isArray(input.results)) invalid();
   const validCases = new Set([...tuningCaseIds, ...testCaseIds]), expected = validCases.size * plan.arms.length, seen = new Set<string>();
-  const results = input.results.map(value => result(value, validCases, new Set(tuningCaseIds), seen));
+  const results = input.results.map(value => result(value, validCases, new Set(tuningCaseIds), seen, plan.protocol));
   if (results.length !== expected || seen.size !== expected) invalid();
   return { ...plan, results };
 }
 
-function result(value: unknown, validCases: Set<string>, tuningCases: Set<string>, seen: Set<string>): TaskResumeComparisonResult {
+function result(value: unknown, validCases: Set<string>, tuningCases: Set<string>, seen: Set<string>, protocol: TaskResumeComparisonPlan["protocol"]): TaskResumeComparisonResult {
   if (!record(value) || !identifier(value.caseId) || !validCases.has(value.caseId) || (value.split !== "tuning" && value.split !== "test") || typeof value.arm !== "string" || !(TASK_RESUME_COMPARISON_ARMS as readonly string[]).includes(value.arm) || typeof value.continuationCorrect !== "boolean" || typeof value.staleFactUsed !== "boolean" || typeof value.repeatedStep !== "boolean") invalid();
   if ((value.split === "tuning") !== tuningCases.has(value.caseId)) invalid();
   const tokens = nonNegative(value.tokens, 10_000_000), latencyMs = nonNegative(value.latencyMs, 3_600_000), manualReviewMs = value.manualReviewMs === undefined ? undefined : nonNegative(value.manualReviewMs, 3_600_000);
-  if (tokens === undefined || latencyMs === undefined || manualReviewMs === undefined && value.manualReviewMs !== undefined) invalid();
+  if (tokens === undefined || tokens > protocol.tokenBudget || latencyMs === undefined || latencyMs > protocol.latencyBudgetMs || manualReviewMs === undefined && value.manualReviewMs !== undefined) invalid();
   const key = `${value.caseId}\0${value.arm}`;
   if (seen.has(key)) invalid();
   seen.add(key);

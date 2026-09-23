@@ -23,3 +23,7 @@ effect. A measured input may report held-out continuation correctness, stale
 fact misuse, repeated steps, tokens, latency, and manual-review time only when
 that time was actually provided. Synthetic data and this contract are not
 efficacy evidence.
+
+Each measured case in every arm must stay within the plan's total model-token
+and end-to-end latency budgets. Out-of-budget records invalidate the comparison
+instead of being silently included in the aggregate.

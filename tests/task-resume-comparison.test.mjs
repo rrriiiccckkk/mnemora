@@ -32,3 +32,21 @@ test("task-resume comparison reports only held-out measurements and rejects spli
   assert.deepEqual(report.metrics.mnemora.manual_review_ms, { cases: 2, total: 21, mean: 10.5 });
   assert.throws(() => validateTaskResumeComparisonPlan({ ...plan, splits: { tuningCaseIds: ["tune:01"], testCaseIds: ["tune:01"] } }), /invalid_task_resume_comparison_plan/);
 });
+
+test("task-resume comparison rejects measurements outside the fixed per-case budgets", () => {
+  const arms = ["no_long_term_memory", "simple_retrieval", "mnemora"];
+  const results = ["tune:01", "tune:02", "test:01", "test:02"].flatMap(caseId => arms.map(arm => ({
+    caseId,
+    split: caseId.startsWith("tune") ? "tuning" : "test",
+    arm,
+    continuationCorrect: true,
+    staleFactUsed: false,
+    repeatedStep: false,
+    tokens: plan.protocol.tokenBudget,
+    latencyMs: plan.protocol.latencyBudgetMs
+  })));
+  const measured = { ...plan, status: "measured", results };
+  assert.equal(new TaskResumeComparisonRunner().run(measured).status, "measured");
+  assert.throws(() => new TaskResumeComparisonRunner().run({ ...measured, results: results.map((value, index) => index === 0 ? { ...value, tokens: value.tokens + 1 } : value) }), /invalid_task_resume_comparison_plan/);
+  assert.throws(() => new TaskResumeComparisonRunner().run({ ...measured, results: results.map((value, index) => index === 6 ? { ...value, latencyMs: value.latencyMs + 1 } : value) }), /invalid_task_resume_comparison_plan/);
+});

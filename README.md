@@ -157,7 +157,7 @@ projection identifies (`truncated_sections`) only the state sections whose
 displayed records reached the caller's limit; presentation limits never change
 the fully resolved task state.
 
-Run `npm run benchmark:task-resume` for the 24-sequence synthetic functional
+Run `npm run benchmark:task-resume` for the 26-sequence synthetic functional
 evaluation. `mnemora evaluate task-resume-comparison <plan.json>` validates and
 reports the three-arm experiment contract without calling a model. Its bundled
 plan is intentionally reported as `real_effect_experiment_not_run` until an
