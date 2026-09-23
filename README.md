@@ -161,7 +161,9 @@ Run `npm run benchmark:task-resume` for the 26-sequence synthetic functional
 evaluation. `mnemora evaluate task-resume-comparison <plan.json>` validates and
 reports the three-arm experiment contract without calling a model. Its bundled
 plan is intentionally reported as `real_effect_experiment_not_run` until an
-authorized, de-identified measurement is supplied.
+authorized, de-identified measurement is supplied. The comparison reports
+irrelevant memory injection only when every case has a reviewed label; missing
+labels are reported as unmeasured, never as zero.
 
 When the Inspector is explicitly started with operations enabled, a journal
 event, artifact, episode, or summary can be removed through its item card. The

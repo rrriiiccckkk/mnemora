@@ -21,6 +21,8 @@ export interface TaskResumeComparisonResult {
   continuationCorrect: boolean;
   staleFactUsed: boolean;
   repeatedStep: boolean;
+  /** Human-reviewed: this arm attached at least one irrelevant memory. All cases must be labelled if any are. */
+  irrelevantMemoryInjected?: boolean;
   /** Total model tokens for this case; cannot exceed protocol.tokenBudget. */
   tokens: number;
   /** End-to-end case latency; cannot exceed protocol.latencyBudgetMs. */
@@ -36,7 +38,7 @@ export interface TaskResumeComparisonReport {
   protocol: TaskResumeComparisonPlan["protocol"];
   arms: ComparisonArm[];
   splits: { tuningCases: number; testCases: number; testMetricsOnly: true };
-  metrics?: Record<ComparisonArm, { cases: number; continuation_correctness: { successes: number; rate: number }; stale_fact_misuse: { count: number; rate: number }; repeated_steps: { count: number; rate: number }; tokens: { total: number; mean: number }; latency_ms: { total: number; mean: number }; manual_review_ms?: { cases: number; total: number; mean: number } }>;
+  metrics?: Record<ComparisonArm, { cases: number; continuation_correctness: { successes: number; rate: number }; stale_fact_misuse: { count: number; rate: number }; repeated_steps: { count: number; rate: number }; irrelevant_injection?: { count: number; rate: number }; tokens: { total: number; mean: number }; latency_ms: { total: number; mean: number }; manual_review_ms?: { cases: number; total: number; mean: number } }>;
   limitations: string[];
 }
 
@@ -51,7 +53,8 @@ export class TaskResumeComparisonRunner {
     const base = { version: TASK_RESUME_COMPARISON_VERSION, id: plan.id, protocol: plan.protocol, arms: [...plan.arms], splits: { tuningCases: plan.splits.tuningCaseIds.length, testCases: plan.splits.testCaseIds.length, testMetricsOnly: true as const } };
     if (plan.status === "planned") return { ...base, status: "real_effect_experiment_not_run", limitations: ["No authorized de-identified task results were supplied, so no effectiveness claim or task metric was computed.", "The comparison contract fixes model, history set, task set, budget, arms, and held-out test cases without making a model call."] };
     const testResults = plan.results!.filter(result => result.split === "test");
-    return { ...base, status: "measured", metrics: Object.fromEntries(plan.arms.map(arm => [arm, metrics(testResults.filter(result => result.arm === arm))])) as TaskResumeComparisonReport["metrics"], limitations: ["Metrics describe the supplied held-out records only; they do not establish causal efficacy.", "Tuning records are validated for split isolation but excluded from reported test metrics."] };
+    const injectionMeasured = plan.results!.every(result => result.irrelevantMemoryInjected !== undefined);
+    return { ...base, status: "measured", metrics: Object.fromEntries(plan.arms.map(arm => [arm, metrics(testResults.filter(result => result.arm === arm), injectionMeasured)])) as TaskResumeComparisonReport["metrics"], limitations: ["Metrics describe the supplied held-out records only; they do not establish causal efficacy.", "Tuning records are validated for split isolation but excluded from reported test metrics.", ...(!injectionMeasured ? ["Irrelevant memory injection was not measured; no injection rate is reported."] : [])] };
   }
 }
 
@@ -72,6 +75,8 @@ export function validateTaskResumeComparisonPlan(input: unknown): TaskResumeComp
   const validCases = new Set([...tuningCaseIds, ...testCaseIds]), expected = validCases.size * plan.arms.length, seen = new Set<string>();
   const results = input.results.map(value => result(value, validCases, new Set(tuningCaseIds), seen, plan.protocol));
   if (results.length !== expected || seen.size !== expected) invalid();
+  const injectionLabels = results.filter(value => value.irrelevantMemoryInjected !== undefined).length;
+  if (injectionLabels !== 0 && injectionLabels !== expected) invalid();
   return { ...plan, results };
 }
 
@@ -79,16 +84,17 @@ function result(value: unknown, validCases: Set<string>, tuningCases: Set<string
   if (!record(value) || !identifier(value.caseId) || !validCases.has(value.caseId) || (value.split !== "tuning" && value.split !== "test") || typeof value.arm !== "string" || !(TASK_RESUME_COMPARISON_ARMS as readonly string[]).includes(value.arm) || typeof value.continuationCorrect !== "boolean" || typeof value.staleFactUsed !== "boolean" || typeof value.repeatedStep !== "boolean") invalid();
   if ((value.split === "tuning") !== tuningCases.has(value.caseId)) invalid();
   const tokens = nonNegative(value.tokens, 10_000_000), latencyMs = nonNegative(value.latencyMs, 3_600_000), manualReviewMs = value.manualReviewMs === undefined ? undefined : nonNegative(value.manualReviewMs, 3_600_000);
-  if (tokens === undefined || tokens > protocol.tokenBudget || latencyMs === undefined || latencyMs > protocol.latencyBudgetMs || manualReviewMs === undefined && value.manualReviewMs !== undefined) invalid();
+  if (tokens === undefined || tokens > protocol.tokenBudget || latencyMs === undefined || latencyMs > protocol.latencyBudgetMs || manualReviewMs === undefined && value.manualReviewMs !== undefined || value.irrelevantMemoryInjected !== undefined && typeof value.irrelevantMemoryInjected !== "boolean" || value.arm === "no_long_term_memory" && value.irrelevantMemoryInjected === true) invalid();
   const key = `${value.caseId}\0${value.arm}`;
   if (seen.has(key)) invalid();
   seen.add(key);
-  return { caseId: value.caseId, split: value.split, arm: value.arm as ComparisonArm, continuationCorrect: value.continuationCorrect, staleFactUsed: value.staleFactUsed, repeatedStep: value.repeatedStep, tokens, latencyMs, ...(manualReviewMs === undefined ? {} : { manualReviewMs }) };
+  return { caseId: value.caseId, split: value.split, arm: value.arm as ComparisonArm, continuationCorrect: value.continuationCorrect, staleFactUsed: value.staleFactUsed, repeatedStep: value.repeatedStep, tokens, latencyMs, ...(value.irrelevantMemoryInjected === undefined ? {} : { irrelevantMemoryInjected: value.irrelevantMemoryInjected }), ...(manualReviewMs === undefined ? {} : { manualReviewMs }) };
 }
 
-function metrics(results: TaskResumeComparisonResult[]) {
+function metrics(results: TaskResumeComparisonResult[], injectionMeasured: boolean) {
   const cases = results.length, count = (key: "continuationCorrect" | "staleFactUsed" | "repeatedStep") => results.filter(result => result[key]).length, total = (key: "tokens" | "latencyMs" | "manualReviewMs") => results.reduce((sum, result) => sum + (result[key] ?? 0), 0), review = results.filter(result => result.manualReviewMs !== undefined);
-  return { cases, continuation_correctness: { successes: count("continuationCorrect"), rate: rate(count("continuationCorrect"), cases) }, stale_fact_misuse: { count: count("staleFactUsed"), rate: rate(count("staleFactUsed"), cases) }, repeated_steps: { count: count("repeatedStep"), rate: rate(count("repeatedStep"), cases) }, tokens: { total: total("tokens"), mean: mean(total("tokens"), cases) }, latency_ms: { total: total("latencyMs"), mean: mean(total("latencyMs"), cases) }, ...(review.length ? { manual_review_ms: { cases: review.length, total: total("manualReviewMs"), mean: mean(total("manualReviewMs"), review.length) } } : {}) };
+  const irrelevantCount = results.filter(result => result.irrelevantMemoryInjected).length;
+  return { cases, continuation_correctness: { successes: count("continuationCorrect"), rate: rate(count("continuationCorrect"), cases) }, stale_fact_misuse: { count: count("staleFactUsed"), rate: rate(count("staleFactUsed"), cases) }, repeated_steps: { count: count("repeatedStep"), rate: rate(count("repeatedStep"), cases) }, ...(injectionMeasured ? { irrelevant_injection: { count: irrelevantCount, rate: rate(irrelevantCount, cases) } } : {}), tokens: { total: total("tokens"), mean: mean(total("tokens"), cases) }, latency_ms: { total: total("latencyMs"), mean: mean(total("latencyMs"), cases) }, ...(review.length ? { manual_review_ms: { cases: review.length, total: total("manualReviewMs"), mean: mean(total("manualReviewMs"), review.length) } } : {}) };
 }
 function record(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
 function identifier(value: unknown): value is string { return typeof value === "string" && /^[a-z0-9][a-z0-9._:-]{0,79}$/.test(value); }

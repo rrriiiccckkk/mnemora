@@ -50,3 +50,28 @@ test("task-resume comparison rejects measurements outside the fixed per-case bud
   assert.throws(() => new TaskResumeComparisonRunner().run({ ...measured, results: results.map((value, index) => index === 0 ? { ...value, tokens: value.tokens + 1 } : value) }), /invalid_task_resume_comparison_plan/);
   assert.throws(() => new TaskResumeComparisonRunner().run({ ...measured, results: results.map((value, index) => index === 6 ? { ...value, latencyMs: value.latencyMs + 1 } : value) }), /invalid_task_resume_comparison_plan/);
 });
+
+test("task-resume comparison reports irrelevant injection only with complete held-out labels", () => {
+  const results = ["tune:01", "tune:02", "test:01", "test:02"].flatMap(caseId => plan.arms.map(arm => ({
+    caseId,
+    split: caseId.startsWith("tune") ? "tuning" : "test",
+    arm,
+    continuationCorrect: true,
+    staleFactUsed: false,
+    repeatedStep: false,
+    tokens: 100,
+    latencyMs: 20,
+    irrelevantMemoryInjected: arm === "mnemora" && caseId !== "test:02"
+  })));
+  const measured = { ...plan, status: "measured", results };
+  const report = new TaskResumeComparisonRunner().run(measured);
+  assert.deepEqual(report.metrics.mnemora.irrelevant_injection, { count: 1, rate: .5 });
+  assert.deepEqual(report.metrics.simple_retrieval.irrelevant_injection, { count: 0, rate: 0 });
+  const withoutLabels = results.map(({ irrelevantMemoryInjected, ...value }) => value);
+  const unmeasured = new TaskResumeComparisonRunner().run({ ...measured, results: withoutLabels });
+  assert.equal(unmeasured.metrics.mnemora.irrelevant_injection, undefined);
+  assert.match(unmeasured.limitations.join(" "), /Irrelevant memory injection was not measured/);
+  assert.throws(() => new TaskResumeComparisonRunner().run({ ...measured, results: results.map((value, index) => index === 0 ? withoutLabels[0] : value) }), /invalid_task_resume_comparison_plan/);
+  assert.throws(() => new TaskResumeComparisonRunner().run({ ...measured, results: results.map((value, index) => index === 0 ? { ...value, irrelevantMemoryInjected: "false" } : value) }), /invalid_task_resume_comparison_plan/);
+  assert.throws(() => new TaskResumeComparisonRunner().run({ ...measured, results: results.map((value, index) => index === 0 ? { ...value, irrelevantMemoryInjected: true } : value) }), /invalid_task_resume_comparison_plan/);
+});

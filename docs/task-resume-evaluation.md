@@ -27,3 +27,13 @@ efficacy evidence.
 Each measured case in every arm must stay within the plan's total model-token
 and end-to-end latency budgets. Out-of-budget records invalidate the comparison
 instead of being silently included in the aggregate.
+
+To measure irrelevant memory injection, a reviewer sets
+`irrelevantMemoryInjected` to `true` when the arm attached at least one memory
+item unrelated to the current task or next action, and to `false` otherwise.
+Provide this boolean for every tuning and test result across all three arms;
+the `no_long_term_memory` arm must be `false`. The report computes
+`irrelevant_injection` only from held-out test cases. Older measured inputs
+without these labels remain valid, but the report omits that metric and says
+it was not measured. Partial labelling is invalid. The label is supplied by a
+reviewer; this command does not inspect prompts or verify the label.

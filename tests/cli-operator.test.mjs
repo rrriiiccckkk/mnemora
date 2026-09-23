@@ -83,6 +83,29 @@ test("operator CLI exposes read-only Journal diagnostics", () => {
   assert.deepEqual(status.json, { ok: true, command: "journal.status", result: { enabled: false, events: 0, sessions: 0, pendingTasks: 0 } });
 });
 
+test("operator task-resume comparison reports reviewed injection rates without exposing case records", () => {
+  const directory = mkdtempSync(join(tmpdir(), "mnemora-task-comparison-")), file = join(directory, "reviewed.json");
+  try {
+    const plan = JSON.parse(readFileSync("fixtures/task-resume-comparison-plan-v1.json", "utf8"));
+    const results = [...plan.splits.tuningCaseIds, ...plan.splits.testCaseIds].flatMap(caseId => plan.arms.map(arm => ({
+      caseId,
+      split: caseId.startsWith("tune") ? "tuning" : "test",
+      arm,
+      continuationCorrect: true,
+      staleFactUsed: false,
+      repeatedStep: false,
+      irrelevantMemoryInjected: caseId === "test:01" && arm === "mnemora",
+      tokens: 100,
+      latencyMs: 20
+    })));
+    writeFileSync(file, JSON.stringify({ ...plan, status: "measured", results }));
+    const result = execute("evaluate", "task-resume-comparison", file);
+    assert.equal(result.status, 0);
+    assert.deepEqual(result.json.result.metrics.mnemora.irrelevant_injection, { count: 1, rate: .5 });
+    assert.doesNotMatch(JSON.stringify(result.json), /test:01|tune:01|irrelevantMemoryInjected/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
 test("operator CLI reports the scope-local graph review decision gate without adding an agent tool", () => {
   const directory = mkdtempSync(join(tmpdir(), "mnemora-review-gate-")), database = join(directory, "memory.db"); let store;
   try {
