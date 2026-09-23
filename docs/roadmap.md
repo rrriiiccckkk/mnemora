@@ -2,11 +2,12 @@
 
 ## Current release plan (2026-09-23)
 
-Released baseline: **v1.31.2**. The historical sections below record earlier
+Released baseline: **v1.31.3**. The historical sections below record earlier
 completed directions; this section is the active planning baseline.
 
 | Version | Product outcome | Release gate |
 | --- | --- | --- |
+| **v1.31.3 — Release wait hardening (released)** | The tag workflow waits long enough for the allowed 20-minute cross-platform CI before deciding that the exact-commit gate failed. | This release's tag uses the longer wait and publishes only after successful Windows and Linux CI for its commit. |
 | **v1.31.2 — Comparison coverage guard (released)** | A measured task-resume comparison can report irrelevant memory injection when every case has a reviewed label, while clearly marking the metric unmeasured otherwise. | Held-out-only aggregation, incomplete-label rejection, and no-memory arm isolation pass. |
 | **v1.31.1 — Comparison budget guard (released)** | The task-resume comparison rejects measured records exceeding the plan's per-case token or latency budget. | Focused regressions cover exact-limit acceptance and over-budget rejection for both tuning and test records. |
 | **v1.31.0 — Continuity reliability (released)** | Task continuation resolves accepted task state before display limits and identifies exactly which long-history sections were truncated, without reviving completed work or hiding uncertainty behind pagination. | End-to-end tests cover long history, corrections, forgetting, restart, and section-specific display limits independently from state resolution. |
