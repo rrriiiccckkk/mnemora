@@ -1,5 +1,7 @@
 # Task-resume evaluation
 
+For an annotator-facing handoff, use the [Chinese labeling guide](task-resume-labeling-handoff.zh-CN.md).
+
 `npm run benchmark:task-resume` runs the 26 independent, synthetic
 multi-session sequences in `fixtures/task-resume-evaluation-v2.json`. Each
 case declares only bounded identifiers for its history and restart point, its
