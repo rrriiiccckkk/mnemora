@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { DatabaseSyncInstance } from "@photostructure/sqlite";
-import { createMnemoraContextRef } from "../context/context-ref.js";
+import { authorizeMnemoraContextRef, createMnemoraContextRef } from "../context/context-ref.js";
 import type { RuntimeCompletion, CompletedTurn } from "../context-engine/lifecycle.js";
 import type { JournalTurnReceipt } from "../journal/types.js";
 import { normalizeScope } from "../scope.js";
@@ -118,24 +118,26 @@ export class ReasoningIntakeService {
     return row ? this.read(row) : undefined;
   }
 
-  confirmationPreview(id: string, scope: string) {
+  confirmationPreview(id: string, scope: string, taskRef?: string) {
     const candidate = this.get(id, scope);
     if (!candidate || candidate.status !== "pending_review") return { status: "not_found" as const };
+    const episodeId = this.selectedTaskEpisode(candidate.scope, taskRef);
+    const selectedTaskRef = episodeId ? createMnemoraContextRef({ scope: candidate.scope, kind: "episode", id: episodeId }) : undefined;
     const effect = candidate.kind === "decision"
-      ? { kind: "decision" as const, preview: new DecisionMemoryService(this.db, this.now).preview(this.decisionInput(candidate)) }
-      : { kind: "task_outcome" as const, preview: new TaskOutcomeService(this.db, this.now).preview(this.outcomeInput(candidate)) };
-    return { status: "preview" as const, candidate, effect, preview_hash: hash({ version: "reasoning-intake-confirmation-v1", candidate, effect: effect.preview.preview_hash }) };
+      ? { kind: "decision" as const, preview: new DecisionMemoryService(this.db, this.now).preview(this.decisionInput(candidate, selectedTaskRef)) }
+      : { kind: "task_outcome" as const, preview: new TaskOutcomeService(this.db, this.now).preview(this.outcomeInput(candidate, selectedTaskRef)) };
+    return { status: "preview" as const, candidate, ...(selectedTaskRef ? { selected_task_ref: selectedTaskRef } : {}), effect, preview_hash: hash({ version: "reasoning-intake-confirmation-v1", candidate, effect: effect.preview.preview_hash }) };
   }
 
-  confirm(id: string, scope: string, previewHash: string): { status: "not_found" | "stale_preview" } | { status: "confirmed"; candidate: ReasoningIntakeCandidate; decision?: DecisionMemory; outcome?: TaskOutcome } {
-    const preview = this.confirmationPreview(id, scope);
+  confirm(id: string, scope: string, previewHash: string, taskRef?: string): { status: "not_found" | "stale_preview" } | { status: "confirmed"; candidate: ReasoningIntakeCandidate; decision?: DecisionMemory; outcome?: TaskOutcome } {
+    const preview = this.confirmationPreview(id, scope, taskRef);
     if (preview.status !== "preview") return preview;
     if (!previewHash || previewHash !== preview.preview_hash) return { status: "stale_preview" };
     const decision = preview.effect.kind === "decision"
-      ? new DecisionMemoryService(this.db, this.now).confirm(this.decisionInput(preview.candidate), preview.effect.preview.preview_hash)
+      ? new DecisionMemoryService(this.db, this.now).confirm(this.decisionInput(preview.candidate, taskRef), preview.effect.preview.preview_hash)
       : undefined;
     const outcome = preview.effect.kind === "task_outcome"
-      ? new TaskOutcomeService(this.db, this.now).confirm(this.outcomeInput(preview.candidate), preview.effect.preview.preview_hash)
+      ? new TaskOutcomeService(this.db, this.now).confirm(this.outcomeInput(preview.candidate, taskRef), preview.effect.preview.preview_hash)
       : undefined;
     const changed = this.db.prepare("UPDATE mnemora_reasoning_intake_candidates SET status='confirmed',reviewed_at=? WHERE id=? AND scope=? AND status='pending_review'").run(this.now(), preview.candidate.id, preview.candidate.scope).changes;
     if (changed !== 1) return { status: "stale_preview" };
@@ -171,8 +173,9 @@ export class ReasoningIntakeService {
     } catch (error) { try { this.db.exec("ROLLBACK"); } catch {} throw error; }
   }
 
-  private decisionInput(candidate: ReasoningIntakeCandidate): DecisionInput {
+  private decisionInput(candidate: ReasoningIntakeCandidate, taskRef?: string): DecisionInput {
     if (candidate.payload.kind !== "decision") throw new Error("invalid_reasoning_intake_candidate");
+    const episodeId = this.selectedTaskEpisode(candidate.scope, taskRef);
     return {
       scope: candidate.scope,
       objective: candidate.payload.objective,
@@ -184,21 +187,31 @@ export class ReasoningIntakeService {
       // The model may only suggest this record. A human review makes it
       // operator-confirmed, never an automatically asserted user decision.
       decisionMaker: "assistant",
-      evidence: candidate.evidenceRefs.map(sourceRef => ({ sourceRef, relation: "supports" as const }))
+      evidence: candidate.evidenceRefs.map(sourceRef => ({ sourceRef, relation: "supports" as const })),
+      ...(episodeId ? { episodeIds: [episodeId] } : {})
     };
   }
 
-  private outcomeInput(candidate: ReasoningIntakeCandidate): TaskOutcomeInput {
+  private outcomeInput(candidate: ReasoningIntakeCandidate, taskRef?: string): TaskOutcomeInput {
     if (candidate.payload.kind !== "task_outcome") throw new Error("invalid_reasoning_intake_candidate");
+    const episodeId = this.selectedTaskEpisode(candidate.scope, taskRef);
     return {
       scope: candidate.scope,
-      taskRef: candidate.taskRef,
+      taskRef: episodeId ? createMnemoraContextRef({ scope: candidate.scope, kind: "episode", id: episodeId }) : candidate.taskRef,
       verdict: candidate.payload.verdict,
       impact: candidate.payload.impact,
       confidence: candidate.payload.confidence,
       summary: candidate.payload.summary,
       evidenceRefs: candidate.evidenceRefs
     };
+  }
+
+  private selectedTaskEpisode(scope: string, taskRef?: string): string | undefined {
+    if (taskRef === undefined) return undefined;
+    const reference = authorizeMnemoraContextRef(taskRef, { scope, kinds: ["episode"] });
+    const selected = this.db.prepare("SELECT 1 FROM mnemora_episodes WHERE id=? AND scope=? AND kind='task' AND status='active' AND deleted_at IS NULL").get(reference.id, scope);
+    if (!selected) throw new Error("invalid_reasoning_intake_task");
+    return reference.id;
   }
 
   private read(row: Record<string, unknown>): ReasoningIntakeCandidate | undefined {

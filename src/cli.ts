@@ -385,11 +385,11 @@ async function cognitionCommand(graph: Mnemora, raw: string[]): Promise<unknown>
       if (action === "candidates") { requireNone(positional); return intake.list(scope, limit); }
       if (action === "show") return intake.get(requiredArgument(positional, "candidate_id"), scope) ?? { status: "not_found" };
       if (action === "confirm") {
-        const id = requiredArgument(positional, "candidate_id"); requireNone(positional); const preview = intake.confirmationPreview(id, scope);
+        const id = requiredArgument(positional, "candidate_id"); requireNone(positional); const taskRef = option(options, "task-ref"), preview = intake.confirmationPreview(id, scope, taskRef);
         if (options.confirm !== true) return preview;
         if (preview.status !== "preview") return preview;
         if (option(options, "preview-hash") !== preview.preview_hash) return { status: "preview_confirmation_required", preview_hash: preview.preview_hash };
-        return intake.confirm(id, scope, option(options, "preview-hash") ?? "");
+        return intake.confirm(id, scope, option(options, "preview-hash") ?? "", taskRef);
       }
       if (action === "discard") {
         const id = requiredArgument(positional, "candidate_id"); requireNone(positional); const preview = intake.discardPreview(id, scope);

@@ -399,6 +399,8 @@ mnemora cognition reasoning curation resolve-review <review-proposal-id> retire 
 # Repeat the returned command with --preview-hash <hash> --confirm.
 ```
 
+To attach a reviewed candidate to an existing task, use the same `--task-ref <mnemora-task-episode-ref>` on both the `intake confirm` preview and final confirmation calls. The preview shows the Decision/TaskOutcome linkage, and the hash binds the selected task. Without an explicit selection, the candidate stays anchored to its source turn; a same-turn task episode is not treated as proof of task identity or added to that task's `resume` projection.
+
 See [governed reasoning curation](docs/reasoning-curation.md) for failure,
 retry, scope, and review semantics.
 

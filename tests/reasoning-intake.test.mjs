@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { ReasoningIntakeService } from "../dist/cognition/reasoning-intake.js";
 import { ReasoningCurationService } from "../dist/cognition/reasoning-curation.js";
 import { DecisionMemoryService } from "../dist/cognition/decisions.js";
 import { TaskOutcomeService } from "../dist/cognition/outcomes.js";
+import { EpisodeRepository } from "../dist/episodes/repository.js";
+import { TaskResumeService } from "../dist/task-resume/service.js";
+import { createMnemoraContextRef } from "../dist/context/context-ref.js";
 import { ConversationEventRepository } from "../dist/journal/repository.js";
 import { GraphologyStore } from "../dist/store.js";
 import { SUPPORTED_SCHEMA_VERSION } from "../dist/schema.js";
@@ -81,6 +86,126 @@ test("confirmed outcome candidates use the original user event as a task anchor 
     assert.deepEqual(await curation.runFormation({ scope: "project:alpha", runtime: formationRuntime, config: formation }), { attempted: 1, proposed: 1, skipped: 0, failed: 0 });
     assert.equal(curation.formationProposals("project:alpha")[0].status, "pending_review");
   } finally { store.close(); }
+});
+
+test("an explicitly selected task episode makes a reviewed outcome visible in task resume", async () => {
+  const store = new GraphologyStore(":memory:");
+  try {
+    const turn = { sessionId: "session:alpha", userText: "The migration completed after rollback validation.", assistantText: "Recorded the completed migration." };
+    const source = receipt(store, turn.userText, turn.assistantText, "linked-outcome");
+    const episode = new EpisodeRepository(store.db).create({ scope: "project:alpha", kind: "task", title: "Migration", summary: "Complete the migration.", sourceEventIds: source.events.map(event => event.id), importance: .8, confidence: .9 });
+    const taskRef = createMnemoraContextRef({ scope: "project:alpha", kind: "episode", id: episode.id });
+    const intake = new ReasoningIntakeService(store.db);
+    await intake.capture({ scope: "project:alpha", receipt: source, turn, runtime: runtime({ candidates: [{ kind: "task_outcome", taskSummary: "Migration", verdict: "success", impact: "helpful", summary: "Migration completed after rollback validation.", confidence: .9 }] }), config });
+    const candidate = intake.list("project:alpha")[0];
+    assert.equal(intake.confirmationPreview(candidate.id, candidate.scope).effect.preview.outcome.taskRef, candidate.taskRef);
+    const preview = intake.confirmationPreview(candidate.id, candidate.scope, taskRef);
+    assert.equal(preview.status, "preview");
+    assert.equal(preview.selected_task_ref, taskRef);
+    assert.equal(preview.effect.preview.outcome.taskRef, taskRef);
+    assert.equal(new TaskResumeService(store.db).resume({ scope: "project:alpha", taskRef }).status, "needs_reconfirmation");
+    assert.equal(intake.confirm(candidate.id, candidate.scope, preview.preview_hash).status, "stale_preview");
+    intake.confirm(candidate.id, candidate.scope, preview.preview_hash, taskRef);
+    const resumed = new TaskResumeService(store.db).resume({ scope: "project:alpha", taskRef });
+    assert.equal(resumed.status, "ready");
+    assert.deepEqual(resumed.completed.map(item => item.text), ["Migration completed after rollback validation."]);
+  } finally { store.close(); }
+});
+
+test("an explicitly selected task episode links a reviewed decision without promoting the pending candidate", async () => {
+  const store = new GraphologyStore(":memory:");
+  try {
+    const turn = { sessionId: "session:alpha", userText: "We decided to validate rollback before migration.", assistantText: "I recorded that plan." };
+    const source = receipt(store, turn.userText, turn.assistantText, "linked-decision");
+    const episode = new EpisodeRepository(store.db).create({ scope: "project:alpha", kind: "task", title: "Migration", summary: "Prepare the migration.", sourceEventIds: source.events.map(event => event.id), importance: .8, confidence: .9 });
+    const taskRef = createMnemoraContextRef({ scope: "project:alpha", kind: "episode", id: episode.id });
+    const intake = new ReasoningIntakeService(store.db);
+    await intake.capture({ scope: "project:alpha", receipt: source, turn, runtime: runtime({ candidates: [{ kind: "decision", objective: "Prepare migration", chosenAction: "Validate rollback", constraints: [], confidence: .9 }] }), config });
+    const candidate = intake.list("project:alpha")[0];
+    assert.equal(intake.confirmationPreview(candidate.id, candidate.scope).effect.preview.decision.episode_count, 0);
+    const preview = intake.confirmationPreview(candidate.id, candidate.scope, taskRef);
+    assert.equal(preview.status, "preview");
+    assert.equal(preview.selected_task_ref, taskRef);
+    assert.equal(preview.effect.preview.decision.episode_count, 1);
+    assert.equal(new TaskResumeService(store.db).resume({ scope: "project:alpha", taskRef }).status, "needs_reconfirmation");
+    const confirmed = intake.confirm(candidate.id, candidate.scope, preview.preview_hash, taskRef);
+    assert.deepEqual(confirmed.decision.episodeIds, [episode.id]);
+    const resumed = new TaskResumeService(store.db).resume({ scope: "project:alpha", taskRef });
+    assert.equal(resumed.status, "ready");
+    assert.deepEqual(resumed.next_steps.map(item => item.text), ["Validate rollback"]);
+  } finally { store.close(); }
+});
+
+test("multiple matching task episodes keep a reviewed outcome on its event anchor", async () => {
+  const store = new GraphologyStore(":memory:");
+  try {
+    const turn = { sessionId: "session:alpha", userText: "The migration completed.", assistantText: "Recorded." };
+    const source = receipt(store, turn.userText, turn.assistantText, "ambiguous-task");
+    const episodes = new EpisodeRepository(store.db);
+    const first = episodes.create({ scope: "project:alpha", kind: "task", title: "Migration A", summary: "Complete migration A.", sourceEventIds: [source.events[0].id], importance: .8, confidence: .9 });
+    const second = episodes.create({ scope: "project:alpha", kind: "task", title: "Migration B", summary: "Complete migration B.", sourceEventIds: [source.events[0].id], importance: .8, confidence: .9 });
+    const intake = new ReasoningIntakeService(store.db);
+    await intake.capture({ scope: "project:alpha", receipt: source, turn, runtime: runtime({ candidates: [{ kind: "task_outcome", taskSummary: "Migration", verdict: "success", impact: "helpful", summary: "Migration completed.", confidence: .9 }] }), config });
+    const candidate = intake.list("project:alpha")[0], preview = intake.confirmationPreview(candidate.id, candidate.scope);
+    assert.equal(preview.status, "preview");
+    assert.equal(preview.effect.preview.outcome.taskRef, candidate.taskRef);
+    assert.match(intake.confirm(candidate.id, candidate.scope, preview.preview_hash).outcome.taskRef, /conversation-event/);
+    for (const episode of [first, second]) {
+      const taskRef = createMnemoraContextRef({ scope: "project:alpha", kind: "episode", id: episode.id });
+      assert.equal(new TaskResumeService(store.db).resume({ scope: "project:alpha", taskRef }).status, "needs_reconfirmation");
+    }
+  } finally { store.close(); }
+});
+
+test("intake cannot bind a reviewed candidate to a cross-scope or non-task episode", async () => {
+  const store = new GraphologyStore(":memory:");
+  try {
+    const turn = { sessionId: "session:alpha", userText: "The migration completed.", assistantText: "Recorded." };
+    const source = receipt(store, turn.userText, turn.assistantText, "wrong-task");
+    const episodes = new EpisodeRepository(store.db);
+    const interaction = episodes.create({ scope: "project:alpha", kind: "interaction", summary: "Migration discussion.", sourceEventIds: [source.events[0].id], importance: .8, confidence: .9 });
+    const inactive = episodes.create({ scope: "project:alpha", kind: "task", summary: "Archived migration task.", sourceEventIds: [source.events[0].id], importance: .8, confidence: .9 });
+    episodes.transition(inactive.id, "project:alpha", "archived");
+    const intake = new ReasoningIntakeService(store.db);
+    await intake.capture({ scope: "project:alpha", receipt: source, turn, runtime: runtime({ candidates: [{ kind: "task_outcome", taskSummary: "Migration", verdict: "success", impact: "helpful", summary: "Migration completed.", confidence: .9 }] }), config });
+    const candidate = intake.list("project:alpha")[0];
+    const wrongKindRef = createMnemoraContextRef({ scope: "project:alpha", kind: "episode", id: interaction.id });
+    const wrongScopeRef = createMnemoraContextRef({ scope: "project:beta", kind: "episode", id: interaction.id });
+    const inactiveRef = createMnemoraContextRef({ scope: "project:alpha", kind: "episode", id: inactive.id });
+    const missingRef = createMnemoraContextRef({ scope: "project:alpha", kind: "episode", id: "missing-task" });
+    assert.throws(() => intake.confirmationPreview(candidate.id, candidate.scope, wrongKindRef), /invalid_reasoning_intake_task/);
+    assert.throws(() => intake.confirmationPreview(candidate.id, candidate.scope, wrongScopeRef));
+    assert.throws(() => intake.confirmationPreview(candidate.id, candidate.scope, inactiveRef), /invalid_reasoning_intake_task/);
+    assert.throws(() => intake.confirmationPreview(candidate.id, candidate.scope, missingRef), /invalid_reasoning_intake_task/);
+    assert.equal(intake.get(candidate.id, candidate.scope).status, "pending_review");
+  } finally { store.close(); }
+});
+
+test("CLI intake confirmation binds the previewed task reference", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "mnemora-intake-task-cli-")), path = join(directory, "memory.db");
+  let store;
+  try {
+    store = new GraphologyStore(path);
+    const turn = { sessionId: "session:alpha", userText: "The migration completed.", assistantText: "Recorded." };
+    const source = receipt(store, turn.userText, turn.assistantText, "cli-task");
+    const episode = new EpisodeRepository(store.db).create({ scope: "project:alpha", kind: "task", title: "Migration", summary: "Complete migration.", sourceEventIds: source.events.map(event => event.id), importance: .8, confidence: .9 });
+    const taskRef = createMnemoraContextRef({ scope: "project:alpha", kind: "episode", id: episode.id });
+    const intake = new ReasoningIntakeService(store.db);
+    await intake.capture({ scope: "project:alpha", receipt: source, turn, runtime: runtime({ candidates: [{ kind: "task_outcome", taskSummary: "Migration", verdict: "success", impact: "helpful", summary: "Migration completed.", confidence: .9 }] }), config });
+    const candidate = intake.list("project:alpha")[0];
+    store.close(); store = undefined;
+    const invoke = (...args) => {
+      const result = spawnSync(process.execPath, ["dist/cli.js", "cognition", "reasoning", "intake", "confirm", candidate.id, "--scope", "project:alpha", "--task-ref", taskRef, ...args], { cwd: process.cwd(), encoding: "utf8", env: { ...process.env, MNEMORA_DB: path } });
+      assert.equal(result.status, 0, result.stderr);
+      return JSON.parse(result.stdout).result;
+    };
+    const preview = invoke();
+    assert.equal(preview.selected_task_ref, taskRef);
+    assert.equal(preview.effect.preview.outcome.taskRef, taskRef);
+    assert.equal(invoke("--preview-hash", preview.preview_hash, "--confirm").status, "confirmed");
+    store = new GraphologyStore(path);
+    assert.equal(new TaskResumeService(store.db).resume({ scope: "project:alpha", taskRef }).status, "ready");
+  } finally { try { store?.close(); } catch {} try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
 
 test("assistant-only completion claims cannot enqueue an outcome candidate", async () => {

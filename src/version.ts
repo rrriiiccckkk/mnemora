@@ -1,2 +1,2 @@
 /** Single source for runtime metadata; release validation keeps it in lockstep with package.json. */
-export const mnemoraVersion = "1.31.3";
+export const mnemoraVersion = "1.31.4";

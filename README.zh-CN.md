@@ -294,6 +294,8 @@ mnemora cognition reasoning curation resolve-review <review-proposal-id> retire 
 # 使用返回的 preview hash，再加 --preview-hash <hash> --confirm 执行。
 ```
 
+如果审核者确认某个候选属于现有任务，可在 `intake confirm` 的预览和最终确认**两次调用中使用相同的** `--task-ref <mnemora-task-episode-ref>`。预览会显示选中任务对 Decision/TaskOutcome 的关联效果；确认哈希绑定这一选择。省略时仍锚定原始消息，不会仅凭同一轮出现的任务 Episode 自动归属，也不会进入该任务的 `resume` 投影。
+
 关于失败、重试、scope 与审查语义，见[受治理的 Reasoning curation](docs/reasoning-curation.md)。
 
 ### 实验性 ReasoningMemory 投递
