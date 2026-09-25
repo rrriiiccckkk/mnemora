@@ -47,6 +47,7 @@ test("task resume survives a restart with source-linked current decisions and ac
     const first = new TaskResumeService(store.db, () => now).resume({ scope: "project:alpha", query: "deployment migration" });
     assert.equal(first.status, "ready");
     assert.equal(first.task.task_ref, migration.taskRef);
+    assert.deepEqual(first.task.memory_evidence, { source_available: true, accepted_current_state_available: true });
     assert.deepEqual(first.decisions.map(item => item.text), ["Use plan B"]);
     assert.deepEqual(first.completed.map(item => item.text), ["Configuration validation completed."]);
     assert.deepEqual(first.pending.map(item => item.text), ["Migration has not executed; await the upstream merge."]);
@@ -74,6 +75,21 @@ test("task resume keeps task selection and references within the caller scope", 
     assert.equal(result.candidates.some(candidate => candidate.title.includes("secret") || candidate.source_refs.some(ref => ref.includes("project%3Abeta"))), false);
     assert.throws(() => new TaskResumeService(store.db).resume({ scope: "project:alpha", taskRef: beta.taskRef }), /invalid_task_resume/);
     assert.equal(new TaskResumeService(store.db).resume({ scope: "project:alpha", taskRef: alphaOne.taskRef }).task.id, alphaOne.episode.id);
+  } finally { store.close(); }
+});
+
+test("a hash-only source is not reported as readable task evidence", () => {
+  const store = new GraphologyStore(":memory:");
+  try {
+    const event = new ConversationEventRepository(store.db, { ...policy, sensitiveContentPolicy: "hash_only" }).append({
+      scope: "project:alpha", sessionId: "session:private", kind: "user_message", role: "user", parts: [{ type: "text", text: "Deployment password=private-value" }]
+    });
+    assert.equal(event.normalizedText, undefined);
+    const episode = new EpisodeRepository(store.db).create({ scope: "project:alpha", kind: "task", title: "Deployment", summary: "Continue deployment.", sourceEventIds: [event.id], importance: .8, confidence: .9 });
+    const taskRef = createMnemoraContextRef({ scope: "project:alpha", kind: "episode", id: episode.id });
+    const result = new TaskResumeService(store.db).resume({ scope: "project:alpha", taskRef });
+    assert.deepEqual(result.task.memory_evidence, { source_available: false, accepted_current_state_available: false });
+    assert.equal(result.needs_reconfirmation.some(item => item.text.includes("inspect the available source evidence")), false);
   } finally { store.close(); }
 });
 
@@ -129,6 +145,7 @@ test("task resume treats forgotten evidence as reconfirmation and never upgrades
     assert.equal(result.status, "needs_reconfirmation");
     assert.deepEqual(result.decisions, []);
     assert.deepEqual(result.completed, []);
+    assert.deepEqual(result.task.memory_evidence, { source_available: false, accepted_current_state_available: false });
     assert.equal(result.needs_reconfirmation.some(item => item.text.includes("unavailable")), true);
   } finally { store.close(); }
 });
@@ -328,7 +345,8 @@ test("task resume abstains when only a task record exists, and Inspector and CLI
     const before = Number(graph.store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_conversation_events").get().value);
     const inspector = app.taskResume({ scope: "project:alpha", task_ref: bare.taskRef });
     assert.equal(inspector.status, "needs_reconfirmation");
-    assert.equal(inspector.needs_reconfirmation.some(item => item.text.includes("No accepted decision or outcome")), true);
+    assert.deepEqual(inspector.task.memory_evidence, { source_available: true, accepted_current_state_available: false });
+    assert.equal(inspector.needs_reconfirmation.some(item => item.text.includes("memory coverage gap")), true);
     assert.equal(Number(graph.store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_conversation_events").get().value), before);
     task(graph.store, "project:alpha", "部署迁移", "将部署流程迁移到新运行环境。", 31);
     task(graph.store, "project:alpha", "部署回滚", "准备独立的部署回滚方案。", 32);
@@ -336,6 +354,10 @@ test("task resume abstains when only a task record exists, and Inspector and CLI
     assert.equal(ambiguousInspector.status, "ambiguous");
     assert.deepEqual(ambiguousInspector.candidates.map(candidate => candidate.title), ["部署回滚", "部署迁移"]);
     assert.deepEqual(ambiguousInspector.candidates.map(candidate => candidate.progress), ["needs_reconfirmation", "needs_reconfirmation"]);
+    assert.deepEqual(ambiguousInspector.candidates.map(candidate => candidate.memory_evidence), [
+      { source_available: true, accepted_current_state_available: false },
+      { source_available: true, accepted_current_state_available: false }
+    ]);
     graph.close();
     const cli = spawnSync(process.execPath, [join(process.cwd(), "dist", "cli.js"), "resume", "--task-ref", bare.taskRef, "--scope", "project:alpha"], { encoding: "utf8", env: { ...process.env, MNEMORA_DB: dbPath } });
     assert.equal(cli.status, 0, cli.stderr);
@@ -343,6 +365,7 @@ test("task resume abstains when only a task record exists, and Inspector and CLI
     assert.equal(output.command, "resume.read");
     assert.equal(output.result.task.task_ref, bare.taskRef);
     assert.equal(output.result.status, "needs_reconfirmation");
+    assert.deepEqual(output.result.task.memory_evidence, { source_available: true, accepted_current_state_available: false });
     const ambiguousCli = spawnSync(process.execPath, [join(process.cwd(), "dist", "cli.js"), "resume", "继续部署", "--scope", "project:alpha"], { encoding: "utf8", env: { ...process.env, MNEMORA_DB: dbPath } });
     assert.equal(ambiguousCli.status, 0, ambiguousCli.stderr);
     assert.deepEqual(JSON.parse(ambiguousCli.stdout).result.candidates.map(candidate => candidate.title), ["部署回滚", "部署迁移"]);

@@ -157,6 +157,14 @@ projection identifies (`truncated_sections`) only the state sections whose
 displayed records reached the caller's limit; presentation limits never change
 the fully resolved task state.
 
+`memory_evidence` on the task and each candidate separates readable source
+availability (`source_available`) from an accepted current state with active
+evidence (`accepted_current_state_available`). If only the source is available,
+`needs_reconfirmation` is a memory-coverage warning, not proof that the real
+task state is unknown; inspect the source before asking the user to repeat it.
+Forgotten and hash-only sources are not reported as readable. These fields do
+not promote raw messages into confirmed outcomes.
+
 Run `npm run benchmark:task-resume` for the 26-sequence synthetic functional
 evaluation. `mnemora evaluate task-resume-comparison <plan.json>` validates and
 reports the three-arm experiment contract without calling a model. Its bundled

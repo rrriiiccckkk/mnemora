@@ -26,8 +26,17 @@ export interface TaskResumeCandidate {
   goal: string;
   /** Current source-linked state lets a human distinguish a resume target from history. */
   progress: TaskResumeProgress;
+  memory_evidence: TaskResumeEvidenceCoverage;
   last_evidence_at: number;
   source_refs: string[];
+}
+
+/** Memory coverage is distinct from the task's real-world state. */
+export interface TaskResumeEvidenceCoverage {
+  /** All source refs are active and at least one source event has readable text. */
+  source_available: boolean;
+  /** At least one current Decision or Outcome has active evidence. */
+  accepted_current_state_available: boolean;
 }
 
 export interface TaskResumeStateItem {
@@ -49,6 +58,7 @@ export interface TaskResumeView {
     goal: string;
     /** Only a task-level accepted outcome can say completed; child actions alone remain in progress. */
     progress: TaskResumeProgress;
+    memory_evidence: TaskResumeEvidenceCoverage;
     /** Most recent accepted outcome, if one exists. It is not a claim that the task succeeded. */
     last_verified_at: number | null;
     last_evidence_at: number;
@@ -131,6 +141,7 @@ export class TaskResumeService {
 
   private project(task: Episode, scope: string, limit: number): TaskResumeView {
     const taskRef = episodeRef(task), taskSources = episodeSources(task), taskEvidenceRefs = [...taskSources.events, ...taskSources.artifacts], active = task.status === "active";
+    const sourceAvailable = active && this.evidenceActive(scope, taskEvidenceRefs) && this.readableTaskSource(scope, task.id);
     // Resolve complete current state before applying response presentation
     // limits. An older completed action must not become pending merely because
     // a busy task accumulated later outcome records.
@@ -138,7 +149,7 @@ export class TaskResumeService {
     const completed: TaskResumeStateItem[] = [], pending: TaskResumeStateItem[] = [], blockers: TaskResumeStateItem[] = [], constraints: TaskResumeStateItem[] = [], nextSteps: TaskResumeStateItem[] = [], decisionItems: TaskResumeStateItem[] = [], planned: TaskResumeStateItem[] = [], history: TaskResumeStateItem[] = [], needsReconfirmation: TaskResumeStateItem[] = [];
 
     if (!active) needsReconfirmation.push({ kind: "needs_reconfirmation", text: "The task’s source episode is no longer active; confirm its current state before continuing.", source_refs: [taskRef], recorded_at: task.recordedAt });
-    else if (!this.evidenceActive(scope, taskEvidenceRefs)) needsReconfirmation.push({ kind: "needs_reconfirmation", text: "The task’s source evidence is unavailable; confirm its current state before continuing.", source_refs: [taskRef, ...taskEvidenceRefs], recorded_at: task.recordedAt });
+    else if (!sourceAvailable) needsReconfirmation.push({ kind: "needs_reconfirmation", text: "The task’s source evidence is unavailable; confirm its current state before continuing.", source_refs: [taskRef, ...taskEvidenceRefs], recorded_at: task.recordedAt });
     const currentDecisions = decisions.current, currentOutcomes = outcomes.filter(outcome => outcome.status === "recorded");
     const actionOutcomes = new Map<string, TaskOutcome[]>();
     for (const outcome of currentOutcomes) if (outcome.actionRef && outcome.actionState) actionOutcomes.set(outcome.actionRef, [...(actionOutcomes.get(outcome.actionRef) ?? []), outcome]);
@@ -185,8 +196,15 @@ export class TaskResumeService {
         pending.push(item);
       }
     }
-    if (!currentDecisions.length && !currentOutcomes.length && !planned.length) needsReconfirmation.push({ kind: "needs_reconfirmation", text: "No accepted decision or outcome describes the current task state; confirm progress before continuing.", source_refs: [taskRef, ...taskEvidenceRefs], recorded_at: task.recordedAt });
+    if (!currentDecisions.length && !currentOutcomes.length && !planned.length) needsReconfirmation.push({
+      kind: "needs_reconfirmation",
+      text: sourceAvailable
+        ? "No accepted current task state is stored. This is a memory coverage gap, not proof that the task state is unknown; inspect the available source evidence before deciding whether to ask for reconfirmation."
+        : "No accepted current task state is stored and its source evidence is unavailable; confirm progress before continuing.",
+      source_refs: [taskRef, ...taskEvidenceRefs], recorded_at: task.recordedAt
+    });
 
+    const memoryEvidence: TaskResumeEvidenceCoverage = { source_available: sourceAvailable, accepted_current_state_available: Boolean(decisionItems.length || completed.length || pending.length || blockers.length) };
     const progress = !active || needsReconfirmation.length ? "needs_reconfirmation" : blockers.length ? "blocked" : taskOutcomes.some(outcome => outcome.verdict === "success" && this.evidenceActive(scope, outcome.evidenceRefs)) && !pending.length && !nextSteps.length ? "completed" : currentDecisions.length || currentOutcomes.length || planned.length ? "in_progress" : "unknown";
     const sections: Array<[TaskResumeSection, TaskResumeStateItem[]]> = [["completed", completed], ["pending", pending], ["blockers", blockers], ["constraints", constraints], ["next_steps", nextSteps], ["decisions", decisionItems], ["planned", planned], ["history", history], ["needs_reconfirmation", needsReconfirmation]];
     const lastVerified = currentOutcomes.filter(outcome => this.evidenceActive(scope, outcome.evidenceRefs)).reduce<number | null>((latest, outcome) => latest === null || outcome.recordedAt > latest ? outcome.recordedAt : latest, null);
@@ -197,7 +215,7 @@ export class TaskResumeService {
       kind: "task_resume",
       status: !active || needsReconfirmation.length ? "needs_reconfirmation" : blockers.length ? "blocked" : "ready",
       scope,
-      task: { id: task.id, task_ref: taskRef, title: task.title ?? "Untitled task", goal: task.summary, progress, last_verified_at: lastVerified, last_evidence_at: lastEvidence, source_refs: taskSources.events, artifact_refs: taskSources.artifacts },
+      task: { id: task.id, task_ref: taskRef, title: task.title ?? "Untitled task", goal: task.summary, progress, memory_evidence: memoryEvidence, last_verified_at: lastVerified, last_evidence_at: lastEvidence, source_refs: taskSources.events, artifact_refs: taskSources.artifacts },
       completed: limited[0], pending: limited[1], blockers: limited[2], constraints: limited[3], next_steps: limited[4], decisions: limited[5], planned: limited[6], history: limited[7], needs_reconfirmation: limited[8],
       truncated_sections: truncatedSections,
       truncated: truncatedSections.length > 0
@@ -263,7 +281,7 @@ export class TaskResumeService {
     // callers never need to duplicate lifecycle or completion rules.
     return matching.map(({ task, score }) => {
       const view = this.project(task, scope, MAX_ITEMS);
-      return { task, score, candidate: { task_ref: episodeRef(task), title: task.title ?? "Untitled task", goal: task.summary, progress: view.task.progress, last_evidence_at: view.task.last_evidence_at, source_refs: [...episodeSources(task).events, ...episodeSources(task).artifacts] } };
+      return { task, score, candidate: { task_ref: episodeRef(task), title: task.title ?? "Untitled task", goal: task.summary, progress: view.task.progress, memory_evidence: view.task.memory_evidence, last_evidence_at: view.task.last_evidence_at, source_refs: [...episodeSources(task).events, ...episodeSources(task).artifacts] } };
     }).sort((a, b) => b.score - a.score || b.candidate.last_evidence_at - a.candidate.last_evidence_at || a.task.id.localeCompare(b.task.id));
   }
 
@@ -280,6 +298,13 @@ export class TaskResumeService {
   private evidenceActive(scope: string, refs: string[]): boolean {
     try { for (const value of refs) this.references.requireActive(authorizeMnemoraContextRef(value, { scope })); return true; }
     catch { return false; }
+  }
+
+  private readableTaskSource(scope: string, episodeId: string): boolean {
+    return this.db.prepare(`SELECT 1 FROM mnemora_episode_event_edges edge
+      JOIN mnemora_conversation_events event ON event.id=edge.event_id AND event.scope=edge.scope
+      WHERE edge.episode_id=? AND edge.scope=? AND event.deleted_at IS NULL
+        AND event.normalized_text IS NOT NULL AND length(trim(event.normalized_text))>0 LIMIT 1`).get(episodeId, scope) != null;
   }
 }
 
