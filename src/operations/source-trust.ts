@@ -37,7 +37,7 @@ export class SourceTrustService {
     const normalized = normalize(input.payload.source, input.payload.weight);
     const candidate = hash({ source: normalized.source, weight: normalized.weight, graph: input.graph_revision, config: input.config_revision });
     if (candidate !== pending.hash || input.payload_hash !== pending.hash || input.graph_revision !== pending.graph || input.config_revision !== pending.config) throw new Error("invalid_preview");
-    const auditId = `audit:${secret(this.randomBytes).slice(0, 32)}`;
+    const auditId = `audit:source-trust-${secret(this.randomBytes).slice(0, 32)}`;
     const result = this.options.store.confirmSourceTrust({ source: normalized.source, source_hash: hash(normalized.source), weight: normalized.weight, graph_revision: pending.graph, config_revision: pending.config, audit_id: auditId });
     return { operation: "source_trust", phase: "confirm", confirmed: true, graph_revision: result.graph_revision, config_revision: result.config_revision, audit_id: auditId, affected: counts(result.affected) };
   }

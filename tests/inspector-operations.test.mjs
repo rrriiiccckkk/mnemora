@@ -6,6 +6,33 @@ import { join } from "node:path";
 import { ConversationEventRepository, Mnemora } from "../dist/index.js";
 import { createInspectorApplication } from "../dist/inspector/application.js";
 
+for (const byte of [0xfb, 0xff]) for (const operation of ["backup", "source_trust", "orphan_cleanup", "weight_recompute"]) {
+  test(`${operation} confirmation keeps IDs valid when base64url entropy starts with ${byte === 0xfb ? "-" : "_"}`, async () => {
+    const directory = mkdtempSync(join(tmpdir(), "mnemora-ops-entropy-")), graph = new Mnemora({ config: { dbPath: ":memory:" } });
+    try {
+      const enabled = createInspectorApplication({ graph, allowOperations: true, artifactDirectory: directory, randomBytes: () => Buffer.alloc(32, byte) });
+      const payload = operation === "source_trust" ? { source: "fixture:entropy", weight: 1.25 } : {};
+      const request = { operation, phase: "preview", graph_revision: graph.store.graphRevision(), payload, ...(operation === "source_trust" ? { config_revision: graph.store.sourceTrustRevision() } : {}) };
+      const preview = await enabled.operationPreview(request);
+      assert.match(preview.preview_token, byte === 0xfb ? /^-/ : /^_/);
+      const confirmation = { ...request, phase: "confirm", preview_token: preview.preview_token, payload_hash: preview.payload_hash };
+      const result = await enabled.operationConfirm(confirmation);
+      assert.equal(result.confirmed, true);
+      assert.match(result.audit_id, /^audit:[A-Za-z0-9][A-Za-z0-9._-]*$/);
+      if (operation === "backup") {
+        assert.match(result.artifact.artifact_id, /^artifact:[A-Za-z0-9][A-Za-z0-9._-]*$/);
+        const restarted = createInspectorApplication({ graph, allowOperations: false, artifactDirectory: directory });
+        assert.equal(restarted.healthSummary().recovery.artifacts.available, 1);
+      } else if (operation === "source_trust") {
+        assert.equal(graph.store.db.prepare("SELECT id FROM kg_source_trust_audits WHERE id=?").get(result.audit_id).id, result.audit_id);
+      } else {
+        assert.equal(graph.store.db.prepare("SELECT id FROM kg_quality_audits WHERE id=?").get(result.audit_id).id, result.audit_id);
+      }
+      await assert.rejects(() => enabled.operationConfirm(confirmation), /invalid_preview/);
+    } finally { graph.close(); try { rmSync(directory, { recursive: true, force: true }); } catch {} }
+  });
+}
+
 test("operation application is absent in read-only mode and dispatches normalized preview/confirm when enabled", async () => {
   const directory=mkdtempSync(join(tmpdir(),"mnemora-ops-")),graph=new Mnemora({config:{dbPath:":memory:"}});
   try{

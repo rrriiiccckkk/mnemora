@@ -23,7 +23,9 @@ export class BackupService {
     const pending = this.pending.get(input.preview_token); this.pending.delete(input.preview_token);
     if (!pending || pending.expires < this.now() || input.payload_hash !== pending.hash) throw new Error("invalid_preview");
     if (input.graph_revision !== pending.graph || this.options.store.graphRevision() !== pending.graph) throw new Error("stale_preview");
-    const nonce = secret(this.randomBytes).slice(0, 24), artifactId = `artifact:${nonce}`, auditId = `audit:${nonce}`;
+    // Inspector IDs require an alphanumeric first character; random base64url
+    // entropy can start with '-' or '_'. Keep the entropy and prefix its IDs.
+    const nonce = secret(this.randomBytes).slice(0, 24), artifactId = `artifact:backup-${nonce}`, auditId = `audit:backup-${nonce}`;
     const destination = join(this.options.registry.directory, `.${nonce}.sqlite`);
     try {
       consistentBackup(this.options.store.db, destination);
