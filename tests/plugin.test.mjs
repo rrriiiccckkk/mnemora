@@ -1,3 +1,4 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Check } from "typebox/value";
@@ -7,7 +8,7 @@ import { CORE_TOOL_NAMES, RESEARCH_TOOL_NAMES, createOpenClawToolDefinitions, ev
 import { PluginRuntime, activePluginIdsFromHostConfig } from "../dist/plugin-runtime.js";
 import { Mnemora, createMnemoraTools } from "../dist/tools.js";
 import { ResearchOperationError } from "../dist/query/errors.js";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 
@@ -77,7 +78,7 @@ test("plugin registers a bounded read-only mnemora operator command", async () =
 });
 
 test("first-use verification confirms the selected lifecycle, persisted capture, cross-session use, and an actual attachment", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-first-use-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-first-use-"), dbPath = join(directory, "memory.db");
   const result = harness({
     dbPath,
     conversationJournal: { enabled: true },
@@ -180,7 +181,7 @@ test("standalone activation reads enabled legacy plugins from the public host co
 });
 
 test("a selected ContextEngine owns completed-turn capture and automatic extraction", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-hook-convergence-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-hook-convergence-"), dbPath = join(directory, "memory.db");
   const runtime = new PluginRuntime({ dbPath, conversationJournal: { enabled: true }, contextEngine: { enabled: true }, episodicMemory: { enabled: true }, llm: { apiKey: "fixture" }, extraction: { enabled: true, autoExtract: true } }, { debug() {}, info() {}, warn() {} });
   const calls = [];
   runtime.extract.handle = async turn => { calls.push(turn); return { status: "succeeded", extracted: 0 }; };
@@ -213,7 +214,7 @@ test("an occupied extraction lease does not skip consolidation or reflection", a
 });
 
 test("ContextEngine evaluates governed reasoning from assemble without registering a prompt hook", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-reasoning-assembly-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-reasoning-assembly-"), dbPath = join(directory, "memory.db");
   const runtime = new PluginRuntime({
     dbPath,
     scope: { default: "project:ops" },
@@ -309,8 +310,8 @@ test("kg_recall_explain is bounded, read-only, and dispatches an exact request",
 });
 
 test("public factory exposes exactly thirty-two bound tools including profile choices and adaptive recall controls", async () => {
-  mkdirSync(join(process.cwd(), ".tmp"), { recursive: true });
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-factory-"));
+
+  const directory = createTempDir("mnemora-factory-");
   const created = createMnemoraTools({ config: { dbPath: join(directory, "graph.db") } });
   try {
     assert.deepEqual(Object.keys(created.tools).sort(), EXPECTED_32_TOOLS);

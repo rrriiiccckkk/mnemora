@@ -1,5 +1,6 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync } from "node:fs";
+
 import { join } from "node:path";
 import test from "node:test";
 import { Mnemora } from "../dist/tools.js";
@@ -13,8 +14,8 @@ const entities = [
 const vectors = new Map([["硅晶圆", [1, 0]], ["先进封装", [.9, .1]], ["HBM", [.8, .2]], ["Murata", [0, 1]], ["半导体上游", [1, 0]]]);
 
 function graphWith(embedder) {
-  mkdirSync(join(process.cwd(), ".tmp"), { recursive: true });
-  const dir = mkdtempSync(join(process.cwd(), ".tmp", "hybrid-"));
+
+  const dir = createTempDir("hybrid-");
   return new Mnemora({
     config: { dbPath: join(dir, "kg.db"), embeddings: { enabled: true, model: "fake" } },
     embedder,

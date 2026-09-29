@@ -1,14 +1,15 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync, writeFileSync } from "node:fs";
+
 import { join } from "node:path";
 import { DatabaseSync } from "@photostructure/sqlite";
 import { GraphologyStore } from "../dist/index.js";
 import { inspectDatabaseCompatibility, SUPPORTED_SCHEMA_VERSION } from "../dist/operations/migration.js";
 
 test("compatibility accepts current databases and rejects corrupt or forward schemas", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-migration-"));
+  const directory = createTempDir("mnemora-migration-");
   try {
     const current = join(directory, "current.sqlite"), store = new GraphologyStore(current); store.close();
     assert.deepEqual(inspectDatabaseCompatibility(current), { compatible: true, schema_version: SUPPORTED_SCHEMA_VERSION });
@@ -20,7 +21,7 @@ test("compatibility accepts current databases and rejects corrupt or forward sch
 });
 
 test("v1.3 migrates analytical records to a persisted default scope", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-migration-scope-"));
+  const directory = createTempDir("mnemora-migration-scope-");
   try {
     const path = join(directory, "v12.sqlite"), db = new DatabaseSync(path);
     db.exec(`CREATE TABLE kg_watches (

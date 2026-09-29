@@ -1,9 +1,10 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "@photostructure/sqlite";
-import { tmpdir } from "node:os";
+
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { GraphologyStore } from "../dist/index.js";
@@ -12,7 +13,7 @@ import { ArtifactRegistry } from "../dist/operations/artifacts.js";
 import { RestoreService } from "../dist/operations/restore.js";
 
 test("backup is preview-first, verified, opaque, and does not expose configured paths", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-backup-secret-"));
+  const directory = createTempDir("mnemora-backup-secret-");
   const store = new GraphologyStore(":memory:");
   try {
     const registry = new ArtifactRegistry(directory);
@@ -32,7 +33,7 @@ test("backup is preview-first, verified, opaque, and does not expose configured 
 });
 
 test("stale graph revisions reject backup confirmation without creating an artifact", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-backup-stale-")); const store = new GraphologyStore(":memory:");
+  const directory = createTempDir("mnemora-backup-stale-"); const store = new GraphologyStore(":memory:");
   try {
     const registry = new ArtifactRegistry(directory), service = new BackupService({ store, registry, randomBytes: () => Buffer.alloc(32, 10) });
     const preview = service.preview({ operation: "backup", phase: "preview", graph_revision: store.graphRevision(), payload: {} });
@@ -49,7 +50,7 @@ async function cleanup(directory) {
 }
 
 test("restore verifies the artifact, creates a recovery point, and replaces a file database", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-restore-")), dbPath = join(directory, "active.sqlite"), artifacts = join(directory, "artifacts");
+  const directory = createTempDir("mnemora-restore-"), dbPath = join(directory, "active.sqlite"), artifacts = join(directory, "artifacts");
   const store = new GraphologyStore(dbPath);
   try {
     const now = 1_700_000_000_000, registry = new ArtifactRegistry(artifacts), randomBytes = () => Buffer.alloc(32, 11);
@@ -68,7 +69,7 @@ test("restore verifies the artifact, creates a recovery point, and replaces a fi
 });
 
 test("restore failure rolls back without changing the active graph", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-restore-rollback-")), dbPath = join(directory, "active.sqlite"), artifacts = join(directory, "artifacts");
+  const directory = createTempDir("mnemora-restore-rollback-"), dbPath = join(directory, "active.sqlite"), artifacts = join(directory, "artifacts");
   const store = new GraphologyStore(dbPath);
   try {
     const now = 1_700_000_000_000, registry = new ArtifactRegistry(artifacts);
@@ -83,7 +84,7 @@ test("restore failure rolls back without changing the active graph", async () =>
 });
 
 test("artifact registry survives restart and reports missing recovery files without exposing paths", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-artifact-health-")), artifactPath = join(directory, ".persist.sqlite");
+  const directory = createTempDir("mnemora-artifact-health-"), artifactPath = join(directory, ".persist.sqlite");
   try {
     writeFileSync(artifactPath, "fixture");
     const registry = new ArtifactRegistry(directory);
@@ -98,7 +99,7 @@ test("artifact registry survives restart and reports missing recovery files with
 });
 
 test("artifact registry leaves its in-memory entries unchanged when manifest replacement fails", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-artifact-register-failure-")), artifactPath = join(directory, ".persist.sqlite");
+  const directory = createTempDir("mnemora-artifact-register-failure-"), artifactPath = join(directory, ".persist.sqlite");
   try {
     writeFileSync(artifactPath, "fixture");
     const registry = new ArtifactRegistry(directory);
@@ -111,7 +112,7 @@ test("artifact registry leaves its in-memory entries unchanged when manifest rep
 });
 
 test("artifact registry rejects a new entry at capacity while preserving every existing registration across restart", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-artifact-capacity-")), artifactPath = join(directory, ".persist.sqlite");
+  const directory = createTempDir("mnemora-artifact-capacity-"), artifactPath = join(directory, ".persist.sqlite");
   try {
     writeFileSync(artifactPath, "fixture");
     const registry = new ArtifactRegistry(directory);
@@ -124,7 +125,7 @@ test("artifact registry rejects a new entry at capacity while preserving every e
 });
 
 test("a valid legacy artifact manifest above the admission cap remains recoverable after restart", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-artifact-legacy-")), artifactPath = join(directory, ".persist.sqlite");
+  const directory = createTempDir("mnemora-artifact-legacy-"), artifactPath = join(directory, ".persist.sqlite");
   try {
     writeFileSync(artifactPath, "fixture");
     const artifacts = Array.from({ length: 1001 }, (_, index) => ({ artifact_id: `artifact:${index}`, kind: "backup", file: ".persist.sqlite", sha256: "a".repeat(64), graph_revision: index, created_at: index }));
@@ -136,7 +137,7 @@ test("a valid legacy artifact manifest above the admission cap remains recoverab
 });
 
 test("an unreadable artifact manifest remains visible as a bounded registry failure", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-artifact-invalid-"));
+  const directory = createTempDir("mnemora-artifact-invalid-");
   try {
     writeFileSync(join(directory, ".mnemora-artifacts.json"), "not json");
     const registry = new ArtifactRegistry(directory, { create: false });
@@ -147,7 +148,7 @@ test("an unreadable artifact manifest remains visible as a bounded registry fail
 });
 
 test("restore accepts a v1.0 observation schema and maps restored evidence to default scope", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-restore-v10-")), active = join(directory, "active.sqlite"), legacy = join(directory, "legacy.sqlite");
+  const directory = createTempDir("mnemora-restore-v10-"), active = join(directory, "active.sqlite"), legacy = join(directory, "legacy.sqlite");
   const store = new GraphologyStore(active);
   try {
     const now = 1_700_000_000_000;

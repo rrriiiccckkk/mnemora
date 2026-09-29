@@ -1,8 +1,9 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DatabaseSync } from "@photostructure/sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
+
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { Mnemora } from "../dist/index.js";
@@ -241,7 +242,7 @@ test("confirmed feedback closes the memory retrieval loop without mutating memor
 });
 
 test("v1.1 memory documents receive a local chunk index during migration", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-memory-migration-"));
+  const directory = createTempDir("mnemora-memory-migration-");
   const dbPath = join(directory, "legacy.sqlite");
   try {
     const legacy = new DatabaseSync(dbPath);

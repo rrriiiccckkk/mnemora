@@ -1,5 +1,6 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { createMnemoraContextRef } from "../dist/context/context-ref.js";
@@ -94,7 +95,7 @@ test("invalid model output is bounded, retryable, and cannot create a proposal",
 });
 
 test("the completed-turn lifecycle runs opt-in curation only after durable capture with a public host runtime", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-curation-runtime-")), path = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-curation-runtime-"), path = join(directory, "memory.db");
   const runtimePlugin = new PluginRuntime({ dbPath: path, cognition: { reasoningCuration: { formation: { enabled: true } } } }, { debug() {}, info() {}, warn() {} });
   try {
     const graph = runtimePlugin.openGraph();
@@ -111,7 +112,7 @@ test("the completed-turn lifecycle runs opt-in curation only after durable captu
 });
 
 test("schema v68 adds isolated curation tables without changing existing reasoning records", () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-v68-")), path = join(directory, "memory.db"); let store;
+  const directory = createTempDir("mnemora-v68-"), path = join(directory, "memory.db"); let store;
   try {
     store = new GraphologyStore(path);
     const refs = fixture(store), reasoning = new ReasoningMemoryService(store.db);

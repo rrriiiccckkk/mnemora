@@ -1,7 +1,8 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
+
 import { join } from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "@photostructure/sqlite";
@@ -62,7 +63,7 @@ test("public URL locators create an external reference and Inspector redacts its
     await graph.kg_ingest(evidence, "url:https://user:password@example.test/report?token=SECRET#part", extraction, "project:url");
     const external = graph.store.db.prepare("SELECT provider,external_id,object_type,status FROM kg_external_refs").get();
     assert.deepEqual({ ...external }, { provider: "url", external_id: "https://example.test/report", object_type: "source", status: "active" });
-    const app = createInspectorApplication({ graph, allowOperations: false, artifactDirectory: join(tmpdir(), "mnemora-source-anchor-test") });
+    const app = createInspectorApplication({ graph, allowOperations: false, artifactDirectory: join(createTempDir("legacy-"), "mnemora-source-anchor-test") });
     const result = app.sources({ kind: "sources", scope: "project:url" });
     assert.equal(result.kind, "sources");
     assert.equal(result.items.length, 1);
@@ -73,7 +74,7 @@ test("public URL locators create an external reference and Inspector redacts its
 });
 
 test("pre-trust databases upgrade additively without fabricating historical verification", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-trust-migration-"));
+  const directory = createTempDir("mnemora-trust-migration-");
   const path = join(directory, "legacy.sqlite");
   try {
     const legacy = new DatabaseSync(path);

@@ -1,8 +1,9 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+
 import { GraphologyStore, Mnemora, SUPPORTED_SCHEMA_VERSION } from "../dist/index.js";
 
 const entities = (source, sourceType, target, targetType, quote) => [
@@ -95,7 +96,7 @@ test("ontology-covered historic drift is invalidated as review metadata without 
 });
 
 test("v75 schema drift review migration is additive and retains historic candidates", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-schema-drift-review-")), path = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-schema-drift-review-"), path = join(directory, "memory.db");
   let store;
   try {
     store = new GraphologyStore(path);
@@ -116,7 +117,7 @@ test("v75 schema drift review migration is additive and retains historic candida
 });
 
 test("v76 migration invalidates every newly allowed historic endpoint without graph mutation", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-schema-drift-v77-")), path = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-schema-drift-v77-"), path = join(directory, "memory.db");
   let store;
   try {
     store = new GraphologyStore(path);

@@ -1,6 +1,7 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
+
 import { join } from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "@photostructure/sqlite";
@@ -34,7 +35,7 @@ function removeTemporaryDirectory(directory) {
 }
 
 test("v19 rebuilds legacy FTS indexes with trigram tokenization without losing Chinese content", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-fts-trigram-"));
+  const directory = createTempDir("mnemora-fts-trigram-");
   const path = join(directory, "kg.db");
   try {
     const initial = new GraphologyStore(path);

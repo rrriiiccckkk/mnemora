@@ -1,8 +1,9 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+
 import { Mnemora, GraphologyStore, canonicalizeIngestionSource, fingerprintExtractedTemporal, fingerprintIngestion, normalizeConfig, normalizeIngestionText } from "../dist/index.js";
 
 test("normalization and versioned fingerprints are deterministic and source-aware", () => {
@@ -56,7 +57,7 @@ test("batch converts an unexpected item failure into a per-item result", async (
 });
 
 test("file ingestion accepts markdown and rejects unsupported files without leaking paths", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "mnemora-safe-file-"));
+  const dir = createTempDir("mnemora-safe-file-");
   const graph = new Mnemora({ config: { dbPath: ":memory:" }, extractor: { async extract() { return extraction; } } });
   try {
     const md = join(dir, "notes.md"), json = join(dir, "secret.json");

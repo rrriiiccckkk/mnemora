@@ -1,7 +1,7 @@
+import { createTempDir, runInTempProcess } from "../tests/helpers/temp.mjs";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { performance } from "node:perf_hooks";
 import { Mnemora } from "../dist/index.js";
 import { MnemoraContextEngine } from "../dist/context-engine/engine.js";
@@ -9,7 +9,13 @@ import { UnifiedRetrievalService } from "../dist/retrieval/service.js";
 import { normalizeConfig } from "../dist/config.js";
 import { PluginRuntime } from "../dist/plugin-runtime.js";
 
-const directory = mkdtempSync(join(tmpdir(), "mnemora-graduation-"));
+if (process.argv.includes("--worker")) {
+  if (!process.env.MNEMORA_TEST_TEMP_ROOT) throw new Error("managed_test_worker_required");
+  await runBenchmark();
+} else process.exitCode = await runInTempProcess([fileURLToPath(import.meta.url), "--worker"]);
+
+async function runBenchmark() {
+const directory = createTempDir("mnemora-graduation-");
 const dbPath = join(directory, "memory.db");
 const config = normalizeConfig({
   dbPath,
@@ -29,6 +35,7 @@ const fixtureEmbedder = {
 const open = () => new Mnemora({ config, embedder: fixtureEmbedder });
 const elapsed = async (fn) => { const started = performance.now(); const value = await fn(); return { value, ms: Number((performance.now() - started).toFixed(2)) }; };
 const runtime = new PluginRuntime(config, { info() {}, warn() {} });
+let primary;
 
 try {
   const selected = runtime.activateContextEngine({ config: { plugins: { slots: { contextEngine: "mnemora" }, entries: { "lossless-claw": { enabled: false }, "memory-lancedb-pro": { enabled: false }, "mnemora": { enabled: true } } } } });
@@ -75,7 +82,13 @@ try {
       metrics: { capture_ms: capture.ms, assemble_ms: assemble.ms, lexical_retrieval_ms: lexical.ms, semantic_retrieval_ms: semantic.ms, selected_lexical_items: lexical.value.candidates.length, selected_semantic_items: semantic.value.length, token_budget: 240 }
     }, null, 2));
   } finally { graph.close(); }
+} catch (error) {
+  primary = error;
+  throw error;
 } finally {
-  runtime.stop();
-  try { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); } catch { /* Windows can retain a bounded transient SQLite handle. */ }
+  try { runtime.stop(); } catch (cleanupError) {
+    if (primary) throw new AggregateError([primary, cleanupError], "graduation_benchmark_cleanup_failed", { cause: primary });
+    throw cleanupError;
+  }
+}
 }

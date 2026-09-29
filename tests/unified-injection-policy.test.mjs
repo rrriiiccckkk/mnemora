@@ -1,6 +1,7 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
+
 import { join } from "node:path";
 import test from "node:test";
 import { GraphologyStore, SUPPORTED_SCHEMA_VERSION } from "../dist/index.js";
@@ -62,7 +63,7 @@ test("graph supplement requires an anchor match or a conservative semantic score
 });
 
 test("v71 migration adds only the bounded redacted unified-recall telemetry table", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-unified-recall-shadow-"));
+  const directory = createTempDir("mnemora-unified-recall-shadow-");
   const path = join(directory, "memory.db");
   try {
     const initial = new GraphologyStore(path);

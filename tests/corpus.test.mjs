@@ -1,11 +1,12 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Mnemora, GraphologyStore, SUPPORTED_SCHEMA_VERSION, parseMnemoraContextRef } from "../dist/index.js";
 
 function fixture() {
-  const root = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-corpus-"));
+  const root = createTempDir("mnemora-corpus-");
   mkdirSync(join(root, "memory"), { recursive: true });
   mkdirSync(join(root, "sessions", "research"), { recursive: true });
   mkdirSync(join(root, "dreaming"), { recursive: true });
@@ -85,7 +86,7 @@ test("disabling an optional corpus source removes its prior cache on explicit sy
 });
 
 test("v60 corpus migration is additive over a v59 database", () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-corpus-migration-"));
+  const directory = createTempDir("mnemora-corpus-migration-");
   const path = join(directory, "memory.sqlite");
   let legacy;
   try {
@@ -105,7 +106,7 @@ test("v60 corpus migration is additive over a v59 database", () => {
 });
 
 test("current-schema startup repairs a missing derived corpus FTS table without changing corpus chunks", () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-corpus-fts-repair-")), path = join(directory, "memory.sqlite");
+  const directory = createTempDir("mnemora-corpus-fts-repair-"), path = join(directory, "memory.sqlite");
   let store;
   try {
     store = new GraphologyStore(path);
@@ -120,7 +121,7 @@ test("current-schema startup repairs a missing derived corpus FTS table without 
 });
 
 test("restore rebuilds the corpus FTS cache from restored canonical chunks", () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-corpus-restore-"));
+  const directory = createTempDir("mnemora-corpus-restore-");
   const sourcePath = join(directory, "source.sqlite"), targetPath = join(directory, "target.sqlite");
   const source = new GraphologyStore(sourcePath), target = new GraphologyStore(targetPath);
   try {

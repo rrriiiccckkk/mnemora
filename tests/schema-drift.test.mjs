@@ -1,12 +1,13 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+
 import { GraphologyStore, SUPPORTED_SCHEMA_VERSION } from "../dist/index.js";
 
 test("v6.13 schema-drift migration is additive and preserves prior evidence", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-schema-drift-")), path = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-schema-drift-"), path = join(directory, "memory.db");
   let store;
   try {
     store = new GraphologyStore(path);
@@ -44,7 +45,7 @@ test("hard forget removes review-only schema-drift references before deleting an
 });
 
 test("v6.18 preserves v55 drift candidates and repair receipts while adding legacy-edge review identity", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-schema-drift-v56-")), path = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-schema-drift-v56-"), path = join(directory, "memory.db");
   let store;
   try {
     store = new GraphologyStore(path);

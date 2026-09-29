@@ -1,6 +1,7 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Mnemora, GraphologyStore, WatchService } from "../dist/index.js";
 
@@ -8,8 +9,8 @@ const PLAN = query => ({ version: 1, steps: [{ op: "lookup", query, mode: "lexic
 const config = { query: { maxSteps: 8, maxDepth: 4, maxResults: 50, maxNodes: 100, maxEdges: 100, timeoutMs: 25, maxResponseBytes: 100000, auditRetentionDays: 30, maxWatches: 100, maxDigestWatches: 25 } };
 
 function stores() {
-  const root = join(process.cwd(), ".tmp"); mkdirSync(root, { recursive: true });
-  const path = join(mkdtempSync(join(root, "watch-test-")), "kg.db");
+
+  const path = join(createTempDir("watch-test-"), "kg.db");
   return [new GraphologyStore(path), new GraphologyStore(path)];
 }
 

@@ -1,6 +1,7 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+
 import { join } from "node:path";
 import test from "node:test";
 import { createMnemoraContextRef } from "../dist/context/context-ref.js";
@@ -334,7 +335,7 @@ test("reasoning runtime governance tables persist no query, strategy, memory id,
 });
 
 test("schema v44 adds reasoning reflection proposals without rebuilding governance data", () => {
-  const path = join(tmpdir(), `mnemora-reasoning-${process.pid}-${Date.now()}.db`); let legacy;
+  const path = join(createTempDir("legacy-"), `mnemora-reasoning-${process.pid}-${Date.now()}.db`); let legacy;
   try {
     legacy = new GraphologyStore(path); legacy.db.exec("DROP TABLE mnemora_reasoning_reflection_proposals; PRAGMA user_version=43"); legacy.close(); legacy = undefined;
     const migrated = new GraphologyStore(path);
@@ -349,7 +350,7 @@ test("schema v44 adds reasoning reflection proposals without rebuilding governan
 });
 
 test("schema v45 adds aggregate reasoning shadow telemetry without rebuilding v44 memories", () => {
-  const path = join(tmpdir(), `mnemora-reasoning-v45-${process.pid}-${Date.now()}.db`); let legacy;
+  const path = join(createTempDir("legacy-"), `mnemora-reasoning-v45-${process.pid}-${Date.now()}.db`); let legacy;
   try {
     legacy = new GraphologyStore(path); const refs = fixture(legacy), service = new ReasoningMemoryService(legacy.db, () => 2_000), input = { scope: "project:ops", kind: "strategy", strategy: "Validate rollback before migration.", sourceTaskRefs: [refs.taskRef], outcomeRefs: [refs.outcomeRef], evidenceRefs: [refs.eventRef] }, proposed = service.propose(input, service.preview(input).preview_hash), memory = service.admit(proposed.id, input.scope, service.admissionPreview(proposed.id, input.scope).preview_hash);
     legacy.db.exec("DROP TABLE mnemora_reasoning_runtime_shadow_runs; PRAGMA user_version=44"); legacy.close(); legacy = undefined;
@@ -363,7 +364,7 @@ test("schema v45 adds aggregate reasoning shadow telemetry without rebuilding v4
 });
 
 test("schema v46 adds governed delivery controls without rebuilding v45 reasoning data", () => {
-  const path = join(tmpdir(), `mnemora-reasoning-v46-${process.pid}-${Date.now()}.db`); let legacy;
+  const path = join(createTempDir("legacy-"), `mnemora-reasoning-v46-${process.pid}-${Date.now()}.db`); let legacy;
   try {
     legacy = new GraphologyStore(path); const refs = fixture(legacy), service = new ReasoningMemoryService(legacy.db, () => 5_000), input = { scope: "project:ops", kind: "strategy", strategy: "Validate rollback before migration.", sourceTaskRefs: [refs.taskRef], outcomeRefs: [refs.outcomeRef], evidenceRefs: [refs.eventRef] }, proposed = service.propose(input, service.preview(input).preview_hash), memory = service.admit(proposed.id, input.scope, service.admissionPreview(proposed.id, input.scope).preview_hash);
     legacy.db.exec("DROP TABLE mnemora_reasoning_runtime_delivery_runs; DROP TABLE mnemora_reasoning_runtime_canary_events; DROP TABLE mnemora_reasoning_runtime_canaries; DROP TABLE mnemora_reasoning_runtime_calibrations; PRAGMA user_version=45"); legacy.close(); legacy = undefined;
@@ -372,7 +373,7 @@ test("schema v46 adds governed delivery controls without rebuilding v45 reasonin
 });
 
 test("schema v65 adds optional verifier contracts without rewriting existing reasoning memories", () => {
-  const path = join(tmpdir(), `mnemora-reasoning-v65-${process.pid}-${Date.now()}.db`); let legacy;
+  const path = join(createTempDir("legacy-"), `mnemora-reasoning-v65-${process.pid}-${Date.now()}.db`); let legacy;
   try {
     legacy = new GraphologyStore(path); const refs = fixture(legacy), service = new ReasoningMemoryService(legacy.db, () => 6_000);
     const input = { scope: "project:ops", kind: "strategy", strategy: "Validate a rollback before the migration.", sourceTaskRefs: [refs.taskRef], outcomeRefs: [refs.outcomeRef], evidenceRefs: [refs.eventRef] };

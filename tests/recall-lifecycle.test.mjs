@@ -1,6 +1,7 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+
 import { join } from "node:path";
 import test from "node:test";
 import { Mnemora, GraphologyStore, RecallDecayReviewService, RecallUsageRepository, SUPPORTED_SCHEMA_VERSION } from "../dist/index.js";
@@ -54,7 +55,7 @@ test("recall-driven decay review is read-only, requires no recall since latest w
 });
 
 test("v6.21 migration is additive and preserves an existing memory document", () => {
-  const path = join(tmpdir(), `mnemora-recall-lifecycle-${process.pid}-${Date.now()}.db`); let legacy;
+  const path = join(createTempDir("legacy-"), `mnemora-recall-lifecycle-${process.pid}-${Date.now()}.db`); let legacy;
   try {
     legacy = new GraphologyStore(path);
     legacy.db.prepare("INSERT INTO kg_memory_documents(id,scope,title,content,source,metadata,content_hash,created_at,updated_at,lifecycle_state) VALUES(?,?,?,?,?,?,?,?,?,?)")

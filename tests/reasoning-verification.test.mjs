@@ -1,6 +1,7 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+
 import { join } from "node:path";
 import test from "node:test";
 import { createMnemoraContextRef } from "../dist/context/context-ref.js";
@@ -68,7 +69,7 @@ test("tool verification accepts only the contracted identifier, has no raw outpu
 });
 
 test("schema v67 preserves every v65 circuit field while widening its reason contract and adding the local ledger", () => {
-  const path = join(tmpdir(), `mnemora-reasoning-verification-${process.pid}-${Date.now()}.db`); let legacy;
+  const path = join(createTempDir("legacy-"), `mnemora-reasoning-verification-${process.pid}-${Date.now()}.db`); let legacy;
   try {
     legacy = new GraphologyStore(path); const state = setup(legacy, () => 30_000), feedback = new ReasoningDeliveryFeedbackRepository(legacy.db, () => 30_000);
     feedback.openVerificationCircuit(state.scope, state.memory.id);
@@ -113,7 +114,7 @@ test("expired delivery receipts cannot enqueue or process verification mismatche
 });
 
 test("schema v67 preserves v66 verification events while adding the terminal expired state", () => {
-  const path = join(tmpdir(), `mnemora-reasoning-verification-expiry-${process.pid}-${Date.now()}.db`); let legacy;
+  const path = join(createTempDir("legacy-"), `mnemora-reasoning-verification-expiry-${process.pid}-${Date.now()}.db`); let legacy;
   try {
     legacy = new GraphologyStore(path); const state = setup(legacy, () => 50_000), verification = new ReasoningVerificationService(legacy.db, () => 50_000);
     assert.deepEqual(verification.recordToolResult({ scope: state.scope, itemRef: state.itemRef, tool: "migration-runner", result: "success", sourceRef: "tool-run:legacy" }), { queued: 1 });

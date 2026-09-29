@@ -1,8 +1,9 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+
 import { GraphologyStore, Mnemora, SUPPORTED_SCHEMA_VERSION } from "../dist/index.js";
 
 const entities = (source, sourceType, target, targetType, quote) => [
@@ -63,7 +64,7 @@ test("rejected related-edge semantic candidates remain inert and hard forget cle
 });
 
 test("v73 related-edge semantic migration is additive and preserves existing evidence", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-related-edge-semantics-")), path = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-related-edge-semantics-"), path = join(directory, "memory.db");
   let store;
   try {
     store = new GraphologyStore(path);

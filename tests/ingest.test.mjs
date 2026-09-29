@@ -1,14 +1,14 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync } from "node:fs";
+
 import { join } from "node:path";
 import test from "node:test";
 import { Mnemora } from "../dist/tools.js";
 import { GraphologyStore } from "../dist/store.js";
 
 function createGraph(options = {}) {
-  const tmpRoot = join(process.cwd(), ".tmp");
-  mkdirSync(tmpRoot, { recursive: true });
-  const dir = mkdtempSync(join(tmpRoot, "ingest-test-"));
+
+  const dir = createTempDir("ingest-test-");
   const graph = new Mnemora({
     ...options,
     config: { dbPath: join(dir, "kg.db"), ...options.config },
@@ -203,9 +203,8 @@ test("extraction.enabled stops model-backed ingestion with an explicit result", 
 });
 
 test("ingestOnce preserves observation counts for a duplicate source", () => {
-  const tmpRoot = join(process.cwd(), ".tmp");
-  mkdirSync(tmpRoot, { recursive: true });
-  const dir = mkdtempSync(join(tmpRoot, "ingest-once-test-"));
+
+  const dir = createTempDir("ingest-once-test-");
   const store = new GraphologyStore(join(dir, "kg.db"));
   const entities = [
     { name: "Murata", type: "company", confidence: 0.95, evidence_span: "Murata supplies MLCC" }

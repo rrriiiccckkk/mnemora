@@ -1,8 +1,8 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+
 import { join } from "node:path";
 import { GraphologyStore } from "../dist/store.js";
 import { Mnemora } from "../dist/tools.js";
@@ -134,7 +134,7 @@ test("source export preserves logical sources and sanitizes URL credentials and 
 });
 
 test("confirmation reauthorizes preview and revision under the write lock", () => {
-  const path=join(mkdtempSync(join(tmpdir(),"mnemora-exchange-")),"graph.db"); const a=new GraphologyStore(path); const b=new GraphologyStore(path); const source=fixture();
+  const path=join(createTempDir("mnemora-exchange-"),"graph.db"); const a=new GraphologyStore(path); const b=new GraphologyStore(path); const source=fixture();
   try {
     const data=exportGraph(source,{format:"jsonl"}).data; const preview=previewJsonlImport(a,data); const original=a.runGraphImportTransaction.bind(a);
     a.runGraphImportTransaction=(operation)=>{ b.bumpGraphRevision(); return original(operation); };

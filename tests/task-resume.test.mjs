@@ -1,8 +1,9 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
+
 import { join } from "node:path";
 import { GraphologyStore } from "../dist/store.js";
 import { ConversationEventRepository } from "../dist/journal/repository.js";
@@ -33,7 +34,7 @@ function outcome(store, now, input) {
 }
 
 test("task resume survives a restart with source-linked current decisions and accepted progress", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-task-resume-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-task-resume-"), dbPath = join(directory, "memory.db");
   let store;
   try {
     let now = 1_700_000_000_000;
@@ -238,7 +239,7 @@ test("task resume resolves every linked action state before limiting the display
 });
 
 test("task resume preserves corrected, cancelled, and replaced action state through restart, history growth, and forgotten evidence", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-task-resume-long-sequence-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-task-resume-long-sequence-"), dbPath = join(directory, "memory.db");
   let store;
   try {
     let now = 1_700_000_000_000;
@@ -313,7 +314,7 @@ test("forgetting action-only evidence removes its state from the current project
 });
 
 test("confirmed action state survives restart and requires an explicit corrected outcome", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-task-action-restart-")), path = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-task-action-restart-"), path = join(directory, "memory.db");
   let store;
   try {
     let now = 1_700_000_000_000;
@@ -337,7 +338,7 @@ test("confirmed action state survives restart and requires an explicit corrected
 });
 
 test("task resume abstains when only a task record exists, and Inspector and CLI expose the same read-only projection", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-task-resume-entrypoints-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-task-resume-entrypoints-"), dbPath = join(directory, "memory.db");
   const graph = new Mnemora({ config: { dbPath } });
   try {
     const bare = task(graph.store, "project:alpha", "Unverified rollout", "A task with no accepted current state.", 30);
@@ -374,7 +375,7 @@ test("task resume abstains when only a task record exists, and Inspector and CLI
 });
 
 test("task resume keeps corrected and forgotten state consistent through Inspector and CLI restarts", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-task-resume-correction-entrypoints-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-task-resume-correction-entrypoints-"), dbPath = join(directory, "memory.db");
   let graph;
   try {
     graph = new Mnemora({ config: { dbPath } });

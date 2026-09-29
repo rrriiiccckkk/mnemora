@@ -1,6 +1,7 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+
 import { join } from "node:path";
 import test from "node:test";
 import { createMnemoraContextRef } from "../dist/context/context-ref.js";
@@ -39,7 +40,7 @@ test("task outcomes are previewed, evidence-linked, immutable, and scope-bound",
 });
 
 test("schema v41 adds the outcome ledger without rebuilding v40 data", () => {
-  const path = join(tmpdir(), `mnemora-outcomes-${process.pid}-${Date.now()}.db`);
+  const path = join(createTempDir("legacy-"), `mnemora-outcomes-${process.pid}-${Date.now()}.db`);
   let legacy;
   try {
     legacy = new GraphologyStore(path);
@@ -54,7 +55,7 @@ test("schema v41 adds the outcome ledger without rebuilding v40 data", () => {
 });
 
 test("schema v82 adds nullable action links without rewriting existing outcome history", () => {
-  const path = join(tmpdir(), `mnemora-task-actions-${process.pid}-${Date.now()}.db`);
+  const path = join(createTempDir("legacy-"), `mnemora-task-actions-${process.pid}-${Date.now()}.db`);
   let legacy;
   try {
     legacy = new GraphologyStore(path);

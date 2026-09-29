@@ -1,6 +1,7 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+
 import { join } from "node:path";
 import test from "node:test";
 import { GraphologyStore, FormationService, SUPPORTED_SCHEMA_VERSION } from "../dist/index.js";
@@ -59,7 +60,7 @@ test("belief lifecycle creates, corroborates, refines, and corrects only explici
 });
 
 test("later additive cognition migrations preserve a v34 formation database", () => {
-  const path = join(tmpdir(), `mnemora-cognition-${process.pid}-${Date.now()}.db`); let legacy;
+  const path = join(createTempDir("legacy-"), `mnemora-cognition-${process.pid}-${Date.now()}.db`); let legacy;
   try {
     legacy = new GraphologyStore(path);
     legacy.db.exec("DROP TABLE mnemora_belief_evidence; DROP TABLE mnemora_belief_transitions; DROP TABLE mnemora_beliefs; PRAGMA user_version=34");

@@ -1,6 +1,7 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { normalizeConfig } from "../dist/config.js";
 import { standaloneGuide, standaloneReadiness } from "../dist/standalone/readiness.js";
@@ -87,7 +88,7 @@ test("first-use verification checkpoints are scoped, short-lived, and never reta
 });
 
 test("v80 first-use acceptance migration is additive and preserves Journal evidence", () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-v80-first-use-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-v80-first-use-"), dbPath = join(directory, "memory.db");
   let store;
   try {
     store = new GraphologyStore(dbPath);
@@ -101,7 +102,7 @@ test("v80 first-use acceptance migration is additive and preserves Journal evide
 });
 
 test("standalone ContextEngine retains committed long-session source events across restart without taking host compaction ownership", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-standalone-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-standalone-"), dbPath = join(directory, "memory.db");
   const config = normalizeConfig({ dbPath, mode: "standalone", conversationJournal: { enabled: true }, contextEngine: { enabled: true, protectedRecentEvents: 4, maxSummaryChars: 2000 }, episodicMemory: { enabled: true } });
   const open = () => new Mnemora({ config });
   try {
@@ -117,5 +118,5 @@ test("standalone ContextEngine retains committed long-session source events acro
       const assembled = await restarted.assemble({ sessionId: "long-session", messages: [{ role: "user", content: "latest" }] });
       assert.equal("systemPromptAddition" in assembled, false);
     } finally { graph.close(); }
-  } finally { /* Windows SQLite handles can close asynchronously; .tmp is gitignored and test fixtures are cleaned by the test workspace. */ }
+  } finally { /* The root owner removes this fixture after the native worker exits. */ }
 });

@@ -1,14 +1,15 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync, writeFileSync } from "node:fs";
+
 import { join } from "node:path";
 import { ConversationEventRepository, Mnemora } from "../dist/index.js";
 import { createInspectorApplication } from "../dist/inspector/application.js";
 
 for (const byte of [0xfb, 0xff]) for (const operation of ["backup", "source_trust", "orphan_cleanup", "weight_recompute"]) {
   test(`${operation} confirmation keeps IDs valid when base64url entropy starts with ${byte === 0xfb ? "-" : "_"}`, async () => {
-    const directory = mkdtempSync(join(tmpdir(), "mnemora-ops-entropy-")), graph = new Mnemora({ config: { dbPath: ":memory:" } });
+    const directory = createTempDir("mnemora-ops-entropy-"), graph = new Mnemora({ config: { dbPath: ":memory:" } });
     try {
       const enabled = createInspectorApplication({ graph, allowOperations: true, artifactDirectory: directory, randomBytes: () => Buffer.alloc(32, byte) });
       const payload = operation === "source_trust" ? { source: "fixture:entropy", weight: 1.25 } : {};
@@ -34,7 +35,7 @@ for (const byte of [0xfb, 0xff]) for (const operation of ["backup", "source_trus
 }
 
 test("operation application is absent in read-only mode and dispatches normalized preview/confirm when enabled", async () => {
-  const directory=mkdtempSync(join(tmpdir(),"mnemora-ops-")),graph=new Mnemora({config:{dbPath:":memory:"}});
+  const directory=createTempDir("mnemora-ops-"),graph=new Mnemora({config:{dbPath:":memory:"}});
   try{
     const readOnly=createInspectorApplication({graph,allowOperations:false,artifactDirectory:directory});assert.equal(readOnly.operationPreview,undefined);assert.equal(readOnly.operationConfirm,undefined);assert.deepEqual(readOnly.healthSummary().recovery.artifacts,{backups:0,recovery_points:0,available:0,missing:0});
     const enabled=createInspectorApplication({graph,allowOperations:true,artifactDirectory:directory,randomBytes:()=>Buffer.alloc(32,15)});
@@ -46,7 +47,7 @@ test("operation application is absent in read-only mode and dispatches normalize
 });
 
 test("Inspector exposes a bounded artifact-manifest load failure instead of reporting an empty healthy registry", () => {
-  const directory=mkdtempSync(join(tmpdir(),"mnemora-ops-invalid-")),graph=new Mnemora({config:{dbPath:":memory:"}});
+  const directory=createTempDir("mnemora-ops-invalid-"),graph=new Mnemora({config:{dbPath:":memory:"}});
   try{
     writeFileSync(join(directory,".mnemora-artifacts.json"),"not json");
     const application=createInspectorApplication({graph,allowOperations:false,artifactDirectory:directory}),health=application.healthSummary();
@@ -55,7 +56,7 @@ test("Inspector exposes a bounded artifact-manifest load failure instead of repo
 });
 
 test("Inspector correction is unavailable in read-only mode and uses one preview before removal", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-correction-")), graph = new Mnemora({ config: { dbPath: ":memory:" } });
+  const directory = createTempDir("mnemora-correction-"), graph = new Mnemora({ config: { dbPath: ":memory:" } });
   try {
     const journal = new ConversationEventRepository(graph.store.db, { maxInlineChars: 16_000, maxEventBytes: 262_144, sensitiveContentPolicy: "redact" });
     const event = journal.append({ scope: "project:alpha", sessionId: "correction", kind: "user_message", role: "user", parts: [{ type: "text", text: "This is the memory that should be removed." }] });

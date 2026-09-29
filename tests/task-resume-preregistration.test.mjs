@@ -1,7 +1,8 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
-import { readFileSync, mkdtempSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { tmpdir } from "node:os";
+
 import { join } from "node:path";
 import test from "node:test";
 import { TASK_RESUME_VALUE_POLICY, TaskResumeValueGate } from "../dist/index.js";
@@ -102,7 +103,7 @@ test("chronology and budget violations are rejected rather than receiving an eff
 });
 
 test("CLI registration and decisions remain structured and do not initialize the selected database", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-preregistration-")), input = plan();
+  const directory = createTempDir("mnemora-preregistration-"), input = plan();
   try {
     const planPath = join(directory, "plan.json"), registrationPath = join(directory, "registration.json"), measuredPath = join(directory, "measured.json"), dbPath = join(directory, "must-not-exist.db");
     writeFileSync(planPath, JSON.stringify(input));

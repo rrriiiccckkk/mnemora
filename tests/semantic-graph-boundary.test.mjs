@@ -1,8 +1,9 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+
 import { GraphologyStore, SUPPORTED_SCHEMA_VERSION } from "../dist/index.js";
 
 const entity = (name, type) => ({ name, type, confidence: .9, evidence_span: `${name} evidence` });
@@ -67,7 +68,7 @@ test("mismatched semantic evidence is soft-flagged and pattern promotion remains
 });
 
 test("v59 migration is additive and historic semantic edges are projected as legacy labels", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-semantic-v59-")), path = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-semantic-v59-"), path = join(directory, "memory.db");
   let store;
   try {
     store = new GraphologyStore(path);

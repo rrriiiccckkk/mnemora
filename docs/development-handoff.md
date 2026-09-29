@@ -2,6 +2,8 @@
 
 当前接手入口（2026-09-29）：先核对实际 HEAD 与工作区，以 [roadmap](roadmap.md) 为当前方向；新增测试、排查数据库/配置或升级时，读取 [维护经验与操作边界](maintenance-lessons.zh-CN.md)。下文是 **2026-09-10 的历史交接**，其“未提交/待验证”和版本状态不代表当前工作区。当前已发布基线为 v1.31.7；正式三臂实验另见 [预注册说明](task-resume-preregistration.zh-CN.md)。不重新创建此前移除的未跟踪 AGENTS.md。
 
+本轮 v1.31.8 为统一测试目录与退出清理，发布状态核对 GitHub Release，不从旧交接推断。此版本起，文件型 fixture 的定向测试用 `node scripts/run-unit-tests.mjs tests/<name>.test.mjs`，完整验收用 `npm run verify`；下文历史 `node --test` 命令不是当前受管理的清理入口。测试仍串行，未修改 schema、产品限额或模型身份。完成本轮并经双平台 CI 发布后，下一项仍是 roadmap 中的记忆投毒威胁模型与对抗回归。
+
 ## 历史交接（2026-09-10）
 
 更新：2026-09-10。已发布基线：v1.29.1，标签 `v1.29.1` 指向 `e3bca58`；功能修复提交为 `8259cae`，随后以 `e3bca58` 同步 schema v83 的全套测试断言。

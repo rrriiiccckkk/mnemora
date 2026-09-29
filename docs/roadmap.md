@@ -2,13 +2,14 @@
 
 ## Current release plan (2026-09-29)
 
-Current release target: **v1.31.7**, following released baseline **v1.31.6**.
+Current release target: **v1.31.8**, following released baseline **v1.31.7**.
 The historical sections below record earlier completed directions; this
 section is the active planning baseline.
 
 | Version | Product outcome | Release gate |
 | --- | --- | --- |
-| **v1.31.7 — Preregistered value decision** | A detached registration freezes the next experiment's plan, material hashes and fixed v1.32 decision policy before runs; the read-only decision cannot open a pilot on missing or inadequate evidence. | Inclusive threshold, drift, timeline, small-sample, zero-baseline, synthetic and no-database CLI regressions pass, followed by exact-commit cross-platform CI. A pass still requires an independent pre-run record and operator audit. |
+| **v1.31.8 — Owned test fixture cleanup** | All file-backed fixtures use an owned system-temp root; managed parent runners clean after native worker exit on success or failure, without deleting historical or unrelated directories. | Native SQLite success/failure, smoke shutdown, ownership/junction and source-guard regressions, complete verify, then exact-commit Windows/Linux CI. Serial test concurrency, schema and product defaults stay unchanged. |
+| **v1.31.7 — Preregistered value decision (released)** | A detached registration freezes the next experiment's plan, material hashes and fixed v1.32 decision policy before runs; the read-only decision cannot open a pilot on missing or inadequate evidence. | Inclusive threshold, drift, timeline, small-sample, zero-baseline, synthetic and no-database CLI regressions passed with cross-platform CI for `b36569a`. A pass still requires an independent pre-run record and operator audit. |
 | **v1.31.6 — Inspector evidence coverage and confirmations** | Candidate and selected-task views distinguish readable sources, accepted-state coverage, and recorded progress; operation-generated IDs satisfy the existing result schema even when random entropy begins with punctuation. | Browser tests cover all four coverage combinations, scope isolation, read-only selection, and refresh after forgetting. Fixed-entropy regressions cover four operation confirmations; exact-commit Windows and Linux CI must pass before release. |
 | **v1.31.5 — Resume evidence coverage (released)** | The read-only resume projection distinguishes readable source evidence from accepted current task state and names a coverage gap without claiming that real-world task state is unknown. | Source-only, accepted-state, forgotten, and hash-only projections pass; both platforms passed CI for `ba999c7`. |
 | **v1.31.4 — Reviewed intake task linkage (released)** | An operator can explicitly link reviewed intake to a selected task rather than silently leaving accepted state disconnected from its resume target. | Preview/confirm and task scope rules remain intact. This historical release used an explicit operator bypass after a Windows browser-test failure; it is not evidence of successful cross-platform CI. Subsequent releases require both platforms. |

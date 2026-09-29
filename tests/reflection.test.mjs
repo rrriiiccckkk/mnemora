@@ -1,6 +1,7 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+
 import { join } from "node:path";
 import test from "node:test";
 import { createMnemoraContextRef } from "../dist/context/context-ref.js";
@@ -46,7 +47,7 @@ test("reflection proposes scoped patterns and review work without promoting beli
 });
 
 test("schema v39 adds reflection and feedback tables without changing historical cognition rows", () => {
-  const path = join(tmpdir(), `mnemora-reflection-${process.pid}-${Date.now()}.db`);
+  const path = join(createTempDir("legacy-"), `mnemora-reflection-${process.pid}-${Date.now()}.db`);
   let legacy;
   try {
     legacy = new GraphologyStore(path);

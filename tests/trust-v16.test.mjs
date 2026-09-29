@@ -1,6 +1,7 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { closeSync, mkdtempSync, openSync } from "node:fs";
+import { closeSync, openSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "@photostructure/sqlite";
 import { Mnemora, GraphologyStore, SUPPORTED_SCHEMA_VERSION } from "../dist/index.js";
@@ -117,7 +118,7 @@ test("retrospective audit scheduling is opt-in and never mutates a verified clai
 });
 
 test("v21 core migration quarantines invalid legacy facts and preserves valid data", () => {
-  const dir = mkdtempSync(join(process.cwd(), ".tmp", "v21-")); const file = join(dir, "legacy.db"); closeSync(openSync(file, "w"));
+  const dir = createTempDir("v21-"); const file = join(dir, "legacy.db"); closeSync(openSync(file, "w"));
   const db = new DatabaseSync(file);
   try {
     db.exec(`CREATE TABLE kg_nodes(id TEXT PRIMARY KEY,type TEXT,name TEXT,description TEXT,aliases TEXT,importance REAL,deleted_at INTEGER DEFAULT NULL,created_at INTEGER,updated_at INTEGER);
@@ -141,7 +142,7 @@ test("v21 core migration quarantines invalid legacy facts and preserves valid da
 });
 
 test("v24 trust migration adds lease state and widens retrospective audit lifecycle", () => {
-  const dir = mkdtempSync(join(process.cwd(), ".tmp", "v24-")); const file = join(dir, "legacy.db");
+  const dir = createTempDir("v24-"); const file = join(dir, "legacy.db");
   const initial = new GraphologyStore(file); initial.close();
   const db = new DatabaseSync(file);
   try {

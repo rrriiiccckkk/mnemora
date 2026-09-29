@@ -1,13 +1,13 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync } from "node:fs";
+
 import { join } from "node:path";
 import test from "node:test";
 import { GraphologyStore } from "../dist/store.js";
 
 test("existing databases gain v0.9 tables without losing graph data", () => {
-  const root = join(process.cwd(), ".tmp");
-  mkdirSync(root, { recursive: true });
-  const dbPath = join(mkdtempSync(join(root, "query-schema-")), "kg.db");
+
+  const dbPath = join(createTempDir("query-schema-"), "kg.db");
   let store = new GraphologyStore(dbPath);
   store.ingest([{ name: "Apple", type: "company", confidence: 1, evidence_span: "Apple" }], [], "fixture");
   store.close();
@@ -20,9 +20,8 @@ test("existing databases gain v0.9 tables without losing graph data", () => {
 });
 
 test("v0.9 persistence status columns are closed", () => {
-  const root = join(process.cwd(), ".tmp");
-  mkdirSync(root, { recursive: true });
-  const store = new GraphologyStore(join(mkdtempSync(join(root, "query-status-")), "kg.db"));
+
+  const store = new GraphologyStore(join(createTempDir("query-status-"), "kg.db"));
   try {
     assert.throws(() => store.db.prepare("INSERT INTO kg_query_runs VALUES (?,?,?,?,?,?,?,?,?)").run("q", "h", "{}", "unknown", 0, 0, 0, null, 1));
     assert.throws(() => store.db.prepare("INSERT INTO kg_watches VALUES (?,?,?,?,?,?,?,?,?)").run("w", "n", "{}", "h", "daily", null, 2, 1, 1));

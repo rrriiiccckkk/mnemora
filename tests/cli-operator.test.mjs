@@ -1,8 +1,9 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+
 import test from "node:test";
 import { GraphologyStore } from "../dist/store.js";
 import { ReasoningRuntimeGovernanceRepository } from "../dist/cognition/reasoning-runtime-governance.js";
@@ -22,7 +23,7 @@ test("operator CLI evaluates tool surfaces without opening a graph and returns s
 });
 
 test("operator recall-quality evaluation stays local, redacts the submitted golden set, and never changes admission", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-evaluation-")), file = join(directory, "reviewed.json");
+  const directory = createTempDir("mnemora-evaluation-"), file = join(directory, "reviewed.json");
   try {
     writeFileSync(file, JSON.stringify({ version: 1, id: "operator.deidentified.v1", cases: [{ id: "empty-1", kind: "empty_recall", scope: "project:alpha", query: "operator-private-query", expectedRefs: [], topK: 10 }] }));
     const result = execute("evaluate", "recall-quality", file);
@@ -84,7 +85,7 @@ test("operator CLI exposes read-only Journal diagnostics", () => {
 });
 
 test("operator task-resume comparison reports reviewed injection rates without exposing case records", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-task-comparison-")), file = join(directory, "reviewed.json");
+  const directory = createTempDir("mnemora-task-comparison-"), file = join(directory, "reviewed.json");
   try {
     const plan = JSON.parse(readFileSync("fixtures/task-resume-comparison-plan-v1.json", "utf8"));
     const results = [...plan.splits.tuningCaseIds, ...plan.splits.testCaseIds].flatMap(caseId => plan.arms.map(arm => ({
@@ -107,7 +108,7 @@ test("operator task-resume comparison reports reviewed injection rates without e
 });
 
 test("operator CLI reports the scope-local graph review decision gate without adding an agent tool", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-review-gate-")), database = join(directory, "memory.db"); let store;
+  const directory = createTempDir("mnemora-review-gate-"), database = join(directory, "memory.db"); let store;
   try {
     store = new GraphologyStore(database);
     const quote = "Build Tool depends on TypeScript.";
@@ -122,7 +123,7 @@ test("operator CLI reports the scope-local graph review decision gate without ad
 });
 
 test("operator CLI exposes scope-bound graph-review worklists and preview-confirm anomaly cleanup", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-review-anomalies-")), database = join(directory, "memory.db"); let store;
+  const directory = createTempDir("mnemora-review-anomalies-"), database = join(directory, "memory.db"); let store;
   try {
     store = new GraphologyStore(database);
     const quote = "NVIDIA has an erroneous self reference.";
@@ -156,7 +157,7 @@ test("operator CLI exposes scope-bound graph-review worklists and preview-confir
 });
 
 test("operator CLI keeps semantic vocabulary collection and review scope-bound and preview-first", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-review-vocabulary-")), database = join(directory, "memory.db"); let store;
+  const directory = createTempDir("mnemora-review-vocabulary-"), database = join(directory, "memory.db"); let store;
   try {
     store = new GraphologyStore(database);
     for (const [product, runtime, source] of [["Product One", "Runtime One", "fixture:vocabulary:a"], ["Product Two", "Runtime Two", "fixture:vocabulary:b"], ["Product Three", "Runtime Three", "fixture:vocabulary:a"]]) {
@@ -188,7 +189,7 @@ test("operator CLI keeps semantic vocabulary collection and review scope-bound a
 });
 
 test("operator CLI will not preview anomaly cleanup for an edge evidenced by another scope", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-review-anomaly-scope-")), database = join(directory, "memory.db"); let store;
+  const directory = createTempDir("mnemora-review-anomaly-scope-"), database = join(directory, "memory.db"); let store;
   try {
     store = new GraphologyStore(database);
     const quote = "NVIDIA has an erroneous self reference.";
@@ -275,7 +276,7 @@ test("operator CLI keeps ReasoningMemory local, read-gated, and outside the agen
 });
 
 test("operator CLI calibrates only the exact policy observed by a live runtime scope", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-cli-policy-")), database = join(directory, "memory.db"); let store;
+  const directory = createTempDir("mnemora-cli-policy-"), database = join(directory, "memory.db"); let store;
   try {
     store = new GraphologyStore(database);
     const scope = "project:alpha", config = { tokenBudget: 800, maxItems: 6, minConfidence: .6, highRiskMinConfidence: .8, minEvidenceQuality: .5, highRiskMinEvidenceQuality: .75, maxStalenessDays: 365, excludeConflicted: true, retentionDays: 30, readiness: { minimumRuns: 1, maxErrorRate: .05, maxEmptyRate: .8, maxP95Ms: 1000 }, delivery: { enabled: true, scopes: [scope], adapter: "openclaw", calibrationMaxAgeHours: 24, maxConsecutiveDeliveries: 2, itemRetentionDays: 30 }, semantic: { enabled: true, timeoutMs: 1500, minScore: .35, maxCandidates: 50 } };

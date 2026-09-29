@@ -1,6 +1,7 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+
 import { join } from "node:path";
 import test from "node:test";
 
@@ -49,7 +50,7 @@ test("decision memory rejects cross-scope evidence and remains readable after la
     assert.throws(() => service.preview({ scope: "project:alpha", objective: "Never accept phantom evidence", evidence: [{ sourceRef: phantom }] }), /invalid_decision_evidence/);
   } finally { store.close(); }
 
-  const path = join(tmpdir(), `mnemora-decisions-${process.pid}-${Date.now()}.db`);
+  const path = join(createTempDir("legacy-"), `mnemora-decisions-${process.pid}-${Date.now()}.db`);
   let legacy;
   try {
     legacy = new GraphologyStore(path);

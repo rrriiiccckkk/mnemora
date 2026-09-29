@@ -1,6 +1,7 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
+
 import { join } from "node:path";
 import test from "node:test";
 import {
@@ -12,7 +13,7 @@ import {
 } from "../dist/sqlite.js";
 
 test("writable file databases use WAL and the fixed bounded busy timeout", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-sqlite-boundary-"));
+  const directory = createTempDir("mnemora-sqlite-boundary-");
   const path = join(directory, "graph.sqlite");
   const database = openMnemoraDatabase(path, { timeout: 1 });
   try {
@@ -35,7 +36,7 @@ test("in-memory databases retain the bounded timeout without requiring WAL", () 
 });
 
 test("a second local writer times out without a partial commit and succeeds after the lease is released", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-sqlite-contention-"));
+  const directory = createTempDir("mnemora-sqlite-contention-");
   const path = join(directory, "graph.sqlite");
   const first = openMnemoraDatabase(path), second = openMnemoraDatabase(path);
   try {

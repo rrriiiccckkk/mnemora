@@ -1,14 +1,15 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+
 import test from "node:test";
 import { MnemoraContextEngine, Mnemora, PROVIDER_ADAPTER_CONTRACT_V1, normalizeConfig } from "../dist/index.js";
 
 const capabilities = { searchSources: false, resolveRawSource: false, resolveSummaryLineage: false, stableExternalIds: true, returnsContentHash: false, returnsScores: false, supportsAbortSignal: true };
 
 test("v6.17 standalone acceptance works without legacy plugins: public migration, capture, compaction, restart, recall, and recovery", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-v617-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-v617-"), dbPath = join(directory, "memory.db");
   const config = normalizeConfig({
     dbPath, mode: "standalone", trustLayer: { enabled: true }, conversationJournal: { enabled: true },
     contextEngine: { enabled: true, maxContextTokens: 600, protectedRecentEvents: 2, compaction: { enabled: true, minEvents: 2, maxInputChars: 1024, maxOutputChars: 240, timeoutMs: 1000, maxRunsPerHour: 4, maxDailyTokens: 10000, contextThreshold: .5, freshTailCount: 2, leafChunkTokens: 512, maxChunksPerRun: 4, condensedMinFanout: 2, deadlineMs: 5000 } },

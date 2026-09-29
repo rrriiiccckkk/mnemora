@@ -1,8 +1,9 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+
 import { GraphologyStore, Mnemora, SUPPORTED_SCHEMA_VERSION } from "../dist/index.js";
 
 const entities = (left, right, quote) => [
@@ -65,7 +66,7 @@ test("related-edge refinement rejection is immutable and hard forget clears revi
 });
 
 test("v72 related-edge refinement migration is additive and retains existing evidence", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-related-edge-refinement-")), path = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-related-edge-refinement-"), path = join(directory, "memory.db");
   let store;
   try {
     store = new GraphologyStore(path);

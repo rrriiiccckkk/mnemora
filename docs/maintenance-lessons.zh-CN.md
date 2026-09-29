@@ -1,17 +1,21 @@
 # Mnemora 维护经验与操作边界
 
-记录：2026-09-29；代码核对基线：`b36569a`（v1.31.7）。供开发 agent 在新增测试、排查写入故障、升级和调整配置时读取。产品方向与发布门槛以 [roadmap](roadmap.md) 为准，命令与依赖以当前 `package.json` 和实际宿主接口为准。
+记录：2026-09-29；历史核对基线：`b36569a`（v1.31.7）；统一测试目录实现见 v1.31.8。供开发 agent 在新增测试、排查写入故障、升级和调整配置时读取。产品方向与发布门槛以 [roadmap](roadmap.md) 为准，命令与依赖以当前 `package.json` 和实际宿主接口为准。
 
 下列故障经过来自用户的 Mac/OpenClaw 实操记录，本工作区未访问该 Mac 或生产数据库。标为“代码已核对”的是当前仓库事实；部署数值与历史事故不能直接当作产品默认值或已在本分支修复的证据。
 
 ## 测试卫生
 
 - 新增或迁移 fixture 使用 `tests/helpers/temp.mjs` 的统一临时目录接口，在 `os.tmpdir()` 下以 `mkdtemp` 建立本次运行独占目录，不写 `repo/.tmp/`。用户报告历史泄漏累计 2583 个目录、约 5.7 GB；这是实操报告，不是本工作区测量。
-- 统一 helper 应让 `scripts/run-unit-tests.mjs` 在子进程正常结束或失败后都调用 `clearTempRoot()`；smoke 也要兜底清理。各测试仍先关闭 SQLite、HTTP、浏览器与其他句柄，再清理自己的目录；收尾失败不能吞掉原始测试失败，也不能悄悄报告成功。
+- 统一 helper 让 `scripts/run-unit-tests.mjs` 在子进程正常结束或失败后都调用 `clearTempRoot()`；smoke 和文件型 benchmark 同样由父进程兜底清理。各测试仍先关闭 SQLite、HTTP、浏览器与其他句柄；收尾失败不能吞掉原始测试失败，也不能悄悄报告成功。
 - 保留 `--test-concurrency=1`。当前 runner 串行运行，共享 SQLite/native fixture 要保持确定性，不因提速改成并发。
 - 清理只作用于本次运行拥有、已核对绝对路径的临时目录，不扫描并删除整个系统 temp、其他进程目录或旧 `.tmp`。历史目录清理另行核对归属和授权。
 
-**同步状态：**当前 `main` 尚无 `tests/helpers/temp.mjs`，unit runner 没有 `clearTempRoot()`，smoke 仍写 `.tmp`，多个旧测试也仍如此。用户报告今晚已修复，但该补丁尚未出现在此代码基线；先核对补丁/提交再复用或实现，不把这里的目标规则说成已完成。新增 fixture 前先同步或建立统一 helper，不能用各自清理代替 runner 的统一兜底。
+**实现状态（v1.31.8）：**本分支已建立统一 helper，迁移 51 个旧测试文件与三个文件型 smoke/benchmark 脚本；不是声称导入了尚未提供的 Mac 补丁。`createTempDir(prefix)` 分配本次运行目录；只有创建 root 的父进程可 `clearTempRoot()`，借用 root 的子进程不能删除它。
+
+新增测试通过 `node scripts/run-unit-tests.mjs tests/<name>.test.mjs` 做定向验收，完整验收用 `npm test`。不要为文件型 SQLite fixture 绕过 runner 直接运行 `node --test`：Windows 实际复现显示，即使 `GraphologyStore.close()` 已调用，native statement 仍可能占用文件直到进程退出；父进程必须等 worker 退出再清理，不靠强制 GC 或吞掉删除错误。smoke/benchmark 的 `--worker` 是内部入口，不单独执行。
+
+正常运行和失败退出都纳入清理验收，包括真实 SQLite 文件。父进程被强杀、宿主崩溃或断电不在此保证范围；发现残留时先确认所属运行，不扫描删除其他目录。
 
 ## 数据库与迁移
 
@@ -52,11 +56,11 @@
 ## 仓库卫生与改名
 
 - 提交前审查 `package-lock.json`，只保留本任务必要变化。用户报告一次撤回了 888 行无关漂移；不要因此整份覆盖锁文件并丢掉别人的改动。
-- 升级脚本可能留下 `dist.bak-v*`。本基线 `.gitignore` 只忽略 `dist/`，尚未单独忽略该备份模式；备份先核对是否仍用于恢复，再选择保留并忽略或有授权地清理，不混入发布。
+- 升级脚本可能留下 `dist.bak-v*`。v1.31.8 起 `.gitignore` 同时忽略 `dist/` 和 `dist.bak-v*/`；不删除备份。备份先核对是否仍用于恢复，再有授权地清理，不混入发布。
 - 脚本、模型名、配置键、接口改名或退役时，使用 `rg` 搜索全部引用方，覆盖源码、测试、package scripts、CI、文档和已知外部运行脚本。公开入口先考虑兼容或显式错误；引用方不会自动跟随改名，验收调用链，防止静默带病运行。
 
-## 本基线待处理
+## 后续验收
 
-1. 核对并同步用户报告的统一 temp helper、unit/smoke 收尾补丁；验收失败路径和退出码，再迁移遗留 `.tmp` fixture。没有授权时不清理历史目录。
-2. 若仓库仍产生 `dist.bak-v*`，确定归属与恢复需求后补忽略/安全清理策略。
+1. v1.31.8 的完整检查与同一提交 Windows/Linux CI 成功后才能打标签发布；未通过前不把实现状态等同为发布状态。
+2. 历史 `.tmp` 与旧系统临时目录、升级备份的清理须另行核对归属和授权，本次没有清理它们。
 3. 真实 Mac 的配置、2560 维身份、写路径和 gateway 升级/重启验收，仍由有访问权限的 Mac agent 执行和报告。

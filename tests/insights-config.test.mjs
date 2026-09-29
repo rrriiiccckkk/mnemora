@@ -1,5 +1,6 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync } from "node:fs";
+
 import { join } from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "@photostructure/sqlite";
@@ -8,9 +9,8 @@ import plugin from "../dist/plugin.js";
 import { GraphologyStore } from "../dist/store.js";
 
 function temporaryStore() {
-  const root = join(process.cwd(), ".tmp");
-  mkdirSync(root, { recursive: true });
-  return new GraphologyStore(join(mkdtempSync(join(root, "insights-test-")), "kg.db"));
+
+  return new GraphologyStore(join(createTempDir("insights-test-"), "kg.db"));
 }
 
 test("insights defaults are bounded and exact", () => {
@@ -120,9 +120,8 @@ test("graph revision increments atomically", () => {
 });
 
 test("existing databases migrate graph revision and insight cache tables", () => {
-  const root = join(process.cwd(), ".tmp");
-  mkdirSync(root, { recursive: true });
-  const dbPath = join(mkdtempSync(join(root, "insights-legacy-")), "kg.db");
+
+  const dbPath = join(createTempDir("insights-legacy-"), "kg.db");
   const legacy = new DatabaseSync(dbPath);
   legacy.exec(`CREATE TABLE kg_nodes (
     id TEXT PRIMARY KEY, type TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',

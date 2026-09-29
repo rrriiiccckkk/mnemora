@@ -1,6 +1,7 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+
 import { join } from "node:path";
 import test from "node:test";
 import { createMnemoraContextRef } from "../dist/context/context-ref.js";
@@ -106,7 +107,7 @@ test("expired delivery receipts remain audit-visible but cannot distort current 
 });
 
 test("schema v64 migration is additive and preserves prior reasoning memories", () => {
-  const path = join(tmpdir(), `mnemora-reasoning-delivery-${process.pid}-${Date.now()}.db`); let legacy;
+  const path = join(createTempDir("legacy-"), `mnemora-reasoning-delivery-${process.pid}-${Date.now()}.db`); let legacy;
   try {
     legacy = new GraphologyStore(path); const state = setup(legacy, () => 30_000), memoryId = state.memory.id;
     legacy.db.exec("DROP TABLE mnemora_reasoning_runtime_delivery_item_corrections; DROP TABLE mnemora_reasoning_runtime_delivery_feedback_events; DROP TABLE mnemora_reasoning_memory_delivery_circuits; DROP TABLE mnemora_reasoning_runtime_delivery_items; PRAGMA user_version=61"); legacy.close(); legacy = undefined;

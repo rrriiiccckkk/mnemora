@@ -1,7 +1,8 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
+
 import { join } from "node:path";
 import test from "node:test";
 import { ReasoningIntakeService } from "../dist/cognition/reasoning-intake.js";
@@ -182,7 +183,7 @@ test("intake cannot bind a reviewed candidate to a cross-scope or non-task episo
 });
 
 test("CLI intake confirmation binds the previewed task reference", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-intake-task-cli-")), path = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-intake-task-cli-"), path = join(directory, "memory.db");
   let store;
   try {
     store = new GraphologyStore(path);
@@ -232,7 +233,7 @@ test("invalid intake output cannot create candidates and schema v69 is additive"
 });
 
 test("the completed-turn lifecycle keeps intake off by default and only runs it after explicit opt-in", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-reasoning-intake-runtime-")), path = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-reasoning-intake-runtime-"), path = join(directory, "memory.db");
   const turn = { sessionId: "session:alpha", userText: "We decided to use SQLite.", assistantText: "Noted." };
   const disabled = new PluginRuntime({ dbPath: path }, { debug() {}, info() {}, warn() {} });
   try {
@@ -257,7 +258,7 @@ test("the completed-turn lifecycle keeps intake off by default and only runs it 
 });
 
 test("v69 intake migration restores only the new candidate table and preserves prior records", () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-v69-")), path = join(directory, "memory.db"); let store;
+  const directory = createTempDir("mnemora-v69-"), path = join(directory, "memory.db"); let store;
   try {
     store = new GraphologyStore(path);
     const source = new ConversationEventRepository(store.db, policy).append({ scope: "project:alpha", sessionId: "s", kind: "user_message", role: "user", parts: [{ type: "text", text: "Use SQLite." }] });

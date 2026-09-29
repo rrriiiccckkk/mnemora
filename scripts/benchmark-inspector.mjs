@@ -1,6 +1,7 @@
+import { createTempDir, withTempRoot } from "../tests/helpers/temp.mjs";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { statSync } from "node:fs";
+
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { spawn } from "node:child_process";
@@ -15,11 +16,13 @@ const MAX_OPERATION_MS = 5_000;
 const WATCHDOG_SLACK_MS = 1_000;
 const FIXTURE_WATCHDOG_MS = 60_000;
 
-if (process.argv.includes("--worker")) await runBenchmark();
-else await runWithWatchdog();
+if (process.argv.includes("--worker")) {
+  if (!process.env.MNEMORA_TEST_TEMP_ROOT) throw new Error("managed_test_worker_required");
+  await runBenchmark();
+} else await withTempRoot(env => runWithWatchdog(env));
 
-async function runWithWatchdog() {
-  const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "--worker"], { shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+async function runWithWatchdog(env) {
+  const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "--worker"], { shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env });
   let phase = "fixture setup", timedOut = false, pending = "";
   let timer = arm(FIXTURE_WATCHDOG_MS);
   const reset = (name, timeoutMs) => { phase = name; clearTimeout(timer); timer = arm(timeoutMs); };
@@ -40,18 +43,18 @@ async function runWithWatchdog() {
   };
   child.stdout.on("data", chunk => process.stdout.write(chunk));
   child.stderr.on("data", chunk => { process.stderr.write(chunk); inspect(chunk); });
-  await new Promise((resolve, reject) => child.once("error", reject).once("exit", (code, signal) => {
-    clearTimeout(timer);
+  try { await new Promise((resolve, reject) => child.once("error", reject).once("close", (code, signal) => {
     if (timedOut) reject(new Error(`inspector benchmark watchdog exceeded during ${phase}`));
     else if (code === 0) resolve(undefined);
     else reject(new Error(`inspector benchmark worker failed (${signal ?? code ?? "unknown"})`));
-  }));
+  })); } finally { clearTimeout(timer); }
 }
 
 async function runBenchmark() {
-const directory = mkdtempSync(join(tmpdir(), "mnemora-inspector-benchmark-"));
+const directory = createTempDir("mnemora-inspector-benchmark-");
 const databasePath = join(directory, "graph.db");
 let store;
+let primary;
 let peakRss = process.memoryUsage().rss;
 const samples = new Map();
 const observeMemory = () => { peakRss = Math.max(peakRss, process.memoryUsage().rss); };
@@ -115,8 +118,13 @@ try {
   const metrics=Object.fromEntries([...samples].map(([name,values])=>[name,{p50_ms:Number(percentile(values,.5).toFixed(3)),p95_ms:Number(percentile(values,.95).toFixed(3))}]));
   const databaseBytes=statSync(databasePath).size;assert.ok(databaseBytes>0&&Number.isSafeInteger(databaseBytes));assert.ok(peakRss<1_500_000_000,"peak RSS exceeded 1.5 GB");
   console.log(JSON.stringify({fixture:{nodes:NODE_COUNT,edges:EDGE_COUNT,observations:EDGE_COUNT},limits:{max_nodes:5_000,max_edges:20_000,deadline_ms:MAX_OPERATION_MS},metrics,peak_rss_bytes:peakRss,database_bytes:databaseBytes}));
+} catch (error) {
+  primary = error;
+  throw error;
 } finally {
-  try{store?.close();}catch{}
-  try{rmSync(directory,{recursive:true,force:true});}catch{}
+  try { store?.close(); } catch (cleanupError) {
+    if (primary) throw new AggregateError([primary, cleanupError], "inspector_benchmark_cleanup_failed", { cause: primary });
+    throw cleanupError;
+  }
 }
 }

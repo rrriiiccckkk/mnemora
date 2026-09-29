@@ -1,7 +1,8 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
+
 import { join, resolve } from "node:path";
 import test from "node:test";
 
@@ -10,7 +11,7 @@ const run = (directory, environment) => spawnSync(process.execPath, [resolve("di
 });
 
 test("CLI defaults to the canonical database and identifies a newly created database", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-cli-default-"));
+  const directory = createTempDir("mnemora-cli-default-");
   try {
     const home = join(directory, "home"), working = join(directory, "working");
     mkdirSync(home); mkdirSync(working);
@@ -25,7 +26,7 @@ test("CLI defaults to the canonical database and identifies a newly created data
 });
 
 test("CLI identifies an explicitly selected newly created database", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-cli-explicit-"));
+  const directory = createTempDir("mnemora-cli-explicit-");
   try {
     const working = join(directory, "working"), database = join(directory, "selected", "memory.db");
     mkdirSync(working);

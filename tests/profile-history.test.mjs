@@ -1,7 +1,8 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "@photostructure/sqlite";
 import { join } from "node:path";
-import { mkdirSync, mkdtempSync } from "node:fs";
+
 import test from "node:test";
 import { Mnemora, GraphologyStore, SUPPORTED_SCHEMA_VERSION } from "../dist/index.js";
 
@@ -45,8 +46,8 @@ test("profile history records material projections once and produces a bounded e
 });
 
 test("schema v25 adds profile snapshots additively to a v24 database", () => {
-  mkdirSync(join(process.cwd(), ".tmp"), { recursive: true });
-  const file = join(mkdtempSync(join(process.cwd(), ".tmp", "profile-history-v25-")), "legacy.db");
+
+  const file = join(createTempDir("profile-history-v25-"), "legacy.db");
   const initial = new GraphologyStore(file);
   initial.close();
   const legacy = new DatabaseSync(file);

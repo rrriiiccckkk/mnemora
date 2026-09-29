@@ -1,3 +1,4 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { GraphologyStore } from "../dist/store.js";
@@ -13,7 +14,7 @@ import { createMnemoraContextRef, resolveMnemoraContextRef } from "../dist/conte
 import { TaskOutcomeService } from "../dist/cognition/outcomes.js";
 import { EpisodeRepository } from "../dist/episodes/repository.js";
 import { normalizeConfig } from "../dist/config.js";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 
 const policy = { maxInlineChars: 16000, maxEventBytes: 262144, sensitiveContentPolicy: "redact" };
@@ -91,7 +92,7 @@ test("v6.15 compaction preserves source-linked and durable evidence references t
 });
 
 test("v6.3 schema migration is additive and preserves existing journal evidence", () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-v63-migration-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-v63-migration-"), dbPath = join(directory, "memory.db");
   let store;
   try {
     store = new GraphologyStore(dbPath);
@@ -106,7 +107,7 @@ test("v6.3 schema migration is additive and preserves existing journal evidence"
 });
 
 test("v6.7 replay-flood migration is additive and preserves journal evidence", () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-v67-migration-")), dbPath = join(directory, "memory.db"); let store;
+  const directory = createTempDir("mnemora-v67-migration-"), dbPath = join(directory, "memory.db"); let store;
   try {
     store = new GraphologyStore(dbPath);
     new ConversationEventRepository(store.db, policy).append({ scope: "default", sessionId: "s", kind: "user_message", role: "user", parts: [{ type: "text", text: "existing evidence" }] });
@@ -118,7 +119,7 @@ test("v6.7 replay-flood migration is additive and preserves journal evidence", (
 });
 
 test("v6.11 replay cleanup migration is additive and preserves existing journal evidence", () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-v611-migration-")), dbPath = join(directory, "memory.db"); let store;
+  const directory = createTempDir("mnemora-v611-migration-"), dbPath = join(directory, "memory.db"); let store;
   try {
     store = new GraphologyStore(dbPath);
     new ConversationEventRepository(store.db, policy).append({ scope: "default", sessionId: "s", kind: "user_message", role: "user", parts: [{ type: "text", text: "existing evidence" }] });
@@ -130,7 +131,7 @@ test("v6.11 replay cleanup migration is additive and preserves existing journal 
 });
 
 test("v79 durable-turn advancement position migration is additive and preserves journal evidence", () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-v79-migration-")), dbPath = join(directory, "memory.db"); let store;
+  const directory = createTempDir("mnemora-v79-migration-"), dbPath = join(directory, "memory.db"); let store;
   try {
     store = new GraphologyStore(dbPath);
     new ConversationEventRepository(store.db, policy).append({ scope: "default", sessionId: "s", kind: "user_message", role: "user", parts: [{ type: "text", text: "existing evidence" }] });
@@ -204,7 +205,7 @@ test("v6.16 chunks bounded leaves into an expandable root and preserves every so
 });
 
 test("v6.16 assembles one summary root with a strict fresh tail and proactively compacts afterTurn", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-v616-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-engine-v616-"), dbPath = join(directory, "memory.db");
   const config = normalizeConfig({ dbPath, contextEngine: { enabled: true, maxContextTokens: 256, protectedRecentEvents: 2, compaction: { enabled: true, minEvents: 2, maxInputChars: 1000, maxOutputChars: 300, timeoutMs: 1000, maxRunsPerHour: 4, maxDailyTokens: 10000, contextThreshold: .75, freshTailCount: 2, leafChunkTokens: 300, maxChunksPerRun: 4, condensedMinFanout: 2, deadlineMs: 5000 } } });
   const open = () => { const store = new GraphologyStore(dbPath); return { store, close() { store.close(); } }; };
   const engine = new MnemoraContextEngine(config, open), messages = Array.from({ length: 6 }, (_value, index) => ({ id: `m${index + 1}`, role: index % 2 ? "assistant" : "user", content: `turn ${index + 1} ${"x".repeat(220)}` }));
@@ -225,7 +226,7 @@ test("v6.16 assembles one summary root with a strict fresh tail and proactively 
 });
 
 test("v6.25.1 proactive compaction uses durable Journal volume when afterTurn exposes only a delta", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-v6251-threshold-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-engine-v6251-threshold-"), dbPath = join(directory, "memory.db");
   const config = normalizeConfig({ dbPath, contextEngine: { enabled: true, maxContextTokens: 256, protectedRecentEvents: 2, compaction: { enabled: true, minEvents: 2, maxInputChars: 1000, maxOutputChars: 300, timeoutMs: 1000, maxRunsPerHour: 4, maxDailyTokens: 10000, contextThreshold: .75, freshTailCount: 2, leafChunkTokens: 300, maxChunksPerRun: 4, condensedMinFanout: 2, deadlineMs: 5000 } } });
   const open = () => { const store = new GraphologyStore(dbPath); return { store, close() { store.close(); } }; };
   const engine = new MnemoraContextEngine(config, open);
@@ -241,7 +242,7 @@ test("v6.25.1 proactive compaction uses durable Journal volume when afterTurn ex
 });
 
 test("explicit compact and maintain ignore host delta counts in favor of durable Journal volume", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-host-delta-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-engine-host-delta-"), dbPath = join(directory, "memory.db");
   const config = normalizeConfig({ dbPath, contextEngine: { enabled: true, maxContextTokens: 256, protectedRecentEvents: 2, compaction: { enabled: true, minEvents: 2, maxInputChars: 1000, maxOutputChars: 300, timeoutMs: 1000, maxRunsPerHour: 4, maxDailyTokens: 10000, contextThreshold: .75, freshTailCount: 2, leafChunkTokens: 300, maxChunksPerRun: 4, condensedMinFanout: 2, deadlineMs: 5000 } } });
   const open = () => { const store = new GraphologyStore(dbPath); return { store, close() { store.close(); } }; };
   const engine = new MnemoraContextEngine(config, open);
@@ -393,7 +394,7 @@ test("v6.7 compaction applies per-session summary spend backoff before any model
 });
 
 test("v6.3 ContextEngine uses the public host LLM and owns compaction only when explicitly enabled", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-v63-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-engine-v63-"), dbPath = join(directory, "memory.db");
   const config = normalizeConfig({ dbPath, mode: "standalone", contextEngine: { enabled: true, protectedRecentEvents: 2, compaction: { enabled: true, minEvents: 4, maxInputChars: 1000, maxOutputChars: 300, timeoutMs: 1000, maxRunsPerHour: 4, maxDailyTokens: 10000 } } });
   const open = () => { const store = new GraphologyStore(dbPath); return { store, close() { store.close(); } }; };
   const engine = new MnemoraContextEngine(config, open);
@@ -409,7 +410,7 @@ test("v6.3 ContextEngine uses the public host LLM and owns compaction only when 
 });
 
 test("ContextEngine delegates an overflow compaction only after a local pre-rewrite decline", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-local-decline-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-engine-local-decline-"), dbPath = join(directory, "memory.db");
   const config = normalizeConfig({ dbPath, mode: "standalone", contextEngine: { enabled: true, protectedRecentEvents: 2, compaction: { enabled: true, minEvents: 4, maxInputChars: 1000, maxOutputChars: 300, timeoutMs: 1000, maxRunsPerHour: 4, maxDailyTokens: 10000 } } });
   const open = () => { const store = new GraphologyStore(dbPath); return { store, close() { store.close(); } }; };
   let delegated = 0, rewrites = 0;
@@ -427,7 +428,7 @@ test("ContextEngine delegates an overflow compaction only after a local pre-rewr
 });
 
 test("ContextEngine never delegates after an ambiguous local transcript rewrite", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-local-unknown-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-engine-local-unknown-"), dbPath = join(directory, "memory.db");
   const config = normalizeConfig({ dbPath, mode: "standalone", contextEngine: { enabled: true, protectedRecentEvents: 2, compaction: { enabled: true, minEvents: 4, maxInputChars: 1000, maxOutputChars: 300, timeoutMs: 1000, maxRunsPerHour: 4, maxDailyTokens: 10000 } } });
   const open = () => { const store = new GraphologyStore(dbPath); return { store, close() { store.close(); } }; };
   let delegated = 0, rewrites = 0;
@@ -445,7 +446,7 @@ test("ContextEngine never delegates after an ambiguous local transcript rewrite"
 });
 
 test("v6.3 ContextEngine aborts a public host model at its local compaction timeout", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-v63-timeout-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-engine-v63-timeout-"), dbPath = join(directory, "memory.db");
   const config = normalizeConfig({ dbPath, contextEngine: { enabled: true, protectedRecentEvents: 2, compaction: { enabled: true, minEvents: 4, maxInputChars: 1000, maxOutputChars: 300, timeoutMs: 1000, maxRunsPerHour: 4, maxDailyTokens: 10000 } } });
   const open = () => { const store = new GraphologyStore(dbPath); return { store, close() { store.close(); } }; };
   const engine = new MnemoraContextEngine(config, open);
@@ -507,7 +508,7 @@ test("ContextEngine preserves the current user message verbatim and never emits 
 });
 
 test("standalone ContextEngine is the single opt-in unified-memory prompt producer", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-retrieval-"));
+  const directory = createTempDir("mnemora-engine-retrieval-");
   const config = normalizeConfig({ dbPath: join(directory, "memory.db"), mode: "standalone", contextEngine: { enabled: true, maxContextTokens: 512 }, unifiedRetrieval: { enabled: true, tokenBudget: 160, maxItems: 2, minConfidence: .5 } });
   const open = () => { const store = new GraphologyStore(config.dbPath); return { store, close() { store.close(); } }; };
   const graph = open();
@@ -518,7 +519,7 @@ test("standalone ContextEngine is the single opt-in unified-memory prompt produc
 });
 
 test("ContextEngine records lifecycle use only after a bounded memory attachment and renders its provenance", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-recall-usage-"));
+  const directory = createTempDir("mnemora-engine-recall-usage-");
   const config = normalizeConfig({ dbPath: join(directory, "memory.db"), contextEngine: { enabled: true, maxContextTokens: 512 }, unifiedRetrieval: { enabled: true, tokenBudget: 160, maxItems: 2, minConfidence: .5 } });
   const open = () => new Mnemora({ config });
   const graph = open(); let document;
@@ -538,7 +539,7 @@ test("ContextEngine records lifecycle use only after a bounded memory attachment
 });
 
 test("ContextEngine excludes only an explicit public agent identity from automatic assembly", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-agent-id-"));
+  const directory = createTempDir("mnemora-engine-agent-id-");
   const config = normalizeConfig({ dbPath: join(directory, "memory.db"), contextEngine: { enabled: true, maxContextTokens: 512 }, unifiedRetrieval: { enabled: true, tokenBudget: 160, maxItems: 2, minConfidence: .5 }, recall: { excludedAgentIds: ["background:worker"] } });
   const open = () => { const store = new GraphologyStore(config.dbPath); return { store, close() { store.close(); } }; };
   const graph = open();
@@ -555,7 +556,7 @@ test("ContextEngine excludes only an explicit public agent identity from automat
 });
 
 test("ContextEngine honors tag routing in unified retrieval and fails open on hostile capture input", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-v610-routing-"));
+  const directory = createTempDir("mnemora-engine-v610-routing-");
   const config = normalizeConfig({ dbPath: join(directory, "memory.db"), contextEngine: { enabled: true, maxContextTokens: 800 }, unifiedRetrieval: { enabled: true, tokenBudget: 240, maxItems: 3, minConfidence: .5 }, recall: { queryRouting: { enabled: true } } });
   const open = () => new Mnemora({ config });
   const graph = open();
@@ -574,7 +575,7 @@ test("ContextEngine honors tag routing in unified retrieval and fails open on ho
 });
 
 test("ContextEngine forwards exact prefix constraints and never supplements a constrained route with graph recall", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-v622-routing-"));
+  const directory = createTempDir("mnemora-engine-v622-routing-");
   const config = normalizeConfig({ dbPath: join(directory, "memory.db"), contextEngine: { enabled: true, maxContextTokens: 800 }, unifiedRetrieval: { enabled: true, tokenBudget: 240, maxItems: 3, minConfidence: .5 }, recall: { queryRouting: { enabled: true } } });
   const open = () => new Mnemora({ config });
   const graph = open();
@@ -593,7 +594,7 @@ test("ContextEngine forwards exact prefix constraints and never supplements a co
 });
 
 test("standalone ContextEngine adds bounded semantic recall inside its one attachment when embeddings are enabled", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-semantic-"));
+  const directory = createTempDir("mnemora-engine-semantic-");
   const config = normalizeConfig({ dbPath: join(directory, "memory.db"), mode: "standalone", contextEngine: { enabled: true, maxContextTokens: 800 }, unifiedRetrieval: { enabled: true, tokenBudget: 320, maxItems: 3, minConfidence: .5 }, embeddings: { enabled: true, model: "fixture-engine" } });
   const embedder = { async embed(inputs) { return { identity: { provider: "ollama", model: "fixture-engine", dimensions: 2 }, vectors: inputs.map(() => [1, 0]) }; } };
   const open = () => new Mnemora({ config, embedder });
@@ -610,7 +611,7 @@ test("standalone ContextEngine adds bounded semantic recall inside its one attac
 });
 
 test("ContextEngine suppresses a generic graph match and records redacted injection telemetry", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-recall-precision-"));
+  const directory = createTempDir("mnemora-engine-recall-precision-");
   const config = normalizeConfig({ dbPath: join(directory, "memory.db"), contextEngine: { enabled: true, maxContextTokens: 800 }, unifiedRetrieval: { enabled: true, shadowMode: true, tokenBudget: 240, maxItems: 2, minConfidence: .5 } });
   const open = () => new Mnemora({ config });
   const graph = open();
@@ -685,7 +686,7 @@ test("ContextEngine marks heartbeat afterTurn output as background rather than u
 });
 
 test("ContextEngine afterTurn captures the real OpenClaw lifecycle exactly once", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-lifecycle-"));
+  const directory = createTempDir("mnemora-engine-lifecycle-");
   const config = normalizeConfig({ dbPath: join(directory, "memory.db"), mode: "standalone", conversationJournal: { enabled: true }, contextEngine: { enabled: true }, episodicMemory: { enabled: true } });
   const open = () => { const store = new GraphologyStore(config.dbPath); return { store, close() { store.close(); } }; };
   const engine = new MnemoraContextEngine(config, open);
@@ -713,7 +714,7 @@ test("ContextEngine afterTurn captures the real OpenClaw lifecycle exactly once"
 });
 
 test("public OpenClaw lifecycle bootstraps, assembles, restarts, and delegates standalone compaction", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-graduation-"));
+  const directory = createTempDir("mnemora-engine-graduation-");
   const config = normalizeConfig({ dbPath: join(directory, "memory.db"), mode: "standalone", conversationJournal: { enabled: true }, contextEngine: { enabled: true, maxSummaryChars: 500, protectedRecentEvents: 2 }, episodicMemory: { enabled: true }, unifiedRetrieval: { enabled: true, tokenBudget: 180, maxItems: 3, minConfidence: .5 } });
   const open = () => { const store = new GraphologyStore(config.dbPath); return { store, close() { store.close(); } }; };
   let delegated = 0;
@@ -745,7 +746,7 @@ test("public OpenClaw lifecycle bootstraps, assembles, restarts, and delegates s
 });
 
 test("ContextEngine batch capture is atomic and never silently truncates", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-batch-"));
+  const directory = createTempDir("mnemora-engine-batch-");
   const config = normalizeConfig({ dbPath: join(directory, "memory.db"), contextEngine: { enabled: true } });
   const open = () => { const store = new GraphologyStore(config.dbPath); return { store, close() { store.close(); } }; };
   const engine = new MnemoraContextEngine(config, open);
@@ -757,7 +758,7 @@ test("ContextEngine batch capture is atomic and never silently truncates", async
 });
 
 test("v6.25 archives only bounded public tool strings and projects an opaque source-linked reference", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-tool-payload-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-engine-tool-payload-"), dbPath = join(directory, "memory.db");
   const config = normalizeConfig({ dbPath, contextEngine: { enabled: true, maxContextTokens: 8192 }, artifacts: { enabled: true, inlineThresholdChars: 1024, maxArtifactBytes: 32768, toolPayloads: { enabled: true } } });
   const open = () => { const store = new GraphologyStore(config.dbPath); return { store, close() { store.close(); } }; };
   const engine = new MnemoraContextEngine(config, open), payload = `tool output: ${"x".repeat(20000)}`;
@@ -791,7 +792,7 @@ test("v6.25 archives only bounded public tool strings and projects an opaque sou
 });
 
 test("ContextEngine leaves ignored and stateless sessions readable but never persists their turns", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-session-policy-"));
+  const directory = createTempDir("mnemora-engine-session-policy-");
   const config = normalizeConfig({ dbPath: join(directory, "memory.db"), contextEngine: { enabled: true }, conversationJournal: { ignoreSessionPatterns: ["agent:*:cron:**"], statelessSessionPatterns: ["agent:*:readonly:**"] } });
   const open = () => { const store = new GraphologyStore(config.dbPath); return { store, close() { store.close(); } }; };
   const engine = new MnemoraContextEngine(config, open);
@@ -804,7 +805,7 @@ test("ContextEngine leaves ignored and stateless sessions readable but never per
 });
 
 test("ContextEngine leaves source-linked compaction to the future bounded compactor and delegates today", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-compact-"));
+  const directory = createTempDir("mnemora-engine-compact-");
   const config = normalizeConfig({ dbPath: join(directory, "memory.db"), mode: "standalone", contextEngine: { enabled: true, maxSummaryChars: 500, protectedRecentEvents: 2 } });
   const open = () => { const store = new GraphologyStore(config.dbPath); return { store, close() { store.close(); } }; };
   let delegated;
@@ -824,7 +825,7 @@ test("ContextEngine leaves source-linked compaction to the future bounded compac
 });
 
 test("ContextEngine completes one safe derived lifecycle after its durable afterTurn capture", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-lifecycle-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-engine-lifecycle-"), dbPath = join(directory, "memory.db");
   const config = normalizeConfig({ dbPath, contextEngine: { enabled: true } });
   const turns = [];
   const open = () => { const store = new GraphologyStore(dbPath); return { store, close() { store.close(); } }; };
@@ -844,7 +845,7 @@ test("ContextEngine completes one safe derived lifecycle after its durable after
 });
 
 test("ContextEngine atomically commits an admitted durable turn and rejects a mutated retry", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-durable-turn-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-engine-durable-turn-"), dbPath = join(directory, "memory.db");
   const config = normalizeConfig({ dbPath, contextEngine: { enabled: true } });
   const completed = [];
   const open = () => { const store = new GraphologyStore(dbPath); return { store, close() { store.close(); } }; };
@@ -886,7 +887,7 @@ test("ContextEngine atomically commits an admitted durable turn and rejects a mu
 });
 
 test("ContextEngine uses durable positions to suppress one compatibility callback without message IDs", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-durable-position-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-engine-durable-position-"), dbPath = join(directory, "memory.db");
   const config = normalizeConfig({ dbPath, contextEngine: { enabled: true } });
   const completed = [];
   const open = () => { const store = new GraphologyStore(dbPath); return { store, close() { store.close(); } }; };
@@ -925,7 +926,7 @@ test("ContextEngine uses durable positions to suppress one compatibility callbac
 });
 
 test("ContextEngine captures a new afterTurn range when its terminal entry ID differs despite reused positions", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-reused-position-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-engine-reused-position-"), dbPath = join(directory, "memory.db");
   const config = normalizeConfig({ dbPath, contextEngine: { enabled: true } });
   const completed = [];
   const open = () => { const store = new GraphologyStore(dbPath); return { store, close() { store.close(); } }; };
@@ -953,7 +954,7 @@ test("ContextEngine captures a new afterTurn range when its terminal entry ID di
 });
 
 test("ContextEngine captures a new ID-less afterTurn range when compaction reuses its positions", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-idless-position-reuse-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-engine-idless-position-reuse-"), dbPath = join(directory, "memory.db");
   const config = normalizeConfig({ dbPath, contextEngine: { enabled: true } });
   const completed = [];
   const open = () => { const store = new GraphologyStore(dbPath); return { store, close() { store.close(); } }; };
@@ -981,7 +982,7 @@ test("ContextEngine captures a new ID-less afterTurn range when compaction reuse
 });
 
 test("ContextEngine honors a durable admission agent exclusion without trusting message identity", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-durable-agent-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-engine-durable-agent-"), dbPath = join(directory, "memory.db");
   const config = normalizeConfig({ dbPath, contextEngine: { enabled: true }, recall: { excludedAgentIds: ["worker"] } });
   const completed = [];
   const open = () => { const store = new GraphologyStore(dbPath); return { store, close() { store.close(); } }; };
@@ -1013,7 +1014,7 @@ test("ContextEngine honors a durable admission agent exclusion without trusting 
 });
 
 test("ContextEngine carries a durable agent exclusion through a restarted afterTurn callback", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-excluded-compat-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-engine-excluded-compat-"), dbPath = join(directory, "memory.db");
   const config = normalizeConfig({ dbPath, contextEngine: { enabled: true }, recall: { excludedAgentIds: ["worker"] } });
   const completed = [];
   const open = () => { const store = new GraphologyStore(dbPath); return { store, close() { store.close(); } }; };

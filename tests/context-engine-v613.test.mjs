@@ -1,3 +1,4 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { GraphologyStore } from "../dist/store.js";
@@ -6,7 +7,7 @@ import { estimateMessageTokens } from "../dist/context-engine/message-safety.js"
 import { estimateTextTokens } from "../dist/context-engine/token-estimate.js";
 import { normalizeConfig } from "../dist/config.js";
 import { Mnemora } from "../dist/index.js";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 
 test("ContextEngine uses one CJK and astral-aware estimator for messages and additions", async () => {
@@ -28,7 +29,7 @@ test("ContextEngine uses one CJK and astral-aware estimator for messages and add
 });
 
 test("ContextEngine never attaches a rejected graph claim through either automatic path", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-context-admission-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-context-admission-"), dbPath = join(directory, "memory.db");
   const extraction = { entities: [{ name: "Acme", type: "company", confidence: .9, evidence_span: "Acme supplies rejected packaging." }], relations: [] };
   const config = normalizeConfig({ dbPath, contextEngine: { enabled: true, maxContextTokens: 1000 }, unifiedRetrieval: { enabled: true, tokenBudget: 800, maxItems: 4, minConfidence: .5 }, trustLayer: { enabled: true, verification: { enabled: true } } });
   const graph = new Mnemora({ config, extractor: { extract: async () => extraction } });
@@ -44,7 +45,7 @@ test("ContextEngine never attaches a rejected graph claim through either automat
 });
 
 test("ContextEngine does not replay the transcript when prePromptMessageCount is absent or NaN", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-engine-v613-boundary-"));
+  const directory = createTempDir("mnemora-engine-v613-boundary-");
   const config = normalizeConfig({ dbPath: join(directory, "memory.db"), contextEngine: { enabled: true } });
   const open = () => {
     const store = new GraphologyStore(config.dbPath);

@@ -1,15 +1,15 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DatabaseSync } from "@photostructure/sqlite";
-import { mkdirSync, mkdtempSync } from "node:fs";
+
 import { join } from "node:path";
 import { GraphologyStore } from "../dist/store.js";
 import { intervalsOverlap, isCurrentlyApplicable, normalizeTemporalEvidence, recencyScore } from "../dist/temporal.js";
 
 function pathFor(name) {
-  const root = join(process.cwd(), ".tmp");
-  mkdirSync(root, { recursive: true });
-  return join(mkdtempSync(join(root, `${name}-`)), "kg.db");
+
+  return join(createTempDir(`${name}-`), "kg.db");
 }
 
 test("temporal evidence normalizes strict dates, timestamps, and milliseconds", () => {

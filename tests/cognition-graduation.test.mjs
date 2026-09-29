@@ -1,12 +1,13 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+
 import { join } from "node:path";
 import test from "node:test";
 import { CognitionGraduationService, FormationService, GraphologyStore, ReflectionService } from "../dist/index.js";
 
 test("C8 graduation verifies audit integrity, restart recovery, and proposal-only reflection", () => {
-  const path = join(tmpdir(), `mnemora-graduation-${process.pid}-${Date.now()}.db`);
+  const path = join(createTempDir("legacy-"), `mnemora-graduation-${process.pid}-${Date.now()}.db`);
   let store;
   try {
     let now = 1_700_000_000_000;

@@ -1,5 +1,6 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync } from "node:fs";
+
 import { join } from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "@photostructure/sqlite";
@@ -9,9 +10,8 @@ const identity = { provider: "ollama", model: "qwen3-embedding:4b", dimensions: 
 const entity = { name: "Nvidia", type: "company", description: "GPU company", confidence: 0.9, evidence_span: "Nvidia makes GPUs" };
 
 function pathFor(name) {
-  const root = join(process.cwd(), ".tmp");
-  mkdirSync(root, { recursive: true });
-  return join(mkdtempSync(join(root, `${name}-`)), "kg.db");
+
+  return join(createTempDir(`${name}-`), "kg.db");
 }
 
 test("existing databases gain embedding metadata without losing graph data", () => {

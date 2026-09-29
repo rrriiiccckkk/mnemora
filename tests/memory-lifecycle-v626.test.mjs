@@ -1,6 +1,7 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { Mnemora, GraphologyStore, SUPPORTED_SCHEMA_VERSION } from "../dist/index.js";
 import { SmartEpisodeExtractor } from "../dist/episodes/smart-extraction.js";
@@ -107,7 +108,7 @@ test("smart episode extraction is runtime-only, bounded, and produces source-lin
 });
 
 test("smart episode lifecycle records only a source-linked episode after the public runtime completion", async () => {
-  const directory = mkdtempSync(join(process.cwd(), ".tmp", "mnemora-v626-smart-")), dbPath = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-v626-smart-"), dbPath = join(directory, "memory.db");
   const config = {
     dbPath,
     scope: { default: "work" },

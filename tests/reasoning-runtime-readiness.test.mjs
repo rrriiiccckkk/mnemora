@@ -1,7 +1,8 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+
 import test from "node:test";
 import { GraphologyStore } from "../dist/store.js";
 import { SUPPORTED_SCHEMA_VERSION } from "../dist/schema.js";
@@ -35,7 +36,7 @@ test("live runtime policy snapshots make exact scope readiness auditable without
 });
 
 test("schema v70 adds policy snapshots without rebuilding existing runtime telemetry", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-runtime-policy-")), path = join(directory, "memory.db"); let store;
+  const directory = createTempDir("mnemora-runtime-policy-"), path = join(directory, "memory.db"); let store;
   try {
     store = new GraphologyStore(path);
     new ReasoningRuntimeTelemetryRepository(store.db).record({ scope, status: "succeeded", triggered: true, highRisk: false, candidateCount: 1, selectedCount: 1, qualityExcluded: 0, empty: false, estimatedTokens: 1, durationMs: 1 });

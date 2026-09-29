@@ -1,13 +1,13 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync } from "node:fs";
+
 import { join } from "node:path";
 import test from "node:test";
 import { GraphologyStore } from "../dist/store.js";
 
 function createStores() {
-  const tmpRoot = join(process.cwd(), ".tmp");
-  mkdirSync(tmpRoot, { recursive: true });
-  const dir = mkdtempSync(join(tmpRoot, "auto-runs-test-"));
+
+  const dir = createTempDir("auto-runs-test-");
   const dbPath = join(dir, "kg.db");
   return [new GraphologyStore(dbPath), new GraphologyStore(dbPath)];
 }

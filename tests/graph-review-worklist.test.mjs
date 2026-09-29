@@ -1,8 +1,9 @@
+import { createTempDir } from "./helpers/temp.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+
 import { GraphologyStore, Mnemora, SUPPORTED_SCHEMA_VERSION } from "../dist/index.js";
 
 const entities = (source, sourceType, target, targetType, quote) => [
@@ -60,7 +61,7 @@ test("graph review worklist retains rejected decisions and exposes self-links as
 });
 
 test("v74 graph review lifecycle migration is additive and does not alter existing evidence", () => {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-graph-review-worklist-")), path = join(directory, "memory.db");
+  const directory = createTempDir("mnemora-graph-review-worklist-"), path = join(directory, "memory.db");
   let store;
   try {
     store = new GraphologyStore(path);
