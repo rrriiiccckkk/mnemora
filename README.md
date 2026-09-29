@@ -593,6 +593,9 @@ remain explicit-reference-only.
 
 ## Development
 
+Before adding fixtures, diagnosing storage/configuration, or upgrading an
+existing installation, read the [maintenance lessons and operational boundaries](docs/maintenance-lessons.zh-CN.md).
+
 ```bash
 npm run verify
 ```

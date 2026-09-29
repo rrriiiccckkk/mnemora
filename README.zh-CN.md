@@ -418,6 +418,8 @@ Mnemora 是本地记忆运行时，不是会自动构建人格画像的系统。
 
 ## 开发
 
+新增 fixture、排查存储/配置或升级现有部署前，先读 [维护经验与操作边界](docs/maintenance-lessons.zh-CN.md)。
+
 ```bash
 npm run verify
 ```
