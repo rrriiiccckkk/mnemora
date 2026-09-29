@@ -36,6 +36,7 @@ import { RecallFeedbackRepository, ReflectionService, type RecallFeedbackKind } 
 import { CognitionGraduationService } from "./cognition/graduation.js";
 import { TaskResumeService } from "./task-resume/service.js";
 import { TaskResumeComparisonRunner, validateTaskResumeComparisonPlan } from "./task-resume/comparison.js";
+import { TaskResumeValueGate } from "./task-resume/preregistration.js";
 import { EvaluationRunner, serializeEvaluationReport, validateEvaluationDataset } from "./evaluation/index.js";
 import { GraphReviewDecisionGate } from "./graph-review/decision-gate.js";
 
@@ -60,6 +61,11 @@ async function main(): Promise<void> {
   }
   if (command === "standalone") {
     try { standalone(args); } catch (error) { fail("standalone", error); }
+    return;
+  }
+  if (command === "evaluate" && ["task-resume-comparison", "task-resume-register", "task-resume-decision"].includes(args[0])) {
+    try { printOperator(`evaluate.${args[0]}`, evaluateTaskResumeCommand(args)); }
+    catch (error) { fail(`evaluate.${args[0]}`, error); }
     return;
   }
   const graph = new Mnemora({ config: { dbPath } });
@@ -149,11 +155,15 @@ function memoryCommand(graph: Mnemora, raw: string[]): unknown {
 }
 
 async function evaluateCommand(graph: Mnemora, raw: string[]): Promise<unknown> {
-  if (raw[0] === "task-resume-comparison") {
-    if (raw.length !== 2) throw new CliError("invalid_arguments");
-    return new TaskResumeComparisonRunner().run(validateTaskResumeComparisonPlan(JSON.parse(readFileSync(resolve(raw[1]), "utf8"))));
-  }
   return evaluateRecallQuality(graph, raw);
+}
+
+function evaluateTaskResumeCommand(raw: string[]): unknown {
+  if (raw.length !== (raw[0] === "task-resume-decision" ? 3 : 2)) throw new CliError("invalid_arguments");
+  const input = JSON.parse(readFileSync(resolve(raw[1]), "utf8"));
+  if (raw[0] === "task-resume-register") return new TaskResumeValueGate().register(input);
+  if (raw[0] === "task-resume-decision") return new TaskResumeValueGate().evaluate(input, JSON.parse(readFileSync(resolve(raw[2]), "utf8")));
+  return new TaskResumeComparisonRunner().run(validateTaskResumeComparisonPlan(input));
 }
 
 /** The graph decision gate is deliberately CLI-only: it is a human review

@@ -179,6 +179,15 @@ authorized, de-identified measurement is supplied. The comparison reports
 irrelevant memory injection only when every case has a reviewed label; missing
 labels are reported as unmeasured, never as zero.
 
+Before the next real experiment, use `mnemora evaluate task-resume-register
+<planned-plan.json>` to freeze its plan and fixed v1.32 policy, then
+`mnemora evaluate task-resume-decision <measured-plan.json> <registration.json>`
+to check the held-out value gate. These file-only commands do not open a memory
+database. A pass permits review, not pilot activation or an efficacy claim;
+an independently timestamped pre-run record is still required. See the
+[preregistration execution guide](docs/task-resume-preregistration.zh-CN.md)
+for material hashes, sample floors and the zero-baseline rule.
+
 When the Inspector is explicitly started with operations enabled, a journal
 event, artifact, episode, or summary can be removed through its item card. The
 Inspector first shows bounded downstream impact counts, then accepts one

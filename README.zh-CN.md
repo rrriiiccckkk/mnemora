@@ -117,6 +117,8 @@ Inspector 在候选列表和任务详情中同时显示这两项覆盖检查；*
 
 运行 `npm run benchmark:task-resume` 可执行 26 条合成多会话功能序列。`mnemora evaluate task-resume-comparison <plan.json>` 只验证并报告三组对照实验契约，不会调用模型；内置计划会明确显示为 `real_effect_experiment_not_run`，直到获得授权的去标识化测量结果。已测量的结果必须逐条满足计划中的 token 和延迟预算。只有每条记录都有人工审核标签时，才报告不相关记忆注入率；缺少标签会明确标记为未测量，不会当作零次。
 
+下一批真实实验运行前，使用 `mnemora evaluate task-resume-register <planned-plan.json>` 冻结计划与固定的 v1.32 政策；运行后使用 `mnemora evaluate task-resume-decision <measured-plan.json> <registration.json>` 检查 held-out 效用门槛。这些文件命令不会打开记忆数据库。通过只允许提交人工复核，不会启动试点或证明效果，仍须有可独立核对时间的事前记录。材料哈希、样本下限与零基线规则见 [预注册执行说明](docs/task-resume-preregistration.zh-CN.md)。
+
 只有显式以可操作模式启动 Inspector 时，才可从 Journal event、Artifact、Episode 或
 Summary 卡片移除错误记忆。它会先显示有界的下游影响计数，再接受一次短时有效的明确确认；
 不会覆盖原始证据，也不会暴露受影响项的 ID，受影响 Decision 会转为待审。

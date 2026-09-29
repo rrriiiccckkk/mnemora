@@ -1,5 +1,7 @@
 # Task-resume evaluation
 
+Before the next real experiment, use the [v1.32 preregistration and decision guide](task-resume-preregistration.zh-CN.md). `evaluate task-resume-register <planned-plan.json>` creates a detached commitment; `evaluate task-resume-decision <measured-plan.json> <registration.json>` checks the frozen plan and fixed value gates. Both commands, and the legacy comparison command, operate on files without initializing a memory database. Hashes require an independently timestamped pre-run record and operator audit; the command cannot prove provenance or chronology by itself.
+
 For Mac-side data collection and model runs, use the [Chinese OpenClaw execution handoff](task-resume-mac-openclaw-handoff.zh-CN.md). For the subsequent annotator-facing handoff, use the [Chinese labeling guide](task-resume-labeling-handoff.zh-CN.md).
 
 `npm run benchmark:task-resume` runs the 26 independent, synthetic

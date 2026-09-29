@@ -2,12 +2,13 @@
 
 ## Current release plan (2026-09-29)
 
-Current release target: **v1.31.6**, following released baseline **v1.31.5**.
+Current release target: **v1.31.7**, following released baseline **v1.31.6**.
 The historical sections below record earlier completed directions; this
 section is the active planning baseline.
 
 | Version | Product outcome | Release gate |
 | --- | --- | --- |
+| **v1.31.7 — Preregistered value decision** | A detached registration freezes the next experiment's plan, material hashes and fixed v1.32 decision policy before runs; the read-only decision cannot open a pilot on missing or inadequate evidence. | Inclusive threshold, drift, timeline, small-sample, zero-baseline, synthetic and no-database CLI regressions pass, followed by exact-commit cross-platform CI. A pass still requires an independent pre-run record and operator audit. |
 | **v1.31.6 — Inspector evidence coverage and confirmations** | Candidate and selected-task views distinguish readable sources, accepted-state coverage, and recorded progress; operation-generated IDs satisfy the existing result schema even when random entropy begins with punctuation. | Browser tests cover all four coverage combinations, scope isolation, read-only selection, and refresh after forgetting. Fixed-entropy regressions cover four operation confirmations; exact-commit Windows and Linux CI must pass before release. |
 | **v1.31.5 — Resume evidence coverage (released)** | The read-only resume projection distinguishes readable source evidence from accepted current task state and names a coverage gap without claiming that real-world task state is unknown. | Source-only, accepted-state, forgotten, and hash-only projections pass; both platforms passed CI for `ba999c7`. |
 | **v1.31.4 — Reviewed intake task linkage (released)** | An operator can explicitly link reviewed intake to a selected task rather than silently leaving accepted state disconnected from its resume target. | Preview/confirm and task scope rules remain intact. This historical release used an explicit operator bypass after a Windows browser-test failure; it is not evidence of successful cross-platform CI. Subsequent releases require both platforms. |
@@ -39,16 +40,39 @@ and invalid evidence no longer influence the Agent through any automatic path.
 
 ### Active sequencing
 
-1. Complete the Inspector presentation of **v1.31** evidence coverage while
-   preserving scope, acceptance, forgetting, and read-only boundaries.
-2. Obtain a matched Mac rerun of the model-visible changes in v1.31.4–v1.31.5.
-   Investigate empty smart-episode extraction only with authorized failing
-   inputs; do not reconstruct private cases from production SQLite.
-3. Use **v1.32** as the real decision gate. Its fixed-model comparison
-   determines whether Mnemora is better than simple retrieval on task
-   continuation, not merely whether its contracts pass.
+1. Freeze **v1.32** value criteria before new model runs using the
+   [preregistration guide](task-resume-preregistration.zh-CN.md). The existing
+   four-case report is exploratory, not a retrospectively registered test.
+2. Add memory-poisoning threat documentation and adversarial ingestion-to-prompt
+   fixtures. Prove that retrieved text stays in the untrusted evidence position,
+   never a privileged instruction slot; do not claim a model can never obey it.
+3. Run the new authorized held-out comparison under the fixed decision policy.
+   Keep a matched rerun of the old four cases as a separate regression study.
 4. Start **v1.33** only when that evidence supports a governed, scoped
    ReasoningMemory canary for a small set of verifiable procedures.
+
+### Recorded follow-up proposals (2026-09-29)
+
+- **Memory-poisoning threat model:** document attacker-controlled URL and
+  extraction input, trust boundaries, wrapper/role spoofing, persistence and
+  correction/forgetting attacks in `docs/threat-model.md`; add a dedicated ADR
+  and end-to-end adversarial fixtures. These artifacts and tests remain pending.
+- **Evidence-backed thresholds:** inventory each parameter's actual role
+  before consolidating defaults. `.72` is currently both an injection relevance
+  default and a separate graph-supplement semantic floor, not the universal
+  semantic-search floor. Related-to admission, MMR diversity and PPR ranking
+  have distinct meanings and existing configuration paths. Freeze a multi-case
+  labelled tuning/test set, scan only tuning, and report precision/recall and
+  token/latency curves without selecting from held-out results. Consolidation
+  and scanning are pending; no default was changed on a single sample.
+- **Attachment usefulness:** extend the existing scope-bound `target_ref`
+  feedback path rather than equating `recall_count` with utility. Citation,
+  later corroboration and user correction are separate signals; quotation is
+  not endorsement, and assistant self-claims are not independent evidence.
+  Keep raw text out of telemetry, trace only authorized canonical references,
+  retain deletion/retention and replay rules, and keep calibration changes
+  review-gated. The implicit-signal capture and canary calibration integration
+  are pending; existing explicit feedback is not evidence that they exist.
 
 ### Reported Mac comparison and remaining evidence
 
