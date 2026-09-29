@@ -113,6 +113,8 @@ Recall explanation 会明确区分“策略会检索什么”
 
 `task` 和候选中的 `memory_evidence` 把“来源文本仍可查”（`source_available`）与“有来源有效的已确认当前状态”（`accepted_current_state_available`）分开。前者为真、后者为假时，`needs_reconfirmation` 表示记忆治理覆盖不足，不证明现实任务状态未知；应先检查来源，再决定是否询问用户。遗忘或仅保存哈希的来源不会被标为可查。这些字段不把原始消息升格为已确认结果。
 
+Inspector 在候选列表和任务详情中同时显示这两项覆盖检查；**Recorded progress** 只表示记忆中记录的投影，不代表重新核实了现实进度。只有来源可读但缺少已确认状态时，页面才提示先检查来源；来源不可用时不会把引用误当成可读证据。读取和选择任务仍不会修改记忆。
+
 运行 `npm run benchmark:task-resume` 可执行 26 条合成多会话功能序列。`mnemora evaluate task-resume-comparison <plan.json>` 只验证并报告三组对照实验契约，不会调用模型；内置计划会明确显示为 `real_effect_experiment_not_run`，直到获得授权的去标识化测量结果。已测量的结果必须逐条满足计划中的 token 和延迟预算。只有每条记录都有人工审核标签时，才报告不相关记忆注入率；缺少标签会明确标记为未测量，不会当作零次。
 
 只有显式以可操作模式启动 Inspector 时，才可从 Journal event、Artifact、Episode 或

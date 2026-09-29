@@ -1,5 +1,6 @@
 import { api, bootstrap } from "./api.js";
 import { renderGraph } from "./graph-view.js";
+import type { TaskResumeEvidenceCoverage, TaskResumeResult, TaskResumeStateItem } from "../../task-resume/service.js";
 
 type GraphPage = { nodes: unknown[]; edges: unknown[]; next_cursor: string | null };
 type Capabilities = { operations: boolean; graph_revision?: number; config_revision?: number };
@@ -15,10 +16,6 @@ type RecallCandidate = { kind: "node" | "edge"; decision: "included" | "excluded
 type RecallActualAttachment = { telemetry: "available" | "disabled"; status: "matched" | "not_observed" | "not_comparable"; attached?: boolean; created_at?: number; local_selected_count?: number; graph_attached?: boolean };
 type RecallExplanation = { kind: "memory_intelligence"; view: "retrieval"; scope: string; automatic_recall_configured: boolean; strict_verification_enabled: boolean; policy: { allowed: boolean; reason: string }; candidates: RecallCandidate[]; injected: { candidates_considered: number; nodes: number; memories: number; budget_tokens: number }; actual_attachment?: RecallActualAttachment; items?: Array<Record<string, unknown>> };
 type IntelligenceView = { kind: "memory_intelligence"; view: string; scope: string; items: Array<Record<string, unknown>>; truncated: boolean };
-type TaskResumeStateItem = { kind: string; text: string; source_refs: string[]; recorded_at: number };
-type TaskResumeCandidate = { task_ref: string; title: string; goal: string; progress: "unknown" | "in_progress" | "blocked" | "completed" | "needs_reconfirmation"; last_evidence_at: number; source_refs: string[] };
-type TaskResumeSection = "completed" | "pending" | "blockers" | "constraints" | "next_steps" | "decisions" | "planned" | "history" | "needs_reconfirmation";
-type TaskResumeResult = { kind: "task_resume"; status: "ready" | "blocked" | "needs_reconfirmation"; scope: string; task: { id: string; task_ref: string; title: string; goal: string; progress: "unknown" | "in_progress" | "blocked" | "completed" | "needs_reconfirmation"; last_verified_at: number | null; last_evidence_at: number; source_refs: string[]; artifact_refs: string[] }; completed: TaskResumeStateItem[]; pending: TaskResumeStateItem[]; blockers: TaskResumeStateItem[]; constraints: TaskResumeStateItem[]; next_steps: TaskResumeStateItem[]; decisions: TaskResumeStateItem[]; planned: TaskResumeStateItem[]; history: TaskResumeStateItem[]; needs_reconfirmation: TaskResumeStateItem[]; truncated_sections: TaskResumeSection[]; truncated: boolean } | { kind: "task_resume"; status: "ambiguous" | "not_found" | "query_required"; scope: string; candidates: TaskResumeCandidate[]; truncated: boolean };
 
 let graphCursor: string | null = null;
 let entityCursor: string | null = null;
@@ -135,14 +132,14 @@ function renderTaskResume(result: TaskResumeResult): void {
         title.textContent = candidate.title;
         goal.textContent = candidate.goal;
         state.className = "empty-state";
-        state.textContent = `Current progress: ${candidate.progress.replaceAll("_", " ")}.`;
+        state.textContent = `Recorded progress: ${candidate.progress.replaceAll("_", " ")}.`;
         button.type = "button";
         button.textContent = candidate.progress === "completed" ? "View this task" : "Resume this task";
         button.addEventListener("click", () => {
           $<HTMLInputElement>('#task-resume-form input[name="task_ref"]').value = candidate.task_ref;
           void loadTaskResume();
         });
-        item.append(title, goal, state, referenceList(candidate.source_refs), button);
+        item.append(title, goal, state, resumeEvidence(candidate.memory_evidence), referenceList(candidate.source_refs), button);
         choices.append(item);
       }
       if (result.truncated) choices.append(emptyMessage(`Showing first ${result.candidates.length} matching task records; additional candidates are not shown.`));
@@ -156,14 +153,35 @@ function renderTaskResume(result: TaskResumeResult): void {
   title.textContent = result.task.title;
   goal.textContent = result.task.goal;
   meta.className = "empty-state";
-  meta.textContent = `Current progress: ${result.task.progress.replaceAll("_", " ")}. Last verified: ${result.task.last_verified_at ? new Date(result.task.last_verified_at).toLocaleString() : "Not recorded"}. Last evidence: ${new Date(result.task.last_evidence_at).toLocaleString()}.`;
-  overview.append(title, goal, meta, referenceList([...result.task.source_refs, ...result.task.artifact_refs]));
+  meta.textContent = `Recorded progress: ${result.task.progress.replaceAll("_", " ")}. Last verified: ${result.task.last_verified_at !== null ? new Date(result.task.last_verified_at).toLocaleString() : "Not recorded"}. Last evidence: ${new Date(result.task.last_evidence_at).toLocaleString()}.`;
+  overview.append(title, goal, meta, resumeEvidence(result.task.memory_evidence), referenceList([...result.task.source_refs, ...result.task.artifact_refs]));
   root.append(overview);
   const truncated = new Set(result.truncated_sections);
   const columns = document.createElement("div");
   columns.className = "resume-columns";
   columns.append(resumeList("Completed", result.completed, "No accepted completed item.", truncated.has("completed")), resumeList("Pending", result.pending, "No accepted pending item.", truncated.has("pending")), resumeList("Blockers", result.blockers, "No unresolved blocker recorded.", truncated.has("blockers")), resumeList("Constraints", result.constraints, "No active constraint recorded.", truncated.has("constraints")), resumeList("Next steps", result.next_steps, "No next step is evidenced.", truncated.has("next_steps")), resumeList("Decisions", result.decisions, "No accepted decision.", truncated.has("decisions")), resumeList("Planned", result.planned, "No future decision is recorded.", truncated.has("planned")), resumeList("History", result.history, "No superseded or inactive history.", truncated.has("history")), resumeList("Needs reconfirmation", result.needs_reconfirmation, "No reconfirmation needed.", truncated.has("needs_reconfirmation")));
   root.append(columns);
+}
+
+function resumeEvidence(coverage: TaskResumeEvidenceCoverage): HTMLElement {
+  const root = document.createElement("div"), heading = document.createElement("h4"), details = document.createElement("dl"), explanation = document.createElement("p");
+  root.className = "resume-evidence";
+  heading.textContent = "Memory evidence coverage";
+  for (const [label, value] of [["Readable task sources", coverage.source_available ? "Available" : "Unavailable"], ["Accepted current state in memory", coverage.accepted_current_state_available ? "Available" : "Not available"]]) {
+    const term = document.createElement("dt"), detail = document.createElement("dd");
+    term.textContent = label;
+    detail.textContent = value;
+    details.append(term, detail);
+  }
+  explanation.textContent = coverage.source_available
+    ? coverage.accepted_current_state_available
+      ? "Coverage describes stored evidence, not proof of task completion."
+      : "Memory coverage gap: readable sources are available, but no accepted current state with active evidence is available. Inspect sources before asking the user to repeat progress."
+    : coverage.accepted_current_state_available
+      ? "Accepted state has active evidence, but the task's original sources are unavailable. Review the reconfirmation items before continuing."
+      : "Task sources and accepted current state are unavailable. Confirm current progress before continuing; references alone are not readable evidence.";
+  root.append(heading, details, explanation);
+  return root;
 }
 
 function resumeList(title: string, items: TaskResumeStateItem[], empty: string, truncated = false): HTMLElement {

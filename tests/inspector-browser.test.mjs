@@ -8,6 +8,7 @@ import { chromium } from "playwright";
 import { ConversationEventRepository, EpisodeRepository, Mnemora, createInspectorApplication, startInspector } from "../dist/index.js";
 import { TaskOutcomeService } from "../dist/cognition/outcomes.js";
 import { createMnemoraContextRef } from "../dist/context/context-ref.js";
+import { MemoryImpactService } from "../dist/correction/impact-service.js";
 
 test("client bootstrap removes the secret fragment and keeps CSRF only in module memory",()=>{
   const manifest=JSON.parse(readFileSync("dist/inspector/asset-manifest.json","utf8")),bundle=readFileSync(`dist/inspector/${manifest.app}`,"utf8");
@@ -109,6 +110,61 @@ test("task resume view submits an explicit read-only task query and renders its 
     await page.waitForFunction(() => document.querySelector("#task-resume-result")?.textContent?.includes("Deployment migration"));
     assert.match(await page.locator("#task-resume-result").textContent(), /Retained task record/);
     assert.match(await page.locator("#task-resume-result").textContent(), /Showing first 8 records; additional pending records are not shown/);
+    assert.match(await page.locator(".resume-evidence").textContent(), /Readable task sourcesAvailable/);
+    assert.match(await page.locator(".resume-evidence").textContent(), /Accepted current state in memoryAvailable/);
+    assert.match(await page.locator("#task-resume-result").textContent(), /Recorded progress: in progress/);
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); await running.close(); graph.close(); try { rmSync(directory, { recursive: true, force: true }); } catch {} }
+});
+
+test("task resume shows memory coverage on candidates and selected tasks without promoting sources to confirmed state", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "mnemora-browser-task-coverage-")), graph = new Mnemora({ config: { dbPath: ":memory:", scope: { default: "project:alpha" } } });
+  const policy = { maxInlineChars: 16_000, maxEventBytes: 262_144, sensitiveContentPolicy: "redact" };
+  const createTask = (title, scope = "project:alpha", hashOnly = false) => {
+    const event = new ConversationEventRepository(graph.store.db, { ...policy, ...(hashOnly ? { sensitiveContentPolicy: "hash_only" } : {}) }).append({ scope, sessionId: title, kind: "user_message", role: "user", parts: [{ type: "text", text: hashOnly ? "password=PRIVATE_SOURCE_DO_NOT_RENDER" : `${title}: source evidence remains readable.` }] });
+    const episode = new EpisodeRepository(graph.store.db).create({ scope, kind: "task", title, summary: "Resume this rollout.", sourceEventIds: [event.id], importance: .8, confidence: .9 });
+    return { event, taskRef: createMnemoraContextRef({ scope, kind: "episode", id: episode.id }) };
+  };
+  const gap = createTask("Unreviewed rollout");
+  createTask("Hash-only rollout", "project:alpha", true);
+  const acceptedOnly = createTask("Accepted-only rollout", "project:alpha", true);
+  const evidence = new ConversationEventRepository(graph.store.db, policy).append({ scope: "project:alpha", sessionId: "accepted-evidence", kind: "user_message", role: "user", parts: [{ type: "text", text: "The rollout is partially complete." }] });
+  const outcomes = new TaskOutcomeService(graph.store.db), input = { scope: "project:alpha", taskRef: acceptedOnly.taskRef, verdict: "partial", impact: "neutral", summary: "Confirmed partial rollout.", evidenceRefs: [createMnemoraContextRef({ scope: "project:alpha", kind: "conversation-event", id: evidence.id })] };
+  outcomes.confirm(input, outcomes.preview(input).preview_hash);
+  createTask("OTHER_SCOPE_DO_NOT_RENDER", "project:beta");
+  const application = createInspectorApplication({ graph, allowOperations: false, artifactDirectory: directory }), running = await startInspector({ graph: application, allowOperations: false }), browser = await chromium.launch({ headless: true });
+  const changeCount = () => graph.store.db.prepare("SELECT total_changes() AS value").get().value;
+  try {
+    const page = await browser.newPage(), errors = [], before = changeCount();
+    page.on("pageerror", error => errors.push(error.message));
+    await page.goto(running.url); await page.waitForSelector("#overview-cards .card");
+    await page.locator('button[data-view="task-resume"]').click();
+    await page.waitForFunction(() => document.querySelectorAll(".resume-evidence").length === 3);
+    const candidate = title => page.locator(".resume-item").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
+    assert.match(await candidate("Unreviewed rollout").textContent(), /Readable task sourcesAvailable/);
+    assert.match(await candidate("Unreviewed rollout").textContent(), /Accepted current state in memoryNot available/);
+    assert.match(await candidate("Unreviewed rollout").textContent(), /Memory coverage gap/);
+    assert.match(await candidate("Hash-only rollout").textContent(), /Readable task sourcesUnavailable/);
+    assert.match(await candidate("Hash-only rollout").textContent(), /Accepted current state in memoryNot available/);
+    assert.doesNotMatch(await candidate("Hash-only rollout").textContent(), /Memory coverage gap|Inspect sources/);
+    assert.match(await candidate("Accepted-only rollout").textContent(), /Accepted current state in memoryAvailable/);
+    assert.match(await candidate("Accepted-only rollout").textContent(), /original sources are unavailable/);
+    assert.doesNotMatch(await page.locator("#task-resume-result").textContent(), /PRIVATE_SOURCE_DO_NOT_RENDER|OTHER_SCOPE_DO_NOT_RENDER/);
+    await candidate("Unreviewed rollout").getByRole("button", { name: "Resume this task" }).click();
+    await page.getByRole("heading", { name: "Unreviewed rollout", exact: true, level: 3 }).waitFor();
+    assert.match(await page.locator(".resume-evidence").textContent(), /Memory coverage gap/);
+    assert.match(await page.locator("#task-resume-result").textContent(), /Recorded progress: needs reconfirmation/);
+    assert.equal(changeCount(), before, "Reading candidates and selecting a task must not mutate memory.");
+
+    const impact = new MemoryImpactService(graph.store.db), target = { scope: "project:alpha", kind: "event", id: gap.event.id }, preview = impact.preview(target);
+    impact.forget({ ...target, previewHash: preview.previewHash, confirm: true });
+    const afterForget = changeCount();
+    const response = page.waitForResponse(value => new URL(value.url()).pathname === "/api/task-resume" && value.request().method() === "POST");
+    await page.locator("#task-resume-form").evaluate(form => form.requestSubmit());
+    await response;
+    await page.waitForFunction(() => document.querySelector(".resume-evidence")?.textContent?.includes("Readable task sourcesUnavailable"));
+    assert.doesNotMatch(await page.locator(".resume-evidence").textContent(), /Memory coverage gap|Inspect sources/);
+    assert.equal(changeCount(), afterForget, "Re-reading forgotten evidence must remain read-only.");
     assert.deepEqual(errors, []);
   } finally { await browser.close(); await running.close(); graph.close(); try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });

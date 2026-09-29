@@ -1,12 +1,16 @@
 # Mnemora Roadmap
 
-## Current release plan (2026-09-23)
+## Current release plan (2026-09-29)
 
-Released baseline: **v1.31.3**. The historical sections below record earlier
-completed directions; this section is the active planning baseline.
+Current release target: **v1.31.6**, following released baseline **v1.31.5**.
+The historical sections below record earlier completed directions; this
+section is the active planning baseline.
 
 | Version | Product outcome | Release gate |
 | --- | --- | --- |
+| **v1.31.6 — Inspector evidence coverage** | Candidate and selected-task views distinguish readable sources, accepted-state coverage, and recorded progress without promoting raw sources to confirmed outcomes. | Browser tests cover all four coverage combinations, scope isolation, read-only selection, and refresh after forgetting; exact-commit Windows and Linux CI must pass before release. |
+| **v1.31.5 — Resume evidence coverage (released)** | The read-only resume projection distinguishes readable source evidence from accepted current task state and names a coverage gap without claiming that real-world task state is unknown. | Source-only, accepted-state, forgotten, and hash-only projections pass; both platforms passed CI for `ba999c7`. |
+| **v1.31.4 — Reviewed intake task linkage (released)** | An operator can explicitly link reviewed intake to a selected task rather than silently leaving accepted state disconnected from its resume target. | Preview/confirm and task scope rules remain intact. This historical release used an explicit operator bypass after a Windows browser-test failure; it is not evidence of successful cross-platform CI. Subsequent releases require both platforms. |
 | **v1.31.3 — Release wait hardening (released)** | The tag workflow waits long enough for the allowed 20-minute cross-platform CI before deciding that the exact-commit gate failed. | This release's tag uses the longer wait and publishes only after successful Windows and Linux CI for its commit. |
 | **v1.31.2 — Comparison coverage guard (released)** | A measured task-resume comparison can report irrelevant memory injection when every case has a reviewed label, while clearly marking the metric unmeasured otherwise. | Held-out-only aggregation, incomplete-label rejection, and no-memory arm isolation pass. |
 | **v1.31.1 — Comparison budget guard (released)** | The task-resume comparison rejects measured records exceeding the plan's per-case token or latency budget. | Focused regressions cover exact-limit acceptance and over-budget rejection for both tuning and test records. |
@@ -35,17 +39,32 @@ and invalid evidence no longer influence the Agent through any automatic path.
 
 ### Active sequencing
 
-1. Finish **v1.30** by proving source-linked task continuation through the
-   CLI and Inspector for restart, correction, forgetting, Chinese query, and
-   ambiguous-task cases.
-2. Build **v1.31** around long-history correctness: multiple blockers,
-   replacements, expiry, constraints, conflicts, and independent display
-   limits must not hide or revive task state.
-3. Run **v1.32** as the first real decision gate. Its fixed-model comparison
+1. Complete the Inspector presentation of **v1.31** evidence coverage while
+   preserving scope, acceptance, forgetting, and read-only boundaries.
+2. Obtain a matched Mac rerun of the model-visible changes in v1.31.4–v1.31.5.
+   Investigate empty smart-episode extraction only with authorized failing
+   inputs; do not reconstruct private cases from production SQLite.
+3. Use **v1.32** as the real decision gate. Its fixed-model comparison
    determines whether Mnemora is better than simple retrieval on task
    continuation, not merely whether its contracts pass.
 4. Start **v1.33** only when that evidence supports a governed, scoped
    ReasoningMemory canary for a small set of verifiable procedures.
+
+### Reported Mac comparison and remaining evidence
+
+The operator supplied a 2026-09-24 report for four authorized real-history
+cases: simple retrieval was correct on 4/4, Mnemora on 2/4, and no long-term
+memory on 0/4. Held-out test coverage was only two cases. All twelve rows were
+reported clean for stale-fact use, repeated steps, and irrelevant injection.
+This repository workspace has not independently re-read the Mac artifacts.
+
+The reported Mnemora failures involved `needs_reconfirmation` being read as
+real-world uncertainty despite sufficient source material. v1.31.4–v1.31.5
+address task linkage and uncertainty presentation; v1.31.6 only makes the
+existing coverage visible in Inspector. None establishes an improvement in
+measured model performance. Preserve the original split and metrics on rerun,
+retain failures, and keep automatic-recall claims separate from explicit
+`resume`/retrieval measurements. Do not start the v1.33 pilot on this evidence.
 
 ### Deferred experimental track: associative recall
 
