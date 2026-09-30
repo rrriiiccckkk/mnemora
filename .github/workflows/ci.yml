@@ -17,10 +17,17 @@ jobs:
         node: ["24.19.0"]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - if: runner.os == 'Linux'
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
           cache: npm
+      # Windows npm-cache compression can exhaust the job timeout after all
+      # verification has passed. Caching is optional; verification is not.
+      - if: runner.os == 'Windows'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
       - run: npm ci
       - run: npm run release:validate
       - if: runner.os == 'Linux'
