@@ -390,3 +390,41 @@ test("schema v65 adds optional verifier contracts without rewriting existing rea
 });
 
 function governedConfig(scope) { return { tokenBudget: 800, maxItems: 6, minConfidence: .6, highRiskMinConfidence: .8, minEvidenceQuality: .5, highRiskMinEvidenceQuality: .75, maxStalenessDays: 365, excludeConflicted: true, retentionDays: 30, readiness: { minimumRuns: 1, maxErrorRate: 0, maxEmptyRate: 1, maxP95Ms: 1000 }, delivery: { enabled: true, scopes: [scope], adapter: "openclaw", calibrationMaxAgeHours: 1, maxConsecutiveDeliveries: 2, itemRetentionDays: 30 } }; }
+
+test("governed delivery fits complete byte-bounded presentations and audits an unfittable subset", () => {
+  const store = new GraphologyStore(":memory:"), scope = "project:ops", now = 3000;
+  try {
+    const refs = fixture(store), journal = new ConversationEventRepository(store.db, policy);
+    const evidenceRefs = Array.from({ length: 7 }, (_, index) => {
+      const event = journal.append({ id: `long-${index}-${"e".repeat(490)}`, scope, sessionId: "long", kind: "user_message", role: "user", parts: [{ type: "text", text: "Validate migration rollback." }] });
+      return createMnemoraContextRef({ scope, kind: "conversation-event", id: event.id });
+    });
+    const memories = new ReasoningMemoryService(store.db, () => 2000);
+    for (let index = 0; index < 6; index++) {
+      const input = { scope, kind: "failure_guard", strategy: `Validate rollback before production migration ${index}. ${"x".repeat(400)}`, sourceTaskRefs: [refs.taskRef], outcomeRefs: [refs.outcomeRef], evidenceRefs, confidence: .9 };
+      const proposed = memories.propose(input, memories.preview(input).preview_hash);
+      memories.admit(proposed.id, scope, memories.admissionPreview(proposed.id, scope).preview_hash);
+    }
+    const config = { ...governedConfig(scope), tokenBudget: 1600 }, request = { scope, query: "Deploy a production database migration with rollback." };
+    new ReasoningRuntimeShadowService(store.db, config, () => now).capture(request);
+    const governance = new ReasoningRuntimeGovernanceRepository(store.db, () => now);
+    const calibration = governance.confirmCalibration(scope, config, governance.previewCalibration(scope, config).preview_hash).calibration;
+    governance.enable(scope, calibration.id, config, governance.enablePreview(scope, calibration.id, config).preview_hash);
+    const output = new ReasoningGovernedDeliveryService(store.db, config, () => now).handle(request);
+    assert.ok(output);
+    assert.ok(output.appendSystemContext.endsWith("</MNEMORA_REASONING_CONTEXT>"));
+    assert.ok(Buffer.byteLength(output.appendSystemContext, "utf8") <= 16384);
+    for (const ref of evidenceRefs) assert.ok(output.appendSystemContext.includes(ref));
+    const delivered = governance.deliveries(scope)[0];
+    assert.equal(delivered.status, "delivered");
+    assert.equal(delivered.selected_count, output.deliveryItemRefs.length);
+    assert.ok(delivered.selected_count > 0 && delivered.selected_count < 6);
+
+    const small = { ...config, tokenBudget: 800 };
+    new ReasoningRuntimeShadowService(store.db, small, () => now + 1).capture(request);
+    const smallCalibration = governance.confirmCalibration(scope, small, governance.previewCalibration(scope, small).preview_hash).calibration;
+    governance.enable(scope, smallCalibration.id, small, governance.enablePreview(scope, smallCalibration.id, small).preview_hash);
+    assert.equal(new ReasoningGovernedDeliveryService(store.db, small, () => now + 1).handle(request), undefined);
+    assert.ok(governance.deliveries(scope).some(row => row.status === "withheld" && row.reason_code === "budget"));
+  } finally { store.close(); }
+});

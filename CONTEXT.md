@@ -6,6 +6,13 @@ and from stored, but not yet trusted, material.
 
 ## Language
 
+**Reference content**:
+Stored or model-derived text eligible for a bounded, non-authoritative prompt
+projection. Provenance, verification and operator confirmation do not turn its
+embedded commands into host policy; raw audit content and rendered content may
+differ. A host system-message transport does not change this semantic boundary.
+_Avoid_: Host instruction, trusted command, system policy
+
 **Automatic context admission**:
 The single decision boundary that determines whether a stored record may enter
 an Agent's prompt. It evaluates scope, source and lifecycle validity, evidence

@@ -7,6 +7,7 @@ import type { JournalDerivedTaskKind, JournalEventInput, JournalEventKind, Journ
 import type { CompletedTurn, ContextAssemblyInput } from "./lifecycle.js";
 import { contextDomain, estimateMessageTokens, messageText, selectBoundHostMessages, type HostMessage } from "./message-safety.js";
 import { UnifiedRetrievalService } from "../retrieval/service.js";
+import { sanitizeMemoryForContext } from "../retrieval/context-safety.js";
 import { selectGraphInjection, selectInjectionCandidates, type InjectionSuppressionReason } from "../retrieval/injection-policy.js";
 import { planRecallQuery } from "../retrieval/query-routing.js";
 import { RecallUsageRepository } from "../recall-lifecycle/repository.js";
@@ -458,7 +459,7 @@ export class MnemoraContextEngine implements ContextEngine {
       if (!root) return { messages, summaryTokens: 0 };
       const compacted = messages.filter(message => !isCompactionEnvelope(message));
       const fresh = freshTail(compacted, options.freshTailCount!);
-      const content = root.content.slice(0, this.config.contextEngine!.maxSummaryChars!);
+      const content = sanitizeMemoryForContext(root.content, this.config.contextEngine!.maxSummaryChars!);
       const summary: HostMessage = { role: "system", content: `<MNEMORA_COMPACTION summary_id="${root.id}" source_linked="true" authority="non_authoritative" priority="reference">\n${content}\n</MNEMORA_COMPACTION>` };
       const summaryTokens = estimateMessageTokens(summary), currentUser = [...fresh].reverse().find(message => contextDomain(message) === "user_chat" && String(message.role ?? "").toLowerCase() === "user");
       if (summaryTokens + (currentUser ? estimateMessageTokens(currentUser) : 0) > budget) return { messages, summaryTokens: 0 };

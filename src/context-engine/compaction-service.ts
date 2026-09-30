@@ -4,6 +4,7 @@ import { CompactionModelError, type CompactionSummarizer } from "./compaction-mo
 import { CompactionRunRepository, type CompactionRun } from "./compaction-run-repository.js";
 import { SummaryRepository, type SummaryNode } from "./summary-repository.js";
 import { estimateCompactionTokens } from "./token-estimate.js";
+import { sanitizeMemoryForContext } from "../retrieval/context-safety.js";
 
 type RewriteRuntime = { rewriteTranscriptEntries?(request: { replacements: Array<{ entryId: string; message: unknown }>; allowedRewriteSuffixEntryIds?: string[] }): Promise<{ changed: boolean; bytesFreed?: number; rewrittenEntries?: number; reason?: string }> };
 type Row = { id: string; role: string | null; normalized_text: string | null; entry_id: string; sequence: number };
@@ -124,7 +125,7 @@ export class ContextCompactionService {
       const preparedSourceTokens = prepared.reduce((total, item) => total + item.chunk.sourceReductionTokens, 0);
       const preparedModelInputTokens = prepared.reduce((total, item) => total + item.chunk.modelInputTokens, 0);
       const entryIds = sourceRows.map(row => row.entry_id);
-      const summaryMessage = this.summaryMessage(root);
+      const summaryMessage = this.summaryMessage(root, options.maxOutputChars);
       const replacements = sourceRows.map((row, index) => ({ entryId: row.entry_id, message: index === 0 ? { role: "system", content: summaryMessage } : { role: "system", content: `<MNEMORA_COMPACTED summary_id="${root.id}" source_event="${row.id}" />` } }));
       try {
         abort(input.signal);
@@ -167,8 +168,9 @@ export class ContextCompactionService {
     for (const item of prepared) this.runs.update(item.run.id, "failed", now, { failureCategory: "runtime_rewrite_declined" });
   }
 
-  private summaryMessage(summary: SummaryNode): string {
-    return `<MNEMORA_COMPACTION summary_id="${summary.id}" source_linked="true" authority="non_authoritative" priority="reference">\n${summary.content}\n</MNEMORA_COMPACTION>`;
+  private summaryMessage(summary: SummaryNode, maxChars: number): string {
+    const content = sanitizeMemoryForContext(summary.content, maxChars);
+    return `<MNEMORA_COMPACTION summary_id="${summary.id}" source_linked="true" authority="non_authoritative" priority="reference">\n${content}\n</MNEMORA_COMPACTION>`;
   }
 
   private rows(scope: string, sessionId: string): Row[] {

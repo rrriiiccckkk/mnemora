@@ -1,8 +1,12 @@
 # Mnemora 下一轮开发交接
 
-当前接手入口（2026-09-29）：先核对实际 HEAD 与工作区，以 [roadmap](roadmap.md) 为当前方向；新增测试、排查数据库/配置或升级时，读取 [维护经验与操作边界](maintenance-lessons.zh-CN.md)。下文是 **2026-09-10 的历史交接**，其“未提交/待验证”和版本状态不代表当前工作区。当前已发布基线为 v1.31.7；正式三臂实验另见 [预注册说明](task-resume-preregistration.zh-CN.md)。不重新创建此前移除的未跟踪 AGENTS.md。
+当前接手入口（2026-09-30）：先核对实际 HEAD 与工作区，以 [roadmap](roadmap.md) 为当前方向；新增测试、排查数据库/配置或升级时，读取 [维护经验与操作边界](maintenance-lessons.zh-CN.md)。下文是 **2026-09-10 的历史交接**，其“未提交/待验证”和版本状态不代表当前工作区。当前已发布基线为 v1.31.8；正式三臂实验另见 [预注册说明](task-resume-preregistration.zh-CN.md)。不重新创建此前移除的未跟踪 AGENTS.md。
 
-本轮 v1.31.8 为统一测试目录与退出清理，发布状态核对 GitHub Release，不从旧交接推断。此版本起，文件型 fixture 的定向测试用 `node scripts/run-unit-tests.mjs tests/<name>.test.mjs`，完整验收用 `npm run verify`；下文历史 `node --test` 命令不是当前受管理的清理入口。测试仍串行，未修改 schema、产品限额或模型身份。完成本轮并经双平台 CI 发布后，下一项仍是 roadmap 中的记忆投毒威胁模型与对抗回归。
+v1.31.8 已以 `c9c2cce` 完成双平台 CI 并正式发布。此版本起，文件型 fixture 的定向测试用 `node scripts/run-unit-tests.mjs tests/<name>.test.mjs`，完整验收用 `npm run verify`；下文历史 `node --test` 命令不是当前受管理的清理入口。
+
+当前增量（2026-09-30）为 v1.31.9：补齐摘要装配、压缩改写和内置推理投递的共享正文保护，保留审计原文；新增 [威胁模型](threat-model.md)、ADR 0002 和对抗性回归。发布仍要求完整本地验收及同一提交的 Windows/Linux CI。测试串行、schema 83、产品限额和模型身份不变；不能把结构性测试当作模型抗注入效果。接下来按 roadmap 做多案例阈值证据和 target_ref 级反馈设计，真实 v1.32 对照实验继续等待授权材料与预注册运行。
+
+v1.31.9 最终本地验收：Node 24.19.0 下完整 `npm run verify` 通过，单测 943/943（新增 23 项），性能基线、插件校验与 smoke 均通过。正式发布状态核对对应 GitHub Release，不从本地通过推断远端 CI。
 
 ## 历史交接（2026-09-10）
 

@@ -4,7 +4,8 @@
  * wrapper delimiters, hidden controls, and common speaker-role impersonation.
  */
 const INVISIBLE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff]/gu;
-const WRAPPER = /<\/?\s*mnemora_memory\b[^>]*>/giu;
+// All Mnemora-owned envelopes are reserved, including future projection types.
+const WRAPPER = /<\/?\s*mnemora_[a-z0-9_]+\b[^>]*>/giu;
 const ROLE = /^(?:>?\s*)?(?:user|assistant|system|developer|tool|model|用户|助手|系统|开发者|工具)\s*[:：]/iu;
 const CONFUSABLES: Readonly<Record<string, string>> = {
   "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "х": "x", "у": "y",
@@ -19,7 +20,7 @@ const roleLike = (line: string): boolean => {
 export function sanitizeMemoryForContext(value: unknown, maximum = 1200): string {
   if (typeof value !== "string") return "";
   const safe = value.normalize("NFKC").replace(INVISIBLE, "").replace(WRAPPER, "[memory-delimiter removed]");
-  const quoted = safe.replace(/\r\n?/gu, "\n").split("\n")
+  const quoted = safe.replace(/\r\n?|[\u2028\u2029]/gu, "\n").split("\n")
     .map(line => roleLike(line) ? `[quoted-memory] ${line}` : line)
     .join("\n").trim();
   return quoted.slice(0, Math.max(0, Math.trunc(maximum)));

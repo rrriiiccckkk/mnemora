@@ -1,5 +1,6 @@
 import { createMnemoraContextRef } from "../context/context-ref.js";
 import { normalizeScope } from "../scope.js";
+import { sanitizeMemoryForContext } from "../retrieval/context-safety.js";
 import { ReasoningMemoryService, type ReasoningApplicability, type ReasoningMemoryKind } from "./reasoning.js";
 import { ReasoningRetrievalService, type ReasoningRetrievalInput } from "./reasoning-retrieval.js";
 import type { DatabaseSyncInstance } from "@photostructure/sqlite";
@@ -48,7 +49,13 @@ class MarkdownReasoningAdapter implements ReasoningAgentAdapter {
   readonly contractVersion = REASONING_AGENT_ADAPTER_CONTRACT_V1;
   constructor(readonly id: "generic" | "codex" | "openclaw") {}
   render(context: CompiledReasoningContext): ReasoningAgentPresentation {
-    const content = ["<MNEMORA_REASONING_CONTEXT authority=\"non_authoritative_reference\">", "Use these as evidence-backed reference procedures; verify against the current task. A delivery receipt may be cited only for deterministic outcome feedback.", ...context.items.map((item, index) => `${index + 1}. [${item.kind}] ${item.strategy}\n   authority=${item.authority}; confidence=${item.confidence.toFixed(3)}; utility=${item.utility.toFixed(3)}; refs=${item.sourceRefs.join(",")}${item.deliveryItemRef ? `; delivery_item=${item.deliveryItemRef}` : ""}`), "</MNEMORA_REASONING_CONTEXT>"].join("\n").slice(0, 16_384);
+    const content = [
+      "<MNEMORA_REASONING_CONTEXT authority=\"non_authoritative_reference\">",
+      "Use these as evidence-backed reference procedures; verify against the current task. A delivery receipt may be cited only for deterministic outcome feedback.",
+      ...context.items.map((item, index) => `${index + 1}. [${item.kind}] ${sanitizeMemoryForContext(item.strategy, 16_384)}\n   authority=${item.authority}; confidence=${item.confidence.toFixed(3)}; utility=${item.utility.toFixed(3)}; refs=${item.sourceRefs.map(ref => sanitizeMemoryForContext(ref, 16_384)).join(",")}${item.deliveryItemRef ? `; delivery_item=${sanitizeMemoryForContext(item.deliveryItemRef, 16_384)}` : ""}`),
+      "</MNEMORA_REASONING_CONTEXT>"
+    ].join("\n");
+    // The registry checks UTF-8 bytes. Never truncate the trusted envelope.
     return { adapterId: this.id, contractVersion: this.contractVersion, channel: "sidecar", format: "markdown", content, estimatedTokens: estimate(content) };
   }
 }

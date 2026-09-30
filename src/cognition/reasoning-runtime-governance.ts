@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSyncInstance } from "@photostructure/sqlite";
 import { createMnemoraContextRef } from "../context/context-ref.js";
 import { normalizeScope } from "../scope.js";
-import { ReasoningAgentAdapterRegistry, type CompiledReasoningContext } from "./reasoning-adapters.js";
+import { ReasoningAgentAdapterRegistry, type CompiledReasoningContext, type ReasoningAgentPresentation } from "./reasoning-adapters.js";
 import { ReasoningDeliveryFeedbackRepository } from "./reasoning-delivery-feedback.js";
 import type { ReasoningRuntimeTaskContext } from "./reasoning-runtime.js";
 import { ReasoningRuntimeShadowService, ReasoningRuntimeTelemetryRepository, type ReasoningRuntimeTelemetryConfig } from "./reasoning-runtime-telemetry.js";
@@ -142,7 +142,20 @@ export class ReasoningGovernedDeliveryService {
 }
 
 export function reasoningRuntimePolicyHash(config: ReasoningRuntimeGovernanceConfig): string { const safe = canonicalPolicy(config); return digest({ version: "reasoning-runtime-policy-v1", tokenBudget: safe.tokenBudget, maxItems: safe.maxItems, minConfidence: safe.minConfidence, highRiskMinConfidence: safe.highRiskMinConfidence, minEvidenceQuality: safe.minEvidenceQuality, highRiskMinEvidenceQuality: safe.highRiskMinEvidenceQuality, maxStalenessDays: safe.maxStalenessDays, excludeConflicted: safe.excludeConflicted, readiness: safe.readiness, adapter: safe.delivery.adapter, maxConsecutiveDeliveries: safe.delivery.maxConsecutiveDeliveries, itemRetentionDays: safe.delivery.itemRetentionDays, semantic: safe.semantic ?? { enabled: false } }); }
-function fitPresentation(context: CompiledReasoningContext, tokenBudget: number, adapter: "openclaw", planned: Array<{ id: string; memoryId: string }>): { content: string; tokens: number; items: number } | undefined { const registry = new ReasoningAgentAdapterRegistry(); for (let count = context.items.length; count > 0; count--) { const selected = context.items.slice(0, count).map((item, index) => ({ ...item, deliveryItemRef: planned[index] ? createMnemoraContextRef({ scope: context.scope, kind: "reasoning-delivery-item", id: planned[index].id }) : undefined })), rendered = registry.render(adapter, { ...context, items: selected, estimatedTokens: selected.reduce((sum, item) => sum + item.estimatedTokens, 0) }); if (rendered.estimatedTokens <= tokenBudget) return { content: rendered.content, tokens: rendered.estimatedTokens, items: selected.length }; } return undefined; }
+function fitPresentation(context: CompiledReasoningContext, tokenBudget: number, adapter: "openclaw", planned: Array<{ id: string; memoryId: string }>): { content: string; tokens: number; items: number } | undefined {
+  const registry = new ReasoningAgentAdapterRegistry();
+  for (let count = context.items.length; count > 0; count--) {
+    const selected = context.items.slice(0, count).map((item, index) => ({ ...item, deliveryItemRef: planned[index] ? createMnemoraContextRef({ scope: context.scope, kind: "reasoning-delivery-item", id: planned[index].id }) : undefined }));
+    let rendered: ReasoningAgentPresentation;
+    try { rendered = registry.render(adapter, { ...context, items: selected, estimatedTokens: selected.reduce((sum, item) => sum + item.estimatedTokens, 0) }); }
+    catch (error) {
+      if (error instanceof Error && error.message === "invalid_reasoning_agent_presentation") continue;
+      throw error;
+    }
+    if (rendered.estimatedTokens <= tokenBudget) return { content: rendered.content, tokens: rendered.estimatedTokens, items: selected.length };
+  }
+  return undefined;
+}
 function deliveryConfigured(scope: string, config: ReasoningDeliveryConfig): boolean { return config.enabled && config.scopes.length > 0 && config.scopes.includes(scope); }
 function calibration(row: Record<string, unknown>): ReasoningRuntimeCalibration { return { id: String(row.id), scope: normalizeScope(row.scope), policyHash: String(row.policy_hash), status: row.status === "ready" ? "ready" : "rejected", createdAt: Number(row.created_at), expiresAt: Number(row.expires_at), metrics: { runs: integer(row.total_runs, 5000), triggered: integer(row.triggered_runs, 5000), selected: integer(row.selected_count, 100000), emptyRate: unit(row.empty_rate), errorRate: unit(row.error_rate), p95Ms: integer(row.p95_ms, 30000) } }; }
 function integer(value: unknown, maximum: number): number { const number = Number(value); return Number.isFinite(number) ? Math.min(maximum, Math.max(0, Math.trunc(number))) : 0; }
