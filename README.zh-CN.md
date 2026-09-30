@@ -400,6 +400,10 @@ mnemora resume "部署迁移" --scope project:alpha
 mnemora evaluate recall-quality ./deidentified-golden.json
 ```
 
+阈值扫描使用显式指定的授权语料快照和 `evaluate recall-threshold-scan <plan.json>`，
+详见 [阈值评估说明](docs/recall-threshold-evaluation.md)。该命令只读打开已有、schema
+兼容的数据库，不建库或迁移；只在 tuning 选值，不改默认配置，不把合成分数当部署证据。
+
 CLI 默认使用 `~/.openclaw/mnemora.db`。首次创建持久化数据库时，它会在 stderr
 输出实际路径；请通过 `MNEMORA_DB` 显式选择其他数据库。
 

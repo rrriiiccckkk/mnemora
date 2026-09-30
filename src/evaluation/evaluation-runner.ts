@@ -179,6 +179,7 @@ async function runBounded<T>(operation: (signal: AbortSignal) => Promise<T>, tim
   if (remaining <= 0) throw new EvaluationOperationError("deadline");
   const controller = new AbortController();
   const timeout = Math.max(1, Math.min(timeoutMs, Math.ceil(remaining)));
+  const operationDeadline = Math.min(deadlineAt, performance.now() + timeout);
   return await new Promise<T>((resolve, reject) => {
     let settled = false;
     const finish = (callback: () => void) => { if (settled) return; settled = true; clearTimeout(timer); callerSignal?.removeEventListener("abort", onAbort); callback(); };
@@ -186,7 +187,13 @@ async function runBounded<T>(operation: (signal: AbortSignal) => Promise<T>, tim
     const timer = setTimeout(() => { controller.abort(); finish(() => reject(new EvaluationOperationError("deadline"))); }, timeout);
     callerSignal?.addEventListener("abort", onAbort, { once: true });
     Promise.resolve().then(() => operation(controller.signal)).then(
-      value => finish(() => resolve(value)),
+      value => {
+        // A blocking local subject can resolve before an overdue timer runs.
+        // It cannot be preempted here, but an overrun must not become evidence.
+        if (performance.now() >= operationDeadline) {
+          controller.abort(); finish(() => reject(new EvaluationOperationError("deadline")));
+        } else finish(() => resolve(value));
+      },
       error => finish(() => reject(error instanceof EvaluationOperationError ? error : new EvaluationOperationError("provider")))
     );
   });

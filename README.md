@@ -568,6 +568,12 @@ mnemora resume "deployment migration" --scope project:alpha
 mnemora evaluate recall-quality ./deidentified-golden.json
 ```
 
+For a tuning-only threshold scan, use an explicitly selected authorized corpus
+snapshot and `evaluate recall-threshold-scan <plan.json>`; see
+[threshold evaluation](docs/recall-threshold-evaluation.md). This command requires
+an existing schema-compatible database, opens it read-only without migration,
+and never changes defaults or treats synthetic scores as deployment evidence.
+
 The CLI uses `~/.openclaw/mnemora.db` by default. When it creates a persistent
 database for the first time, it reports the exact path on stderr; set
 `MNEMORA_DB` to select a different database explicitly.

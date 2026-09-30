@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { Mnemora, EvaluationRunner, UnifiedRetrievalService, createMnemoraContextRef } from "../dist/index.js";
+import { Mnemora, EvaluationRunner, RecallThresholdScanRunner, UnifiedRetrievalService, createMnemoraContextRef } from "../dist/index.js";
 
 // This is a fixed, entirely fictional regression corpus. It deliberately
 // contains no conversation, artifact, or operator data. A passing result is a
@@ -45,7 +45,8 @@ try {
     seed: 622,
     cases
   };
-  const service = new UnifiedRetrievalService(graph.store.db, policy);
+  const scoringTime = Date.now();
+  const service = new UnifiedRetrievalService(graph.store.db, policy, () => scoringTime);
   const find = async ({ scope: requestScope, query, limit, signal }) => {
     const result = service.find({ scope: requestScope, query, limit, tokenBudget: 800, signal });
     return { candidates: result.candidates.map(item => ({ contextRef: item.contextRef, score: item.score, sourceRecovered: item.sourceRefs.length > 0, estimatedTokens: item.estimatedTokens, bytes: item.bytes })) };
@@ -62,9 +63,31 @@ try {
   const comparison = { kind: "synthetic_policy_proxy", explicit: report.cohorts?.explicit, auto_extract_proxy: report.cohorts?.auto_extract };
   assert.equal(comparison.explicit?.recallAtK, 1);
   assert.equal(comparison.auto_extract_proxy?.recallAtK, 1);
+  const scan = await new RecallThresholdScanRunner((threshold, config) => {
+    const retrieve = async ({ scope: requestScope, query, limit, signal }) => {
+      const result = service.find({ scope: requestScope, query, limit, signal, tokenBudget: config.tokenBudget, hardMinScore: threshold });
+      return { candidates: result.candidates.map(item => ({ contextRef: item.contextRef, score: item.score, sourceRecovered: item.sourceRefs.length > 0, estimatedTokens: item.estimatedTokens, bytes: item.bytes })) };
+    };
+    return { find: retrieve, search: retrieve };
+  }).run({
+    version: 1, evidenceKind: "synthetic", parameter: "unified.hardMinScore",
+    thresholds: [0, .2, .35, .5, .7, .9], tokenBudget: 800, candidateLimit: 10,
+    operationTimeoutMs: 1000, deadlineMs: 20000,
+    selection: { minPrecision: .8, minRecall: .8, maxP95LatencyMs: 1000 },
+    tuning: { version: 1, id: "scan.synthetic.tuning", cases: cases.filter((_, index) => index % 2 === 0) },
+    test: { version: 1, id: "scan.synthetic.test", cases: cases.filter((_, index) => index % 2 === 1) }
+  });
+  assert.equal(scan.tuningCurve.length, 6);
+  assert.ok(scan.tuningCurve.filter(point => point.f1 > 0).every(point => point.metrics.sourceRecoveryRate === 1));
+  assert.equal(scan.selection.status, "selected_for_test");
+  assert.equal(scan.test.metrics.recallAtK, 1);
+  assert.equal(scan.test.metrics.sourceRecoveryRate, 1);
+  assert.equal(scan.review.status, "withheld");
+  assert.ok(scan.review.reasons.includes("synthetic_evidence"));
+  assert.equal(scan.automatedPolicyChange, "not_performed");
   // Metrics-only output: never serialize fixture queries, document bodies,
   // scopes, session identifiers, or provider responses.
-  console.log(JSON.stringify({ benchmark: "recall-quality-v3", dataset: report.dataset, metrics: report.metrics, comparison, evidence_kind: "fictional_regression_only", admission_policy_eligible: false }, null, 2));
+  console.log(JSON.stringify({ benchmark: "recall-quality-v3", dataset: report.dataset, metrics: report.metrics, comparison, thresholdScan: scan, evidence_kind: "fictional_regression_only", admission_policy_eligible: false }, null, 2));
 } finally {
   graph.close();
 }

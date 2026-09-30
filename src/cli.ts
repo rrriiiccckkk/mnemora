@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { Mnemora } from "./tools.js";
 import { evaluateToolSurface } from "./openclaw.js";
@@ -37,7 +37,9 @@ import { CognitionGraduationService } from "./cognition/graduation.js";
 import { TaskResumeService } from "./task-resume/service.js";
 import { TaskResumeComparisonRunner, validateTaskResumeComparisonPlan } from "./task-resume/comparison.js";
 import { TaskResumeValueGate } from "./task-resume/preregistration.js";
-import { EvaluationRunner, serializeEvaluationReport, validateEvaluationDataset } from "./evaluation/index.js";
+import { EvaluationRunner, serializeEvaluationReport, validateEvaluationDataset, RecallThresholdScanRunner, validateRecallThresholdScanPlan } from "./evaluation/index.js";
+import { openMnemoraDatabase } from "./sqlite.js";
+import { SUPPORTED_SCHEMA_VERSION } from "./schema.js";
 import { GraphReviewDecisionGate } from "./graph-review/decision-gate.js";
 
 const [, , command, ...args] = process.argv;
@@ -66,6 +68,11 @@ async function main(): Promise<void> {
   if (command === "evaluate" && ["task-resume-comparison", "task-resume-register", "task-resume-decision"].includes(args[0])) {
     try { printOperator(`evaluate.${args[0]}`, evaluateTaskResumeCommand(args)); }
     catch (error) { fail(`evaluate.${args[0]}`, error); }
+    return;
+  }
+  if (command === "evaluate" && args[0] === "recall-threshold-scan") {
+    try { printOperator("evaluate.recall-threshold-scan", await evaluateRecallThresholdScan(args)); }
+    catch (error) { fail("evaluate.recall-threshold-scan", error); }
     return;
   }
   const graph = new Mnemora({ config: { dbPath } });
@@ -127,6 +134,33 @@ async function evaluateRecallQuality(graph: Mnemora, raw: string[]): Promise<unk
     report: JSON.parse(serializeEvaluationReport(report)),
     automated_admission_decision: "not_performed"
   };
+}
+
+async function evaluateRecallThresholdScan(raw: string[]): Promise<unknown> {
+  if (raw.length !== 2) throw new CliError("invalid_arguments");
+  const path = resolve(raw[1]);
+  if (!statSync(path).isFile() || statSync(path).size > 1_048_576) throw new CliError("invalid_arguments");
+  const plan = validateRecallThresholdScanPlan(JSON.parse(readFileSync(path, "utf8")));
+  if (!process.env.MNEMORA_DB?.trim() || dbPath === ":memory:") throw new CliError("explicit_existing_database_required");
+  const snapshotPath = expandUserPath(dbPath);
+  if (!existsSync(snapshotPath) || !statSync(snapshotPath).isFile()) throw new CliError("explicit_existing_database_required");
+  const db = openMnemoraDatabase(snapshotPath, { readOnly: true }), scoringTimeMs = Date.now();
+  try {
+    db.exec("BEGIN");
+    const version = db.prepare("PRAGMA user_version").get() as { user_version?: number };
+    if (version.user_version !== SUPPORTED_SCHEMA_VERSION) throw new CliError("unsupported_snapshot_schema");
+    const retrieval = new UnifiedRetrievalService(db, { maxInlineChars: 16000, maxEventBytes: 262144, sensitiveContentPolicy: "redact" }, () => scoringTimeMs);
+    const report = await new RecallThresholdScanRunner((threshold, config) => {
+      const find = async ({ query, scope, limit, signal }: import("./evaluation/types.js").EvaluationRetrievalRequest) => {
+        const result = retrieval.find({ query, scope, limit, signal, tokenBudget: config.tokenBudget, hardMinScore: threshold });
+        return { candidates: result.candidates.map(item => ({ contextRef: item.contextRef, score: item.score, sourceRecovered: item.sourceRefs.length > 0, estimatedTokens: item.estimatedTokens, bytes: item.bytes })) };
+      };
+      return { find, search: find };
+    }).run(plan);
+    return { report, database: { readOnly: true, readTransaction: true, schemaVersion: version.user_version, scoringTimeMs }, evaluationSurface: "manual_unified_retrieval", automaticInjectionEvaluated: false };
+  } finally {
+    try { db.exec("ROLLBACK"); } finally { db.close(); }
+  }
 }
 
 function journalCommand(graph: Mnemora, raw: string[]): unknown {
@@ -680,7 +714,7 @@ function governanceAction(value: string): "verification.transition" | "conflict.
 function retrievalIntent(value: string | undefined): import("./retrieval/types.js").RetrievalIntent | undefined { if (value === undefined) return undefined; if (["exact_history", "prior_episode", "artifact", "structured_fact", "general"].includes(value)) return value as import("./retrieval/types.js").RetrievalIntent; throw new CliError("invalid_arguments"); }
 function memoryTarget(value: string): "event"|"artifact"|"episode"|"summary" { if (["event","artifact","episode","summary"].includes(value)) return value as "event"|"artifact"|"episode"|"summary"; throw new CliError("invalid_arguments"); }
 function compactionOutcome(value: string): CompactionReconciliationOutcome { if (value === "rewrite_confirmed" || value === "rewrite_not_applied") return value; throw new CliError("invalid_arguments"); }
-class CliError extends Error { constructor(readonly code: "invalid_arguments") { super(code); } }
+class CliError extends Error { constructor(readonly code: "invalid_arguments" | "explicit_existing_database_required" | "unsupported_snapshot_schema") { super(code); } }
 
 await main();
 

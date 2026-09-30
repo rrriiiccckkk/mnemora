@@ -1,14 +1,15 @@
 # Mnemora Roadmap
 
-## Current release plan (2026-09-30)
+## Current release plan (2026-10-01)
 
-Current release target: **v1.31.9**, following released baseline **v1.31.8**.
+Current release target: **v1.31.10**, following released baseline **v1.31.9**.
 The historical sections below record earlier completed directions; this
 section is the active planning baseline.
 
 | Version | Product outcome | Release gate |
 | --- | --- | --- |
-| **v1.31.9 — Reference projection trust boundaries** | Shared projection protection covers summary assembly, transcript rewrite and built-in reasoning adapters; records remain auditable. Threat model distinguishes structural safeguards from model resistance. | Adversarial capture-to-recall, reopened summary, rewrite, adapter and extraction-role regressions, complete verify, then exact-commit Windows/Linux CI before release. |
+| **v1.31.10 — Threshold evaluation safeguards** | Read-only manual-unified score scan freezes tuning/test selection and rejects failed/unsafe/budget-invalid evidence; aggregate curves cannot authorize default changes. | Real retrieval snapshot/no-migration tests, synchronous timeout guards, negative controls and synthetic six-point regression; complete verify and exact-commit Windows/Linux CI before release. |
+| **v1.31.9 — Reference projection trust boundaries (released)** | Shared projection protection covers summary assembly, transcript rewrite and built-in reasoning adapters; records remain auditable. Threat model distinguishes structural safeguards from model resistance. | Complete verify including 943 unit tests and exact-commit Windows/Linux CI passed for `c38fd67`; formal release published. Structural safeguards do not prove model resistance. |
 | **v1.31.8 — Owned test fixture cleanup (released)** | All file-backed fixtures use an owned system-temp root; managed parent runners clean after native worker exit on success or failure, without deleting historical or unrelated directories. | Complete verify including 920 unit tests and exact-commit Windows/Linux CI passed for `c9c2cce`; formal release published. Serial test concurrency, schema and product defaults remain unchanged. |
 | **v1.31.7 — Preregistered value decision (released)** | A detached registration freezes the next experiment's plan, material hashes and fixed v1.32 decision policy before runs; the read-only decision cannot open a pilot on missing or inadequate evidence. | Inclusive threshold, drift, timeline, small-sample, zero-baseline, synthetic and no-database CLI regressions passed with cross-platform CI for `b36569a`. A pass still requires an independent pre-run record and operator audit. |
 | **v1.31.6 — Inspector evidence coverage and confirmations** | Candidate and selected-task views distinguish readable sources, accepted-state coverage, and recorded progress; operation-generated IDs satisfy the existing result schema even when random entropy begins with punctuation. | Browser tests cover all four coverage combinations, scope isolation, read-only selection, and refresh after forgetting. Fixed-entropy regressions cover four operation confirmations; exact-commit Windows and Linux CI must pass before release. |
@@ -45,10 +46,10 @@ and invalid evidence no longer influence the Agent through any automatic path.
 1. Freeze **v1.32** value criteria before new model runs using the
    [preregistration guide](task-resume-preregistration.zh-CN.md). The existing
    four-case report is exploratory, not a retrospectively registered test.
-2. Complete the v1.31.9 memory-poisoning projection regressions and release gate.
-   Source text must remain within generated reference envelopes and cannot set
-   provider message roles. Host system-message transport is documented explicitly;
-   model-level attack resistance remains unmeasured.
+2. Complete the v1.31.10 read-only threshold evaluation safeguards. Collect
+   authorized multi-task labels before proposing any default change; other
+   score surfaces remain outside this first scan. Then develop usefulness
+   signals without confusing citation with independent verification.
 3. Run the new authorized held-out comparison under the fixed decision policy.
    Keep a matched rerun of the old four cases as a separate regression study.
 4. Start **v1.33** only when that evidence supports a governed, scoped
@@ -69,7 +70,9 @@ and invalid evidence no longer influence the Agent through any automatic path.
   have distinct meanings and existing configuration paths. Freeze a multi-case
   labelled tuning/test set, scan only tuning, and report precision/recall and
   token/latency curves without selecting from held-out results. Consolidation
-  and scanning are pending; no default was changed on a single sample.
+  remains pending. The first manual-unified score scan is implemented for
+  v1.31.10; see [its evidence boundaries](recall-threshold-evaluation.md).
+  Real calibration and other score surfaces remain pending; no default changed.
 - **Attachment usefulness:** extend the existing scope-bound `target_ref`
   feedback path rather than equating `recall_count` with utility. Citation,
   later corroboration and user correction are separate signals; quotation is
