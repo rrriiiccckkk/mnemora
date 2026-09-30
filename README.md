@@ -574,6 +574,11 @@ snapshot and `evaluate recall-threshold-scan <plan.json>`; see
 an existing schema-compatible database, opens it read-only without migration,
 and never changes defaults or treats synthetic scores as deployment evidence.
 
+`cognition feedback evidence <target-ref> --scope <scope>` uses the same explicit
+read-only snapshot boundary for a bounded usefulness-evidence worklist.
+Citations are not confirmations, missing attachment telemetry is unknown,
+and no labels or calibration are changed. See [evidence limits](docs/recall-usefulness-review.zh-CN.md).
+
 The CLI uses `~/.openclaw/mnemora.db` by default. When it creates a persistent
 database for the first time, it reports the exact path on stderr; set
 `MNEMORA_DB` to select a different database explicitly.

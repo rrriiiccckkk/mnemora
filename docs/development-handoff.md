@@ -1,14 +1,16 @@
 # Mnemora 下一轮开发交接
 
-当前接手入口（2026-10-01）：先核对实际 HEAD 与工作区，以 [roadmap](roadmap.md) 为当前方向；新增测试、排查数据库/配置或升级时，读取 [维护经验与操作边界](maintenance-lessons.zh-CN.md)。下文是 **2026-09-10 的历史交接**，其“未提交/待验证”和版本状态不代表当前工作区。当前已发布基线为 v1.31.9（`c38fd67`，双平台 CI 与正式 Release 已核对）；正式三臂实验另见 [预注册说明](task-resume-preregistration.zh-CN.md)。不重新创建此前移除的未跟踪 AGENTS.md。
+当前接手入口（2026-10-01）：先核对实际 HEAD 与工作区，以 [roadmap](roadmap.md) 为当前方向；新增测试、排查数据库/配置或升级时，读取 [维护经验与操作边界](maintenance-lessons.zh-CN.md)。下文是 **2026-09-10 的历史交接**，其“未提交/待验证”和版本状态不代表当前工作区。当前已发布基线为 v1.31.10（`ee60045`，双平台 CI 与正式 Release 已核对）；正式三臂实验另见 [预注册说明](task-resume-preregistration.zh-CN.md)。不重新创建此前移除的未跟踪 AGENTS.md。
 
 v1.31.8 已以 `c9c2cce` 完成双平台 CI 并正式发布。此版本起，文件型 fixture 的定向测试用 `node scripts/run-unit-tests.mjs tests/<name>.test.mjs`，完整验收用 `npm run verify`；下文历史 `node --test` 命令不是当前受管理的清理入口。
 
-当前增量（2026-10-01）为 v1.31.10：新增显式快照上的只读阈值扫描，仅评估手动统一检索的 `hardMinScore`；tuning 选值后只测一个 held-out 值，失败不回选，报告不含原文且不授予部署权限。读取 [阈值评估说明](recall-threshold-evaluation.md) 再准备授权材料；合成曲线不是效果证据，五例覆盖门槛不是统计功效。其他阈值、常量收敛和 target_ref 隐式反馈仍待开发；真实 v1.32 对照实验继续等待授权材料与预注册运行。完整本地验收及同一提交 Windows/Linux CI 后发布；测试串行、schema 83、产品限额和模型身份不变。
+当前增量（2026-10-01）为 v1.31.11：显式只读快照上的 `cognition feedback evidence` 把累计实际附着、准确引用候选与现有人工反馈分开，来源遗忘或目标失效后退出审查；不写标签或修改校准。接手此分支先读 [用途证据边界](recall-usefulness-review.zh-CN.md)：累计记录没有 turn/版本关联 ID，裸行尾或段尾引用可能是截断前缀，corroboration 仍是 unmeasured。下一增量先补 opt-in 的单次附着身份、版本和 reviewed 来源关联，再验收重放、遗忘/更正撤回与 retention；不能用当前 view 算有用率。阈值真实标注与 v1.32 预注册实验仍待授权材料；[阈值说明](recall-threshold-evaluation.md) 保持独立。完整本地验收及同一提交 Windows/Linux CI 后发布；测试串行、schema 83、产品限额和模型身份不变。
 
 v1.31.9 最终本地验收：Node 24.19.0 下完整 `npm run verify` 通过，单测 943/943（新增 23 项），性能基线、插件校验与 smoke 均通过。正式发布状态核对对应 GitHub Release，不从本地通过推断远端 CI。
 
 v1.31.10 最终本地验收：Node 24.19.0 完整 `npm run verify` 通过，单测 954/954（新增 11 项），六档阈值合成回归、现有全部基线、插件校验与 smoke 均通过。同步操作不能由事件循环计时器强制中断，但返回后的超时结果已被拒绝；不能把本地通过推断为双平台 CI 或 Mac 部署成功。
+
+v1.31.11 最终本地验收：Node 24.19.0 完整 `npm run verify` 通过，单测 964/964（新增 10 项），现有基线、插件校验与 smoke 均通过。引用后缀、Unicode 相邻字符、捕获/多段消息截断及选项前置不建库都有回归；两路审查已复核修复。真实自动标签与 canary 集成未实现，不从这次审查 view 推断用途收益；正式发布状态仍核对对应提交的双平台 CI 与 Release。
 
 ## 历史交接（2026-09-10）
 

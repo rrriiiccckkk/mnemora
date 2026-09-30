@@ -40,6 +40,7 @@ import { TaskResumeValueGate } from "./task-resume/preregistration.js";
 import { EvaluationRunner, serializeEvaluationReport, validateEvaluationDataset, RecallThresholdScanRunner, validateRecallThresholdScanPlan } from "./evaluation/index.js";
 import { openMnemoraDatabase } from "./sqlite.js";
 import { SUPPORTED_SCHEMA_VERSION } from "./schema.js";
+import { RecallUsefulnessReviewService } from "./cognition/recall-usefulness.js";
 import { GraphReviewDecisionGate } from "./graph-review/decision-gate.js";
 
 const [, , command, ...args] = process.argv;
@@ -74,6 +75,15 @@ async function main(): Promise<void> {
     try { printOperator("evaluate.recall-threshold-scan", await evaluateRecallThresholdScan(args)); }
     catch (error) { fail("evaluate.recall-threshold-scan", error); }
     return;
+  }
+  if (command === "cognition") {
+    try {
+      const { positional } = parseOptions(args);
+      if (positional[0] === "feedback" && positional[1] === "evidence") {
+        printOperator("cognition.feedback.evidence", await recallUsefulnessEvidence(args));
+        return;
+      }
+    } catch (error) { fail("cognition.feedback.evidence", error); return; }
   }
   const graph = new Mnemora({ config: { dbPath } });
   reportInitializedDatabase();
@@ -141,6 +151,32 @@ async function evaluateRecallThresholdScan(raw: string[]): Promise<unknown> {
   const path = resolve(raw[1]);
   if (!statSync(path).isFile() || statSync(path).size > 1_048_576) throw new CliError("invalid_arguments");
   const plan = validateRecallThresholdScanPlan(JSON.parse(readFileSync(path, "utf8")));
+  const snapshot = await withReadOnlySnapshot(async (db, scoringTimeMs) => {
+    const retrieval = new UnifiedRetrievalService(db, { maxInlineChars: 16000, maxEventBytes: 262144, sensitiveContentPolicy: "redact" }, () => scoringTimeMs);
+    return new RecallThresholdScanRunner((threshold, config) => {
+      const find = async ({ query, scope, limit, signal }: import("./evaluation/types.js").EvaluationRetrievalRequest) => {
+        const result = retrieval.find({ query, scope, limit, signal, tokenBudget: config.tokenBudget, hardMinScore: threshold });
+        return { candidates: result.candidates.map(item => ({ contextRef: item.contextRef, score: item.score, sourceRecovered: item.sourceRefs.length > 0, estimatedTokens: item.estimatedTokens, bytes: item.bytes })) };
+      };
+      return { find, search: find };
+    }).run(plan);
+  });
+  return { report: snapshot.value, database: snapshot.database, evaluationSurface: "manual_unified_retrieval", automaticInjectionEvaluated: false };
+}
+
+async function recallUsefulnessEvidence(raw: string[]): Promise<unknown> {
+  const { positional, options } = parseOptions(raw);
+  positional.splice(0, 2);
+  const targetRef = takeArgument(positional); requireNone(positional);
+  if (Object.keys(options).some(key => !["scope", "limit"].includes(key))) throw new CliError("invalid_arguments");
+  const scope = option(options, "scope") ?? process.env.SCOPE ?? "default", limit = boundedLimit(option(options, "limit")) ?? 20;
+  if (limit > 50) throw new CliError("invalid_arguments");
+  const snapshot = await withReadOnlySnapshot((db, scoringTimeMs) => new RecallUsefulnessReviewService(db, () => scoringTimeMs).review({ scope, targetRef, limit }));
+  return { review: snapshot.value, database: snapshot.database };
+}
+
+/** All snapshot-only operator commands skip normal store initialization. */
+async function withReadOnlySnapshot<T>(read: (db: import("@photostructure/sqlite").DatabaseSyncInstance, scoringTimeMs: number) => T | Promise<T>) {
   if (!process.env.MNEMORA_DB?.trim() || dbPath === ":memory:") throw new CliError("explicit_existing_database_required");
   const snapshotPath = expandUserPath(dbPath);
   if (!existsSync(snapshotPath) || !statSync(snapshotPath).isFile()) throw new CliError("explicit_existing_database_required");
@@ -149,15 +185,8 @@ async function evaluateRecallThresholdScan(raw: string[]): Promise<unknown> {
     db.exec("BEGIN");
     const version = db.prepare("PRAGMA user_version").get() as { user_version?: number };
     if (version.user_version !== SUPPORTED_SCHEMA_VERSION) throw new CliError("unsupported_snapshot_schema");
-    const retrieval = new UnifiedRetrievalService(db, { maxInlineChars: 16000, maxEventBytes: 262144, sensitiveContentPolicy: "redact" }, () => scoringTimeMs);
-    const report = await new RecallThresholdScanRunner((threshold, config) => {
-      const find = async ({ query, scope, limit, signal }: import("./evaluation/types.js").EvaluationRetrievalRequest) => {
-        const result = retrieval.find({ query, scope, limit, signal, tokenBudget: config.tokenBudget, hardMinScore: threshold });
-        return { candidates: result.candidates.map(item => ({ contextRef: item.contextRef, score: item.score, sourceRecovered: item.sourceRefs.length > 0, estimatedTokens: item.estimatedTokens, bytes: item.bytes })) };
-      };
-      return { find, search: find };
-    }).run(plan);
-    return { report, database: { readOnly: true, readTransaction: true, schemaVersion: version.user_version, scoringTimeMs }, evaluationSurface: "manual_unified_retrieval", automaticInjectionEvaluated: false };
+    const value = await read(db, scoringTimeMs);
+    return { value, database: { readOnly: true, readTransaction: true, schemaVersion: version.user_version, scoringTimeMs } };
   } finally {
     try { db.exec("ROLLBACK"); } finally { db.close(); }
   }

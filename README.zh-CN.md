@@ -404,6 +404,10 @@ mnemora evaluate recall-quality ./deidentified-golden.json
 详见 [阈值评估说明](docs/recall-threshold-evaluation.md)。该命令只读打开已有、schema
 兼容的数据库，不建库或迁移；只在 tuning 选值，不改默认配置，不把合成分数当部署证据。
 
+`cognition feedback evidence <target-ref> --scope <scope>` 在同样的显式只读快照边界上
+提供用途证据审查。引用不等于证实，缺失投递记录不等于从未投递，不写推断标签或
+修改校准；详见 [用途证据与覆盖边界](docs/recall-usefulness-review.zh-CN.md)。
+
 CLI 默认使用 `~/.openclaw/mnemora.db`。首次创建持久化数据库时，它会在 stderr
 输出实际路径；请通过 `MNEMORA_DB` 显式选择其他数据库。
 
