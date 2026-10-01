@@ -14,11 +14,12 @@ Mnemora 帮助 Agent 跨会话接着做事，找到记忆的来源，并在用�
 - **主动更正与遗忘**：按 scope 操作，重要变更通过 preview/confirm 确认。
 - **控制召回范围**：结合词法与语义检索、时效性、安全检查和 token 预算。
 
-Mnemora 是借鉴公开无损上下文与向量记忆思路的独立实现，不读取其他插件的私有存储。
+Mnemora 是借鉴 `lossless-claw` 与 `memory-lancedb-pro` 公开思路的独立实现，不读取其他插件的私有存储。
 
 ## 快速开始
 
-需要 **Node.js `>=24.15.0 <25`** 和 **OpenClaw `2026.9.2+`**。
+需要 OpenClaw `2026.9.2+` 与 Node.js `24.15.0+`，使用 Node 24（`>=24.15.0 <25`）。
+Node 24.14 不受支持；请升级并重启宿主，不绕过其检查。
 开发与 CI 使用 Node 24.19.0；兼容性细节见[使用指南](docs/usage-guide.zh-CN.md)。
 
 ### 构建
@@ -57,6 +58,7 @@ plugins: {
 
 重启加载插件的 OpenClaw 进程。自动捕获与上下文组装要求宿主选中 Mnemora 的
 ContextEngine slot；仅启用插件并不够。
+Mnemora 只使用这一套 ContextEngine 生命周期，不额外注册 `before_prompt_build` 或 `agent_end` hook。
 
 ### 验收运行中的安装
 
@@ -77,7 +79,7 @@ node dist/cli.js standalone guide
 在构建后的插件目录运行：
 
 ```bash
-node dist/cli.js stats
+MNEMORA_DB=~/.openclaw/mnemora.db node dist/cli.js stats
 node dist/cli.js inspect
 node dist/cli.js resume "部署任务" --scope project-a
 ```

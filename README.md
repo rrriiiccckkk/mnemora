@@ -20,12 +20,13 @@ not an instruction or automatically verified fact.
 - **Keep recall bounded:** combine lexical and semantic retrieval with scope,
   freshness, safety checks and token budgets.
 
-Mnemora is an independent implementation informed by public lossless-context
-and vector-memory designs. It does not read other plugins' private storage.
+Mnemora is an independent implementation informed by the public ideas behind
+`lossless-claw` and `memory-lancedb-pro`. It does not read other plugins' private storage.
 
 ## Quick start
 
-Requires **Node.js `>=24.15.0 <25`** and **OpenClaw `2026.9.2+`**.
+Requires OpenClaw `2026.9.2+` and Node.js `24.15.0+` on Node 24 (`>=24.15.0 <25`).
+Node 24.14 is unsupported; upgrade and restart the host rather than bypassing its check.
 Development and CI use Node 24.19.0. See the
 [usage guide](docs/usage-guide.md) for compatibility details.
 
@@ -67,6 +68,8 @@ plugins: {
 Restart the OpenClaw process that loads the plugin. Automatic capture and
 context assembly require the host to select Mnemora's ContextEngine slot;
 enabling the plugin alone is not enough.
+Mnemora uses a single ContextEngine lifecycle and
+registers no `before_prompt_build` or `agent_end` hook.
 
 ### Verify the running installation
 
@@ -89,7 +92,7 @@ See [first-use verification](docs/usage-guide.md#verify-first-use).
 Run these from the built plugin directory:
 
 ```bash
-node dist/cli.js stats
+MNEMORA_DB=~/.openclaw/mnemora.db node dist/cli.js stats
 node dist/cli.js inspect
 node dist/cli.js resume "deployment task" --scope project-a
 ```
