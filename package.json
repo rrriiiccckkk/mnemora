@@ -1,6 +1,6 @@
 {
   "name": "mnemora",
-  "version": "1.32.0",
+  "version": "1.32.1",
   "description": "Local-first, evidence-first memory runtime for persistent OpenClaw agents.",
   "type": "module",
   "engines": {
@@ -85,6 +85,9 @@
     "openclaw.plugin.json",
     "README.md",
     "README.zh-CN.md",
+    "docs/",
+    "scripts/task-resume-experiment.mjs",
+    "fixtures/task-resume-experiment-bundle-v1.json",
     "skills/",
     "LICENSE"
   ],

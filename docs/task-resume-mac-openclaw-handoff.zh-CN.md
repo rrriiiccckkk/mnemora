@@ -1,5 +1,7 @@
 # 交给 Mac 上的 OpenClaw：准备真实任务续接对照材料
 
+开发中的固定 runner 与验包入口见[三臂工具包短交接](task-resume-experiment-runner.zh-CN.md)。使用该入口时，本文件继续作为材料授权、独立真值和人工审计的依据；不要把 runner 的 controlled-memory 结果当作自动注入全链路证据。
+
 你是**材料准备与实验执行 Agent**，不是只等材料的标注 Agent。请在 Mac 上使用你已获授权访问的 OpenClaw 会话、Mnemora 公共接口和模型运行记录，主动完成下面的收集与三组运行，再将材料交给[标注 Agent 交接单](task-resume-labeling-handoff.zh-CN.md)。不要把“缺四类材料”原样退还用户，也不要编造缺失数据。
 
 若执行下一批 v1.32 正式效用实验，先读[预注册与判决说明](task-resume-preregistration.zh-CN.md)：调参准备后冻结最终配置与标注口径，在全部正式三臂运行前注册并保留可独立核对时间的事前记录。下文“各至少一例”只保证 comparison 格式有效，不能通过新政策的 20 个 tuning / 100 个新 test 案例门槛；材料不足时只交探索性结果，不补造样本或回用已看过的 test。新政策的冻结、计量和放行条件优先于下文的最低格式验收。

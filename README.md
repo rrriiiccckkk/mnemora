@@ -131,7 +131,8 @@ first-use checks, correction workflows and operating commands.
 
 - **Task continuation:** [evaluation](docs/task-resume-evaluation.md),
   [source evidence](docs/task-resume-source-evidence.zh-CN.md),
-  [Mac experiment handoff](docs/task-resume-mac-openclaw-handoff.zh-CN.md).
+  [Mac experiment handoff](docs/task-resume-mac-openclaw-handoff.zh-CN.md),
+  [three-arm runner](docs/task-resume-experiment-runner.zh-CN.md).
 - **Recall and evidence:** [threshold evaluation](docs/recall-threshold-evaluation.md),
   [attachment receipts](docs/recall-attachment-evidence.zh-CN.md),
   [usefulness boundaries](docs/recall-usefulness-review.zh-CN.md).

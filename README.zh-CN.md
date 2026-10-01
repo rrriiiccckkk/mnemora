@@ -107,7 +107,8 @@ v1.32 为明确选择的任务增加有界的 `source_evidence` 可读摘录，�
 
 - **任务续接**：[评估说明](docs/task-resume-evaluation.md)、
   [来源证据](docs/task-resume-source-evidence.zh-CN.md)、
-  [Mac 实验交接](docs/task-resume-mac-openclaw-handoff.zh-CN.md)。
+  [Mac 实验交接](docs/task-resume-mac-openclaw-handoff.zh-CN.md)、
+  [三臂工具包](docs/task-resume-experiment-runner.zh-CN.md)。
 - **召回与证据**：[阈值评估](docs/recall-threshold-evaluation.md)、
   [装配凭据](docs/recall-attachment-evidence.zh-CN.md)、
   [用途证据边界](docs/recall-usefulness-review.zh-CN.md)。

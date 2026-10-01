@@ -2,7 +2,12 @@
 
 ## Current release plan (2026-10-01)
 
-Current technical release target: **v1.32.0**, following released baseline **v1.31.12**.
+Current released baseline: **v1.32.0** (`c41f791`), with exact-commit
+Windows/Linux CI `36856873736` and formal Release `36858385777` verified.
+Active development: a controlled-memory three-arm experiment runner, automatic
+bundle validation and a short Mac execution handoff. This is research tooling,
+not the v1.33 ReasoningMemory pilot. The operator authorized its complete
+technical release as **v1.32.1**, after exact-commit Windows/Linux CI succeeds.
 Operator decision (2026-10-01): deliver the complete v1.32 milestone rather
 than more incremental v1.31 patch releases. Necessary fixes belong to this
 milestone; version bumps alone do not satisfy its measured-evidence gate.
