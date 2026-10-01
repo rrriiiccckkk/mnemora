@@ -2,48 +2,26 @@
 
 [English](README.md)
 
-> 面向长期 OpenClaw Agent 的本地优先、证据优先记忆运行时。
+> 面向长期 OpenClaw Agent 的本地优先、证据优先记忆。
 
-Mnemora 让 Agent 保留真正有用的长期上下文，但不会把每一段被召回的文本都当作事实。它把持久化记忆保留在本地，为每条内容保存来源，并在进入 Agent 上下文前执行 scope、时效性、置信度和安全策略。
+Mnemora 帮助 Agent 跨会话接着做事，找到记忆的来源，并在用户更正或遗忘后更新行为。
+记忆保存在本地 SQLite；召回文本是参考材料，不是指令，也不会自动成为已验证事实。
 
-```text
-对话 / 笔记 / 公开 Provider
-           │
-           ▼
-Journal + 带来源的记忆 + 知识图谱
-           │
-           ▼
-作用域检索、压缩与可信策略
-           │
-           ▼
-OpenClaw ContextEngine
-```
+## 你能用它做什么
 
-## Mnemora 整合了什么
+- **继续任务**：查看已完成动作、失败尝试、阻塞和下一步，保留来源与不确定性。
+- **检查记忆**：用本地 Inspector 审查证据、待确认候选、过时记录和冲突。
+- **主动更正与遗忘**：按 scope 操作，重要变更通过 preview/confirm 确认。
+- **控制召回范围**：结合词法与语义检索、时效性、安全检查和 token 预算。
 
-Mnemora 是独立实现，设计上借鉴了 `lossless-claw` 与
-`memory-lancedb-pro` 的公开思路：
-
-- 借鉴 lossless 类系统的持久会话捕获、有界压缩、可恢复摘要和最近上下文保护；
-- 借鉴向量记忆系统的本地语义/词法检索、相关性排序、rerank 和记忆生命周期控制；
-- 在此之上整合并改进为：带来源的图谱证据、严格 scope 隔离、Journal/Episode/Artifact/Memory 的统一检索、可解释的上下文、显式更正与遗忘，以及 preview/confirm 治理流程。
-
-它不复制、不 vendor、不读取或修改这两个项目的私有代码、数据库或宿主状态。外部系统只能通过已文档化的公开能力和显式 Provider Adapter 接入。
-
-## 核心能力
-
-- **唯一自动生命周期。** 仅在被选为 OpenClaw ContextEngine 时，Mnemora 才使用公开的 `afterTurn` 与上下文组装生命周期；不会额外注册 `before_prompt_build` 或 `agent_end` hook。
-- **本地优先记忆。** 本地 SQLite 保存 Journal、带来源摘要、Episode、Artifact、记忆文档、图谱证据、Belief、Decision 和审计元数据。
-- **有界相关召回。** 统一的词法、语义与混合检索结合 scope 过滤、分数下限、多样性、时效性、token 预算和 provenance 去重。
-- **证据与可信度。** 图谱 observation 保留来源、时间、置信度和验证状态。LLM 可以提出候选，但不能成为记忆权威。
-- **可安全演化。** 更正、冲突、保留与遗忘都有审计链；高影响操作均通过 preview/confirm 执行。
-- **可运维、可解释。** 本地 Inspector 和 `mnemora` CLI 提供诊断、按 scope 隔离的记忆工作台、召回解释、trust 操作和质量评估。
+Mnemora 是借鉴公开无损上下文与向量记忆思路的独立实现，不读取其他插件的私有存储。
 
 ## 快速开始
 
-Mnemora 需要 OpenClaw `2026.9.2+` 与 Node.js `24.15.0+`，且使用 Node 24
-release line（`>=24.15.0 <25`）。OpenClaw 会拒绝 Node `24.14` 及更低的 Node 24
-补丁版本，因为其内嵌 SQLite 不适合 WAL。请升级 Node 后重启加载插件的 OpenClaw 进程；不要绕过该检查。
+需要 **Node.js `>=24.15.0 <25`** 和 **OpenClaw `2026.9.2+`**。
+开发与 CI 使用 Node 24.19.0；兼容性细节见[使用指南](docs/usage-guide.zh-CN.md)。
+
+### 构建
 
 ```bash
 git clone https://github.com/rrriiiccckkk/mnemora.git
@@ -52,7 +30,7 @@ npm ci
 npm run build
 ```
 
-按你的 OpenClaw 插件安装方式安装构建产物，然后在宿主配置中启用 Mnemora 并选择其 ContextEngine slot：
+按你的 OpenClaw 插件安装流程安装构建产物，然后将以下内容合并到宿主配置：
 
 ```json5
 plugins: {
@@ -65,7 +43,7 @@ plugins: {
         episodicMemory: { enabled: true },
         unifiedRetrieval: {
           enabled: true,
-          shadowMode: true, // 记录有界、脱敏的自动召回遥测
+          shadowMode: true,
           tokenBudget: 800,
           maxItems: 8,
           diversityLambda: 0.75
@@ -77,366 +55,79 @@ plugins: {
 }
 ```
 
-这是刻意要求显式开启的：在宿主选中准确 slot 前，Mnemora 保持仅手动模式。可用以下命令检查本地部署状态：
+重启加载插件的 OpenClaw 进程。自动捕获与上下文组装要求宿主选中 Mnemora 的
+ContextEngine slot；仅启用插件并不够。
+
+### 验收运行中的安装
+
+在构建后的插件目录运行：
 
 ```bash
-mnemora standalone status
-mnemora standalone guide
+node dist/cli.js standalone status
+node dist/cli.js standalone guide
 ```
 
-### 验收首次使用
+在对话中运行 `/mnemora verify start`，把它给出的精确标记放进一条简短事实；
+在另一个对话中询问这个标记，实际附加记忆后运行 `/mnemora verify`。
+它检查运行时激活、持久化捕获和跨会话附加，不能只靠历史记录数量通过验收。
+完整流程见[首次使用验收](docs/usage-guide.zh-CN.md#验收首次使用)。
 
-在 ContextEngine slot 已选中后，可在对话中运行 `/mnemora verify`，用运行中插件的
-关联证据确认安装，而不是只看配置文件：
+## 日常使用
 
-1. 运行 `/mnemora verify start`，在一个对话的简短事实中包含它给出的、有效期一小时的精确标记。
-2. 新开一个不同对话，提出包含同一标记的具体问题。
-3. Mnemora 实际附加记忆后，运行 `/mnemora verify`。
-
-它会用四项通俗检查确认：ContextEngine slot 已实际激活、当前标记已持久化捕获、关联附加来自不同对话、
-该实际附加包含标记。历史事件计数和召回遥测只是基础诊断，不能让验收通过。仍需开启上文的
-`unifiedRetrieval.shadowMode` 有界脱敏遥测来观察附加。验收账本只保存随机标记和会话身份的 hash，
-不保存 prompt、候选文本、event ID 或召回内容。若有检查未完成，命令会给出下一步安全操作。
-
-### 查看和更正记忆
-
-`mnemora inspect` 会打开按 scope 隔离的工作台：先用卡片展示已接受事实、待审项、
-过时内容和冲突，再提供详细记忆浏览；已知 Claim 卡片可直接打开同 scope 的证据追踪。
-Recall explanation 会明确区分“策略会检索什么”
-和“真实 ContextEngine 是否附加了内容”。后者仅在存在匹配的脱敏 shadow telemetry 时
-显示；若查询经过路由而无法比较，会明确标记为不可比较，不会当作已附加的证明。
-
-### 续接任务
-
-使用 `mnemora resume <任务查询> --scope <scope>`，或
-`mnemora resume --task-ref <mnemora-task-episode-ref> --scope <scope>`，可读取带来源的任务状态投影。Inspector 的 **Task resume** 视图提供相同的只读结果。它只使用活跃的 task Episode、已确认的 Decision 与 TaskOutcome；任务不明确时返回有界候选，来源不可用时标记为需要重新确认，绝不会启动工作、修改记忆或改变自动召回。已确认的 TaskOutcome 可显式关联一个确定的 Decision 动作，并记录尝试、部分完成、完成、失败、取消或替代；只有这种显式关联才能把动作移出 **Next steps**。约束与阻塞分开呈现，已替代动作仍保留带来源的历史。详细投影通过 `truncated_sections` 标明仅哪些状态分区达到调用方的显示上限；显示限制绝不会改变已经完整解析的任务状态。
-
-`task` 和候选中的 `memory_evidence` 把“来源文本仍可查”（`source_available`）与“有来源有效的已确认当前状态”（`accepted_current_state_available`）分开。前者为真、后者为假时，`needs_reconfirmation` 表示记忆治理覆盖不足，不证明现实任务状态未知；应先检查来源，再决定是否询问用户。遗忘或仅保存哈希的来源不会被标为可查。这些字段不把原始消息升格为已确认结果。
-
-Inspector 在候选列表和任务详情中同时显示这两项覆盖检查；**Recorded progress** 只表示记忆中记录的投影，不代表重新核实了现实进度。只有来源可读但缺少已确认状态时，页面才提示先检查来源；来源不可用时不会把引用误当成可读证据。读取和选择任务仍不会修改记忆。
-
-运行 `npm run benchmark:task-resume` 可执行 26 条合成多会话功能序列。`mnemora evaluate task-resume-comparison <plan.json>` 只验证并报告三组对照实验契约，不会调用模型；内置计划会明确显示为 `real_effect_experiment_not_run`，直到获得授权的去标识化测量结果。已测量的结果必须逐条满足计划中的 token 和延迟预算。只有每条记录都有人工审核标签时，才报告不相关记忆注入率；缺少标签会明确标记为未测量，不会当作零次。
-
-下一批真实实验运行前，使用 `mnemora evaluate task-resume-register <planned-plan.json>` 冻结计划与固定的 v1.32 政策；运行后使用 `mnemora evaluate task-resume-decision <measured-plan.json> <registration.json>` 检查 held-out 效用门槛。这些文件命令不会打开记忆数据库。通过只允许提交人工复核，不会启动试点或证明效果，仍须有可独立核对时间的事前记录。材料哈希、样本下限与零基线规则见 [预注册执行说明](docs/task-resume-preregistration.zh-CN.md)。
-
-v1.32 开发中的续接投影另提供有界 `source_evidence` 可读摘录，明确区分用户请求、助手自述与已接受状态；不凭摘录自动宣称任务完成。字段边界和旧案例复测要求见 [可读来源证据说明](docs/task-resume-source-evidence.zh-CN.md)。真实效果仍待审计与复测。
-
-只有显式以可操作模式启动 Inspector 时，才可从 Journal event、Artifact、Episode 或
-Summary 卡片移除错误记忆。它会先显示有界的下游影响计数，再接受一次短时有效的明确确认；
-不会覆盖原始证据，也不会暴露受影响项的 ID，受影响 Decision 会转为待审。
-
-### 自动召回精度
-
-手动搜索可以为了探索返回较宽的候选集；自动上下文则更严格。Mnemora 在附加本地
-记录或图谱补充前，要求候选中存在非通用 query 锚点，或图谱语义分数至少为 `0.72`。
-图谱最多使用一个 seed（加一跳有证据的邻域），本地记录再经过确定性的 MMR 去重，
-避免近重复内容。因而像“这个 memory system 如何工作？”这类泛化问题，不会只因
-公司描述中包含 “memory” 就注入该公司；没有可证明相关候选时，保持空注入才是安全
-结果。
-
-`unifiedRetrieval.shadowMode` 为显式 opt-in，只保存 query hash 以及本地/图谱候选、
-抑制和附加的有界计数；不会保存 prompt、候选正文、ID、来源或证据。可与现有的
-adaptive-recall 指标一起查看：
+在构建后的插件目录运行：
 
 ```bash
-mnemora recall metrics --scope default
+node dist/cli.js stats
+node dist/cli.js inspect
+node dist/cli.js resume "部署任务" --scope project-a
 ```
 
-输出中的 `unified` 是真实 ContextEngine 附加路径的遥测，不会改变检索或注入。
-设为 `diversityLambda: 1` 可保留纯分数排序；保留默认 `0.75` 则启用适度、确定性的
-多样化。
-
-### 图谱卫生与本地 embedding 健康状态
-
-通过 `kg_review` 的 `kind: "hygiene"` 可读取 scope 隔离的 `related_to` 过度使用、
-可疑自链接与三档拓扑评估。评估对比当前 PPR 权重、0.3× 降权和完全移除，并报告
-连通性及代表性 top-k 的变化；它绝不会修改实际 PPR 或遍历策略。新的 `related_to`
-必须保留直接证据，默认置信度阈值为 `0.85`。传入 `scan: true` 时，只执行一个有界的
-重复实体候选扫描切片；不会合并实体、删除边或修改证据。只有需要每周在 durable turn
-后自动执行该审查时，才显式开启：
-
-```json5
-quality: {
-  hygiene: {
-    enabled: true,
-    intervalHours: 168,
-    maxDuplicateScanNodes: 100
-  }
-}
-```
-
-该诊断**不会**自动改变拓扑策略。若某条历史 `related_to` 的原始证据直接表达了结构事实，
-可通过 `kg_review` 的 `kind: "related_edge_refinements"` 并传入 `scan: true` 发起单独的
-人工审查。它只会基于同 scope、置信度 `≥ 0.85` 的直接证据，提出 `depends_on`、`part_of`
-或 `instance_of` 候选。必须先 preview，再用匹配的显式 confirm 才会复制证据、仅退休被审查
-的那一条 fallback 边并写入审计回执；不会调用 LLM、不会依据宽泛共现，也不会自动改图。
-
-若原文是直接的语义陈述、但仍需保留连通骨架，可改用 `kind: "related_edge_semantics"`。
-它会从既有词表中提出 `uses`、`develops`、`works_at`、`supplies` 等标签；preview/confirm
-接受后，仅让该标签可被显式语义关系查询返回。原 `related_to` 边会保留，PPR、遍历、
-observation 与图权重都不会改变。
-
-`kind: "semantic_vocabulary"` 是独立的、由审查驱动的领域中性词表路径；目前只包含
-`located_in`、`member_of`、`created_by`、`authored_by` 与 `based_on` 五个小型种子标签。
-有界扫描只收集同 scope、置信度 `>= 0.85` 的直接 fallback 证据；候选至少需要 3 条
-observation、且来自 2 个来源，才能进入 preview/confirm。接受词表项不会给任何边打标签，
-也不会修改图数据；它只允许之后的 `related_edge_semantics` 扫描为匹配的单条边提出候选，
-而每条边仍要各自 preview/confirm。只可通过精确谓词显式查看已接受的动态标签，例如
-`kg_related(..., semantic_predicates: ["based_on"])`。动态标签绝不会成为遍历边、PPR
-输入或自动上下文附加内容。
-
-词表收集及其独立审查流程必须显式执行；接受 semantic-pattern 审查结论并不等于自动提升
-词表项。使用本地 operator CLI：
-
-```bash
-MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review vocabulary scan --scope default --limit 20
-MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review vocabulary list --scope default --status pending
-MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review vocabulary preview <candidate_id> accepted --scope default
-MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review vocabulary confirm <candidate_id> accepted --scope default --preview-hash <hash> --confirm
-```
-
-扫描有边界，只会创建可审查候选；不会改写边，也不会改变自动召回。每个词表候选仍必须经过
-自己的 preview 与显式 confirm。证据不足时，将上面的 `accepted` 替换为 `rejected`。
-
-使用 `kg_review` 的 `kind: "worklist"` 可以在同一 scope 内分页查看只读的待处理
-自链接、关系候选和 schema-drift 候选，以及已拒绝或已 `invalidated` 的结果。schema-drift
-候选可沿用已有 preview/confirm 修复流程，或用其匹配的 preview hash 显式拒绝；拒绝只记录
-人工结论，绝不会修改实体、边、证据、PPR 或遍历。若后续内置端点规则已允许某个旧不匹配，
-候选会成为 `invalidated` 审查元数据，而非被静默删除。词表升级迁移会为所有已经合法的历史
-候选记录该结果；worklist 也可以协调导入的旧候选。两条路径都不会删除图数据或审查回执。
-
-内置 `uses` 关系允许 `person` 或 `company` 指向 `product` 或 `technology`。这覆盖个人或
-KOL 使用产品的事实，不再为了满足关系定义而把 person 改标成 company。schema-drift 候选
-并不是身份事实，Mnemora 绝不会据此自动重标实体。
-
-内置 `develops` 关系允许 `company` 指向 `product` 或 `concept`。这覆盖公司直接开发某个
-具名技术方法等有证据的事实；不会重标公司、不会创建拓扑边，也不会把宽泛的 `related_to`
-关系扩大为语义事实。
-
-在分别运行有界 scan、并做出一些人工审查决定后，可使用 CLI 专用的决策门，将
-v1.16 之后的测量汇总为一份 scope 隔离报告：
-
-```bash
-MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review gate --scope default
-```
-
-它会合并当前 hygiene/topology 诊断，以及 refinement、语义标签、schema-drift 和词表候选的
-accepted、rejected、pending 与持久化 invalidated 聚合统计；只输出 JSON，不会 scan、
-不会修改审查状态、不会改 PPR，也不会开启 reasoning delivery。是否有足够证据支持后续
-策略变更，始终由 operator 判断。
-
-同一个本地 operator CLI 还可查看既有的只读 worklist；对于仅由当前 scope 证据支撑的活跃异常
-（例如自链接），可使用独立、带审计的清理流程：
-
-```bash
-MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review worklist --scope default --status pending
-MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review anomalies preview edge:example --scope default
-MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review anomalies confirm edge:example --scope default --preview-hash <hash> --confirm
-```
-
-`worklist` 始终只读。清理绝不会自动执行：confirm 必须匹配最新 preview hash、会写入审计回执，
-并会拒绝任何在其他 scope 仍有证据的边。使用 `--status rejected` 或 `--status invalidated`
-即可查看这些持久化结果，无需直接查询 SQLite。
-
-`kg_stats` 的 `embedding_health` 是已观察到的本地状态，不会为读取状态发起 Provider
-探测。`healthy`/`degraded` 只取决于有界 embedding 成功或类别化失败；`hybrid` 搜索会
-确定性地退回词法结果，显式 `semantic` 搜索则返回有界的不可用错误。
-
-### 可选服务
-
-- `embeddings.enabled`：使用本地 Ollama 的语义检索，默认关闭。
-- `quality.hygiene.enabled`：在 durable turn 后调度有界、只审查的重复实体扫描，默认关闭；实体合并仍需 preview/confirm。
-- `extraction.enabled`：有边界的 OpenAI-compatible 关系抽取，默认关闭。
-- `contextEngine.compaction.enabled`：带来源的模型压缩，默认关闭。
-- `cognition.admission.mode: "enforce"`：确定性候选策略；Belief 和 enforcement 仍需各自显式开启。
-- `cognition.reasoningRuntime.shadowMode`：只记录安全的策略检索聚合遥测；ReasoningMemory 投递仍默认关闭，必须由 operator 校准并为精确 scope 显式开启 canary。
-- `cognition.reasoningRuntime.semantic.enabled`：只有同时开启 `embeddings.enabled` 时，才启用独立的本地 ReasoningMemory 语义索引。默认关闭；Provider 失败时自动退回确定性词法检索。
-- `cognition.reasoningRuntime.verification.enabled`：在 durable completed turn 后运行有界、本地、确定性的策略验证。默认关闭；不会开启投递，也不会让策略成为权威事实。
-- `cognition.reasoningCuration`：可选地在 durable turn 后使用 host 公开提供的 runtime LLM，生成来源关联的决策/结果候选、策略候选并定期审查已有策略。全部默认关闭；不会自动创建用户事实、准入策略或改变投递状态。
-
-所有模型或网络调用都有输入/输出上限、超时和取消处理。默认安装不会开启额外自动写入、严格验证、模型压缩或外部 Provider。
-
-### 受治理的推理 intake、积累与审查
-
-人工编写、相对静态的指令文件适合保存这类内容。Mnemora 的可选 curation
-路径则用于有来源、会演化的操作策略：它把已确认 outcome、有界的模型候选、
-审查状态与后续每一次人工决定一起保存在本地数据库中。
-
-只有在配置好 ContextEngine 后才建议显式开启。Curation 只会在一次
-*durable completed turn* 之后、且 OpenClaw 公开提供了 runtime LLM 时机会性运行；
-它不会读取 host 私有模型状态或凭据。
-
-```json5
-cognition: {
-  reasoningCuration: {
-    intake: { enabled: true }, // 每个 turn 最多两个决策/结果候选
-    formation: { enabled: true }, // 每个 turn 最多一个有 outcome 支撑的候选
-    review: { enabled: true, intervalHours: 168 } // 每周一次咨询性审查
-  }
-}
-```
-
-Intake 会先创建有来源的 `pending_review` 候选，不会自行创建 decision、outcome、
-belief、事实、profile 或策略。operator 审阅后只能确认或丢弃；确认产生的 decision
-仍是 `operator_confirmed`，不会被自动断言为用户事实。确认的 outcome 才会在后续
-durable turn 中成为 formation 的输入。
-
-Formation 只从置信度足够的、人工确认过的 TaskOutcome 开始。模型输出会以
-`pending_review` 保存，不会直接成为 ReasoningMemory。operator 必须先提升候选，
-再执行既有的独立准入步骤，它才可能进入检索。定期审查只能建议 `retain`、`retire`
-或 `needs_review`；最终仍由人处理。`retire` 是可追溯的生命周期状态，不会破坏性删除。
-
-```bash
-mnemora cognition reasoning intake candidates --scope project:alpha
-mnemora cognition reasoning intake confirm <candidate-id> --scope project:alpha
-# 使用返回的 preview hash，再加 --preview-hash <hash> --confirm 执行。
-mnemora cognition reasoning intake discard <candidate-id> --scope project:alpha
-
-mnemora cognition reasoning curation formations --scope project:alpha
-mnemora cognition reasoning curation promote <formation-proposal-id> --scope project:alpha
-# 使用返回的 preview hash，再加 --preview-hash <hash> --confirm 执行。
-mnemora cognition reasoning admit <reasoning-memory-id> --scope project:alpha
-
-mnemora cognition reasoning curation reviews --scope project:alpha
-mnemora cognition reasoning curation resolve-review <review-proposal-id> retire --scope project:alpha
-# 使用返回的 preview hash，再加 --preview-hash <hash> --confirm 执行。
-```
-
-如果审核者确认某个候选属于现有任务，可在 `intake confirm` 的预览和最终确认**两次调用中使用相同的** `--task-ref <mnemora-task-episode-ref>`。预览会显示选中任务对 Decision/TaskOutcome 的关联效果；确认哈希绑定这一选择。省略时仍锚定原始消息，不会仅凭同一轮出现的任务 Episode 自动归属，也不会进入该任务的 `resume` 投影。
-
-关于失败、重试、scope 与审查语义，见[受治理的 Reasoning curation](docs/reasoning-curation.md)。
-
-### 实验性 ReasoningMemory 投递
-
-ReasoningMemory 把可复用的操作策略与个人事实分开保存。即使策略已经准入，运行时投递仍默认关闭。先开启 shadow 收集并检查 readiness，再只对一个精确 scope 显式校准、开启 canary：
-
-```json5
-cognition: {
-  reasoningRuntime: {
-    shadowMode: true,
-    scopes: ["project:alpha"],
-    delivery: {
-      enabled: true,
-      scopes: ["project:alpha"],
-      itemRetentionDays: 30
-    }
-  }
-}
-```
-
-每次投递的策略都会被包裹为 `non_authoritative_reference`，并获得一条短期回执。operator 可以把回执标为 helpful/neutral/harmful；或由 operator 确认的任务 outcome 显式引用回执，形成确定性反馈。harmful 信号只会抑制该 scope 下的这一条策略。`effectiveStatus` 只表示最新回执信号，不代表可以重新投递；memory circuit 必须由 operator 显式 reset 才会关闭，处于关闭前状态的 item 会标出 `requiresOperatorReset`。reset 会新增一条仅追加的 item correction，保留原有 harmful 历史。它不会把策略变成 belief、事实或图谱边，也不会自动关闭整个 canary。
-
-配置过的 scope 已在 shadow 模式运行后，应先查看一份 readiness 报告再创建 calibration。报告会使用最新的 live runtime policy snapshot，因此 operator 无需在 CLI 中重建插件配置。snapshot 只保存有界的策略控制项和聚合计数，绝不保存 prompt、策略正文、memory ID、证据、来源或 Provider 凭据。
-
-```bash
-mnemora cognition reasoning runtime-diagnostics --scope project:alpha
-mnemora cognition reasoning runtime-calibrate --scope project:alpha
-# 使用返回的 preview hash 加 --confirm 再执行一次，然后才可开启精确 scope 的 canary。
-```
-
-在 scope 尚未进入 live runtime 前，diagnostics 会返回 `policy_not_observed`，不能让该 scope 变为 ready。只有 operator 确认 calibration 且精确 scope 的 canary 都存在时，delivery 才可能开启。
-
-```bash
-mnemora cognition reasoning runtime-delivery-items --scope project:alpha
-mnemora cognition reasoning runtime-feedback-summary --scope project:alpha
-mnemora cognition reasoning runtime-memory-circuit <reasoning-memory-id> --scope project:alpha
-```
-
-`mnemora cognition reasoning find` 是供 operator 审计/查看目录的命令，因此可能展示已被抑制的策略文本；需要经过 circuit 过滤的选择请使用 `retrieve`、`compile` 或 runtime delivery。
-
-若要衡量投递是否真的改善任务结果，使用 `mnemora cognition reasoning runtime-effectiveness <file>` 运行去标识化 A/B 数据集。只有 operator 声明的随机对照且每一组至少有 20 条已判定 outcome 时，才会给出非因果的点估计和保守的 95% 区间；shadow 遥测、采用率、合成 benchmark 与旧版 v1 数据集都不能当作效果结论。
-
-operator 还可以为待准入策略附上[有界、确定性的验证说明](docs/reasoning-verification.md)。它只会在本地 append-only ledger 中比对明确 receipt 引用与规范化工具结果；不匹配仅打开对应策略的 delivery circuit，直到 operator 显式 reset。它不会调用模型、网络或工具，也不会把策略升级为 belief 或事实。自动处理仍默认关闭：
-
-```json5
-cognition: { reasoningRuntime: { verification: { enabled: true, maxJobsPerRun: 5 } } }
-```
-
-### 可选的多语言 ReasoningMemory 检索
-
-策略文本与运行时任务可以使用不同语言。要让中文策略能够被英文 `debug` 任务命中（反之亦然），需要同时显式开启现有本地 Ollama embedding Provider 与独立的 ReasoningMemory 语义路径：
-
-```json5
-embeddings: { enabled: true, provider: "ollama", model: "qwen3-embedding:4b" },
-cognition: {
-  reasoningRuntime: {
-    shadowMode: true,
-    scopes: ["project:alpha"],
-    semantic: { enabled: true, timeoutMs: 1500, minScore: 0.35, maxCandidates: 50 }
-  }
-}
-```
-
-建索引是显式的本地操作：不会在策略准入或普通 prompt 组装时自动执行。`semantic-backfill` 必须确认，只保存向量字节、模型身份、输入哈希和 scope，不保存策略正文或证据。独立 CLI 也要求明确启用本地 embedding：
-
-```bash
-MNEMORA_REASONING_SEMANTIC_EMBEDDINGS=1 mnemora cognition reasoning semantic-status --scope project:alpha
-MNEMORA_REASONING_SEMANTIC_EMBEDDINGS=1 mnemora cognition reasoning semantic-backfill --scope project:alpha --confirm
-```
-
-如果修改了 embedding 模型配置，请再次执行已确认的 backfill；它会识别模型身份变化并刷新本地策略索引。
-
-shadow 报告提供聚合的 `semanticCandidates`、`unmatched` 和 `taskTypeExcluded` 计数，不会持久化 prompt、策略、memory ID 或来源内容。
-
-## 安全模型
-
-- 记忆是参考材料，不是指令，也不是权威来源。
-- 检索和上下文组装前都会执行 scope 隔离。
-- 摘要用于导航证据，不替代原始证据。
-- 自动抽取产生受策略约束的候选，不能自行创建可信用户事实。
-- Provider 迁移只使用公开接口，分页、preview-first 且可恢复。
-- loopback Inspector 默认只读，会脱敏原始 prompt、凭据、Provider 响应和私有路径。
-- Inspector 的记忆移除入口只在启用操作模式时出现，受 CSRF 保护，且每次都必须先取得
-  最新影响预览，再明确确认。
-- Inspector 的新备份登记上限为 1,000 条；达到上限时，新的备份或恢复点登记会明确失败，
-  不会静默清理已有 artifact。旧版的有效大清单仍可读取；损坏或过大的清单会明确显示为
-  degraded，而不会伪装成“空但健康”的登记表。
-
-## 日常操作
-
-```bash
-mnemora inspect
-mnemora surface core
-mnemora retrieve "这个项目有哪些既有决策？"
-mnemora resume "部署迁移" --scope project:alpha
-mnemora evaluate recall-quality ./deidentified-golden.json
-```
-
-阈值扫描使用显式指定的授权语料快照和 `evaluate recall-threshold-scan <plan.json>`，
-详见 [阈值评估说明](docs/recall-threshold-evaluation.md)。该命令只读打开已有、schema
-兼容的数据库，不建库或迁移；只在 tuning 选值，不改默认配置，不把合成分数当部署证据。
-
-`cognition feedback evidence <target-ref> --scope <scope>` 在同样的显式只读快照边界上
-提供用途证据审查。引用不等于证实，缺失投递记录不等于从未投递，不写推断标签或
-修改校准；详见 [用途证据与覆盖边界](docs/recall-usefulness-review.zh-CN.md)。
-默认关闭的单次装配凭据及人工来源关联见 [装配证据说明](docs/recall-attachment-evidence.zh-CN.md)。
-它不是逐轮因果归因或自动有用性标签，不据此修改校准。
-
-CLI 默认使用 `~/.openclaw/mnemora.db`。首次创建持久化数据库时，它会在 stderr
-输出实际路径；请通过 `MNEMORA_DB` 显式选择其他数据库。
-
-OpenClaw 安装扩展时不会创建 npm 的全局 `mnemora` bin shim。若从解包后的插件目录
-调用 CLI，请直接运行随包文件：
-
-```bash
-MNEMORA_DB=~/.openclaw/mnemora.db node dist/cli.js stats
-```
-
-随包的 `/mnemora` 命令只提供只读状态、诊断和显式 canonical corpus 操作。可选择 `core`、`research` 或 `full` 工具面来控制 Agent 收到的工具 schema 数量；为兼容性，默认值是 `full`。
-
-## 边界
-
-Mnemora 是本地记忆运行时，不是会自动构建人格画像的系统。它不会把人格推断写成事实，不访问宿主/其他插件的私有存储，也不会静默跨项目 scope 召回。没有公开 inventory 的 Provider 只能使用显式 reference。
+CLI 默认连接 `~/.openclaw/mnemora.db`；部署使用其他路径时，显式设置 `MNEMORA_DB`。
+OpenClaw 安装扩展不一定创建全局 `mnemora` 命令，上面的直接调用不需要全局命令。
+
+任务续接是只读操作，不会执行计划或确认候选。任务不明确时先给候选，不拼接多任务状态。
+v1.32 为明确选择的任务增加有界的 `source_evidence` 可读摘录，但不会把摘录升级为已接受状态。
+字段边界与复测要求见[可读来源证据说明](docs/task-resume-source-evidence.zh-CN.md)。
+
+## 安全与边界
+
+- **来源不等于确认**：用户请求不是完成证据，助手自述不是独立验证。
+- **作用域与生命周期有效性重要**：失效或被遗忘的来源不能让已接受工作复活；不确定证据保持明确标记。
+- **本地优先不等于完全离线**：配置的模型、embedding 或 Provider 集成可能发起外部调用。
+- **ReasoningMemory 投递仍属实验，默认关闭**：需要显式治理，参考内容不能成为 prompt 指令。
+- **测试通过不等于效果已证明**：v1.32 尚未证明续接正确率优于简单检索；真实对照评估与 v1.33 试点门槛仍待完成。
+
+攻击面与防护边界见[威胁模型](docs/threat-model.md)。
+
+## 文档导航
+
+完整配置、首次验收、更正流程与运维命令见[使用指南](docs/usage-guide.zh-CN.md)。
+
+- **任务续接**：[评估说明](docs/task-resume-evaluation.md)、
+  [来源证据](docs/task-resume-source-evidence.zh-CN.md)、
+  [Mac 实验交接](docs/task-resume-mac-openclaw-handoff.zh-CN.md)。
+- **召回与证据**：[阈值评估](docs/recall-threshold-evaluation.md)、
+  [装配凭据](docs/recall-attachment-evidence.zh-CN.md)、
+  [用途证据边界](docs/recall-usefulness-review.zh-CN.md)。
+- **ReasoningMemory**：[审查与治理](docs/reasoning-curation.md)、
+  [验证说明](docs/reasoning-verification.md)。
+- **开发规划**：[roadmap](docs/roadmap.md)、
+  [实验预注册](docs/task-resume-preregistration.zh-CN.md)、
+  [v1.32 发布说明](docs/releases/v1.32.0.md)。
+
+部分详细文档目前仅有英文版。
 
 ## 开发
 
-新增 fixture、排查存储/配置或升级现有部署前，先读 [维护经验与操作边界](docs/maintenance-lessons.zh-CN.md)。
+新增 fixture、修改存储或配置、升级部署前，先读[维护经验与操作边界](docs/maintenance-lessons.zh-CN.md)。
 
 ```bash
+npm run check
 npm run verify
 ```
 
-该命令在 Node.js 24.19.0 上执行 typecheck、单元测试、构建、smoke、插件校验、兼容性校验和离线质量基准（支持的 Node 24 范围从 24.15.0 开始）。
+完整验收包含串行单测、构建、浏览器检查、基线评估、插件校验、smoke 与 SDK 兼容性预期检查。
+发布标签必须对应 Windows、Linux CI 均成功的同一提交。
 
 ## 许可证
 
