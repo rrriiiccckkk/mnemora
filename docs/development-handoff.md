@@ -1,10 +1,10 @@
 # Mnemora 下一轮开发交接
 
-当前接手入口（2026-10-01）：先核对实际 HEAD 与工作区，以 [roadmap](roadmap.md) 为当前方向；新增测试、排查数据库/配置或升级时，读取 [维护经验与操作边界](maintenance-lessons.zh-CN.md)。下文是 **2026-09-10 的历史交接**，其“未提交/待验证”和版本状态不代表当前工作区。当前已发布基线为 v1.31.10（`ee60045`，双平台 CI 与正式 Release 已核对）；正式三臂实验另见 [预注册说明](task-resume-preregistration.zh-CN.md)。不重新创建此前移除的未跟踪 AGENTS.md。
+当前接手入口（2026-10-01）：先核对实际 HEAD 与工作区，以 [roadmap](roadmap.md) 为当前方向；新增测试、排查数据库/配置或升级时，读取 [维护经验与操作边界](maintenance-lessons.zh-CN.md)。下文是 **2026-09-10 的历史交接**，其“未提交/待验证”和版本状态不代表当前工作区。当前已发布基线为 v1.31.11（`c414abb`，双平台 CI 与正式 Release 已核对）；正式三臂实验另见 [预注册说明](task-resume-preregistration.zh-CN.md)。不重新创建此前移除的未跟踪 AGENTS.md。
 
 v1.31.8 已以 `c9c2cce` 完成双平台 CI 并正式发布。此版本起，文件型 fixture 的定向测试用 `node scripts/run-unit-tests.mjs tests/<name>.test.mjs`，完整验收用 `npm run verify`；下文历史 `node --test` 命令不是当前受管理的清理入口。
 
-当前增量（2026-10-01）为 v1.31.11：显式只读快照上的 `cognition feedback evidence` 把累计实际附着、准确引用候选与现有人工反馈分开，来源遗忘或目标失效后退出审查；不写标签或修改校准。接手此分支先读 [用途证据边界](recall-usefulness-review.zh-CN.md)：累计记录没有 turn/版本关联 ID，裸行尾或段尾引用可能是截断前缀，corroboration 仍是 unmeasured。下一增量先补 opt-in 的单次附着身份、版本和 reviewed 来源关联，再验收重放、遗忘/更正撤回与 retention；不能用当前 view 算有用率。阈值真实标注与 v1.32 预注册实验仍待授权材料；[阈值说明](recall-threshold-evaluation.md) 保持独立。完整本地验收及同一提交 Windows/Linux CI 后发布；测试串行、schema 83、产品限额和模型身份不变。
+当前增量（2026-10-01）为 v1.31.12：[单次装配证据](recall-attachment-evidence.zh-CN.md) 定义默认关闭的凭据、记录版本/投影指纹和人工 preview/confirm 来源关联。接手涉及记录或标签时先读该说明：装配 ID 不是 host turn ID，用户确认不是独立证实，引用窗口不能算有用率。新增 schema84 两表，不回填旧 usage；同 scope 的重放、源遗忘/更改、目标失效和 retention 均须验收。下一步先审查授权真实凭据/来源案例与覆盖缺口，再决定是否接 canary；自动标签与 canary 集成未实现。[用途证据边界](recall-usefulness-review.zh-CN.md) 和 [阈值说明](recall-threshold-evaluation.md) 保持独立，真实三臂实验仍待授权材料。完整本地验收及同一提交 Windows/Linux CI 后发布；串行测试、产品限额和模型身份不变，不为补材料访问 Mac 或生产库。
 
 v1.31.9 最终本地验收：Node 24.19.0 下完整 `npm run verify` 通过，单测 943/943（新增 23 项），性能基线、插件校验与 smoke 均通过。正式发布状态核对对应 GitHub Release，不从本地通过推断远端 CI。
 
@@ -13,6 +13,10 @@ v1.31.10 最终本地验收：Node 24.19.0 完整 `npm run verify` 通过，单�
 v1.31.11 最终本地验收：Node 24.19.0 完整 `npm run verify` 通过，单测 964/964（新增 10 项），现有基线、插件校验与 smoke 均通过。引用后缀、Unicode 相邻字符、捕获/多段消息截断及选项前置不建库都有回归；两路审查已复核修复。真实自动标签与 canary 集成未实现，不从这次审查 view 推断用途收益；正式发布状态仍核对对应提交的双平台 CI 与 Release。
 
 2026-10-01 发布收尾记录：`fe6adbe` 的 Linux CI 成功；Windows 的完整 `npm run verify` 也成功，但 setup-node 收尾压缩 npm 缓存耗尽 20 分钟任务时限，整个 CI 未成功，因此未打发布标签。后续仅关闭 Windows 可选 npm 缓存（保留 Linux 缓存、双平台全部检查及原时限），新提交必须重新取得双平台 CI 成功后才能发布 v1.31.11；不能把原任务的测试成功当作正式 CI 成功。
+
+v1.31.11 后续发布核对：`c414abb` 的 Windows/Linux CI `36757620149` 成功（14m17s / 5m59s），Release `36759476309` 成功；正式标签指向该提交，非 draft/prerelease。缓存修复没有删除检查。
+
+v1.31.12 最终本地验收（2026-10-01）：Node 24.19.0 完整 `npm run verify` 成功，983/983 单测（新增 16 项行为、3 项迁移），全部基线、插件校验/smoke 和发布版本检查通过。两路审查已关闭发现项：双配置 schema、哈希 primitive 类型、清洗后投影指纹、去重先于来源限额和来源有效期；两项旧默认值断言同步后定向 43/43 与全量均成功。自动用途标签、逐轮因果归因和 canary 集成仍未实现；双平台 CI 与正式发布须按同一提交另行核对。
 
 ## 历史交接（2026-09-10）
 

@@ -11,7 +11,7 @@ test("recall usage is scope-bound, aggregate-only, and accepts only canonical du
   let now = 1_000_000;
   const store = new GraphologyStore(":memory:");
   try {
-    assert.equal(SUPPORTED_SCHEMA_VERSION, 83);
+    assert.equal(SUPPORTED_SCHEMA_VERSION, 84);
     const usage = new RecallUsageRepository(store.db, () => now);
     const memory = createMnemoraContextRef({ scope: "project:a", kind: "memory-document", id: "note-1" });
     const journal = createMnemoraContextRef({ scope: "project:a", kind: "conversation-event", id: "event-1" });

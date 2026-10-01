@@ -72,7 +72,8 @@ MNEMORA_DB=/authorized/workspace/corpus-snapshot.db node dist/cli.js evaluate re
 ```
 
 In PowerShell, set `$env:MNEMORA_DB` to the snapshot before the same invocation.
-The database must explicitly exist and match schema 83. The command opens a
+The database must explicitly exist and match the current supported schema (84
+since v1.31.12). Upgrade only an authorized copy separately; this command opens a
 native read-only connection, skips normal store initialization/migrations,
 holds one read transaction, and fixes the scoring clock for the whole scan.
 An absent path, `:memory:`, an unspecified database or another schema fails

@@ -38,7 +38,7 @@ import { SchemaDriftRepository } from "./schema-drift/repository.js";
 import { SchemaDriftReviewRepository } from "./schema-drift/review.js";
 import { semanticOptionalRestoreTables, semanticSchemaSql } from "./semantics/schema.js";
 import { SemanticPatternRepository } from "./semantics/repository.js";
-import { recallLifecycleOptionalRestoreTables, recallLifecycleSchemaSql } from "./recall-lifecycle/schema.js";
+import { recallAttachmentSchemaSql, recallLifecycleOptionalRestoreTables, recallLifecycleSchemaSql } from "./recall-lifecycle/schema.js";
 import { corpusOptionalRestoreTables, corpusSchemaSql } from "./corpus/schema.js";
 import { memoryLifecycleSchemaSql } from "./memory-lifecycle/schema.js";
 import { unifiedRecallShadowSchemaSql } from "./retrieval/schema.js";
@@ -302,6 +302,7 @@ export class GraphologyStore {
     if (version < 81) this.migrateLifecycleCoordinationV81();
     if (version < 82) this.migrateTaskActionOutcomesV82();
     if (version < 83) this.migrateLegacyCallbackFingerprintsV83();
+    if (version < 84) this.migrateRecallAttachmentsV84();
     this.repairCanonicalCorpusFts();
     this.db.exec(`PRAGMA user_version=${SUPPORTED_SCHEMA_VERSION}`);
   }
@@ -530,6 +531,9 @@ export class GraphologyStore {
    * lifecycle actions. Existing evidence, episodes, and proposals are not
    * rewritten during migration. */
   private migrateConsolidationAdoptionsV58(): void { this.db.exec(consolidationSchemaSql); }
+
+  /** Schema v84 adds explicit attachment receipts and reviews without backfilling evidence. */
+  private migrateRecallAttachmentsV84(): void { this.db.exec(recallAttachmentSchemaSql); }
 
   /** Schema v59 records only aggregate vocabulary-review candidates. Existing
    * nodes, edges, observations, weights, scopes, and source evidence stay

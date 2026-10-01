@@ -2,13 +2,14 @@
 
 ## Current release plan (2026-10-01)
 
-Current release target: **v1.31.11**, following released baseline **v1.31.10**.
+Current release target: **v1.31.12**, following released baseline **v1.31.11**.
 The historical sections below record earlier completed directions; this
 section is the active planning baseline.
 
 | Version | Product outcome | Release gate |
 | --- | --- | --- |
-| **v1.31.11 — Recall usefulness evidence boundaries** | Read-only target-level worklist separates attachment aggregates, bounded mentions and explicit unlinked feedback; missing attribution cannot become an efficacy score. | Citation boundaries, multipart clipping, Unicode, source forgetting, target lifecycle and snapshot no-write regressions; complete verify then exact-commit Windows/Linux CI. |
+| **v1.31.12 — Exact attachment evidence safeguards** | Opt-in bounded assembly receipts freeze target/projection versions and allow preview-confirmed source links; partial coverage is not causal turn attribution or an efficacy denominator. | Actual assembly/default-off/stateless/budget, version drift, source erasure, retention, scope, replay, schema83→84 preservation/restart/restore; complete verify then exact-commit Windows/Linux CI. |
+| **v1.31.11 — Recall usefulness evidence boundaries (released)** | Read-only target-level worklist separates attachment aggregates, bounded mentions and explicit unlinked feedback; missing attribution cannot become an efficacy score. | 964 local unit tests plus full verify; exact-commit Windows/Linux CI and formal release passed for `c414abb`. Optional Windows cache saving disabled after an earlier post-verification timeout, with no checks removed. |
 | **v1.31.10 — Threshold evaluation safeguards (released)** | Read-only manual-unified score scan freezes tuning/test selection and rejects failed/unsafe/budget-invalid evidence; aggregate curves cannot authorize default changes. | Complete verify including 954 tests and exact-commit Windows/Linux CI passed for `ee60045`; formal release published. Real threshold calibration remains pending. |
 | **v1.31.9 — Reference projection trust boundaries (released)** | Shared projection protection covers summary assembly, transcript rewrite and built-in reasoning adapters; records remain auditable. Threat model distinguishes structural safeguards from model resistance. | Complete verify including 943 unit tests and exact-commit Windows/Linux CI passed for `c38fd67`; formal release published. Structural safeguards do not prove model resistance. |
 | **v1.31.8 — Owned test fixture cleanup (released)** | All file-backed fixtures use an owned system-temp root; managed parent runners clean after native worker exit on success or failure, without deleting historical or unrelated directories. | Complete verify including 920 unit tests and exact-commit Windows/Linux CI passed for `c9c2cce`; formal release published. Serial test concurrency, schema and product defaults remain unchanged. |
@@ -47,11 +48,12 @@ and invalid evidence no longer influence the Agent through any automatic path.
 1. Freeze **v1.32** value criteria before new model runs using the
    [preregistration guide](task-resume-preregistration.zh-CN.md). The existing
    four-case report is exploratory, not a retrospectively registered test.
-2. Complete the v1.31.11 usefulness evidence review. Actual implicit-label
-   capture first needs opt-in individual attachment/target-version identity,
-   reviewed source linkage and erasure/replay/retention tests; aggregate usage
-   cannot supply that join. Real threshold labels and other score surfaces
-   remain pending. Neither worklist authorizes calibration/default changes.
+2. Complete v1.31.12 exact attachment safeguards, then audit authorized real
+   receipt/source-link cases and missing coverage. These assembly IDs are not
+   host turn IDs, user confirmation is not independent corroboration, and
+   partial receipt windows cannot measure usefulness rates. Automatic label
+   capture, canary integration and real threshold labels remain pending;
+   neither evidence view authorizes calibration/default changes.
 3. Run the new authorized held-out comparison under the fixed decision policy.
    Keep a matched rerun of the old four cases as a separate regression study.
 4. Start **v1.33** only when that evidence supports a governed, scoped

@@ -407,6 +407,8 @@ mnemora evaluate recall-quality ./deidentified-golden.json
 `cognition feedback evidence <target-ref> --scope <scope>` 在同样的显式只读快照边界上
 提供用途证据审查。引用不等于证实，缺失投递记录不等于从未投递，不写推断标签或
 修改校准；详见 [用途证据与覆盖边界](docs/recall-usefulness-review.zh-CN.md)。
+默认关闭的单次装配凭据及人工来源关联见 [装配证据说明](docs/recall-attachment-evidence.zh-CN.md)。
+它不是逐轮因果归因或自动有用性标签，不据此修改校准。
 
 CLI 默认使用 `~/.openclaw/mnemora.db`。首次创建持久化数据库时，它会在 stderr
 输出实际路径；请通过 `MNEMORA_DB` 显式选择其他数据库。

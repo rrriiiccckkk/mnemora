@@ -2,11 +2,12 @@
 
 这是现有反馈通路的只读审查入口，不是自动标注器，也不是“记忆有用率”评估。
 它把一个 `target_ref` 的累计附着记录、可读消息中的准确引用和人工明确反馈分开展示。
-本轮不新增表、不保存推断标签、不改变排序、事实置信度或 canary 校准。
+v1.31.11 的聚合审查不新增表；v1.31.12 新增默认关闭的单次装配凭据和人工来源关联。
+两者都不保存推断标签、不改变排序、事实置信度或 canary 校准。
 
 ## 在授权快照上运行
 
-先构建，再显式选择已有、schema 83 兼容的隔离快照：
+先构建，再显式选择已有、当前 schema 兼容的隔离快照（v1.31.12 为 84）：
 
 ```sh
 MNEMORA_DB=/authorized/workspace/snapshot.db node dist/cli.js cognition feedback evidence "$TARGET_REF" --scope "$SCOPE" --limit 20
@@ -57,10 +58,10 @@ query/fragment、非 canonical 编码和嵌入标识符不算这个目标的准�
 
 ## 后续闭环的验收条件
 
-这一步只是证据审查基础。下一增量先补齐 opt-in 的单次附着身份和目标版本，再把信号
-关联到公共持久消息与 reviewed 来源，验证重放幂等、scope 隔离、更正/遗忘撤回和
-保留期限。引用与独立证实必须保持分离；不能把 assistant 自述算成外部支持。
-需要新持久记录时明确安排 schema 迁移和旧库恢复验收，而不是挪用旧表含义。
+v1.31.12 的 `individualAttachments` 提供独立装配凭据、目标记录版本、投影指纹和
+人工关联来源，见 [单次装配证据](recall-attachment-evidence.zh-CN.md)。聚合字段的
+`turnAttribution` 和 `corroboration` 含义不变：宿主逐轮身份与独立证实仍不可推断。
+下一步先用授权真实案例审查这些关联，不把引用或用户确认等同独立证实。
 
 canary 校准仍须人工审查、有足够独立案例和既有 preview/confirm 边界；当前 view
 不能替代 [v1.32 预注册三臂实验](task-resume-preregistration.zh-CN.md)。

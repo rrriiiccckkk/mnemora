@@ -4,6 +4,7 @@ import { normalizeScope } from "../scope.js";
 import { RecallUsageRepository, type RecallUsageRecord } from "../recall-lifecycle/repository.js";
 import { CognitionReferenceRepository } from "./reference-repository.js";
 import type { RecallFeedbackKind } from "./reflection.js";
+import { RecallAttachmentEvidenceService } from "./recall-attachment.js";
 
 const EVENT_LIMIT = 200, TEXT_LIMIT = 16000, TEXT_BUDGET = 1_048_576;
 const kinds = ["memory-document", "belief", "decision"] as const;
@@ -16,6 +17,7 @@ export interface RecallUsefulnessReview {
   targetStatus: "active" | "unavailable";
   targetUpdatedAt: number | null;
   attachment: RecallUsageRecord | null;
+  individualAttachments: ReturnType<RecallAttachmentEvidenceService["review"]> | null;
   reviewedFeedback: Record<RecallFeedbackKind, number> | null;
   feedbackEvidence: "operator_asserted_unlinked";
   mentions: Mention[];
@@ -38,7 +40,7 @@ export class RecallUsefulnessReviewService {
     if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw new Error("invalid_usefulness_review");
     const report: RecallUsefulnessReview = {
       version: "recall-usefulness-review-v1", scope, targetRef: reference.canonical, targetStatus: "unavailable", targetUpdatedAt: null,
-      attachment: null, reviewedFeedback: null, feedbackEvidence: "operator_asserted_unlinked", mentions: [],
+      attachment: null, individualAttachments: null, reviewedFeedback: null, feedbackEvidence: "operator_asserted_unlinked", mentions: [],
       corroboration: "unmeasured", turnAttribution: "unavailable", versionAttribution: "timestamp_window_only",
       coverage: { eventLimit: EVENT_LIMIT, mentionLimit: limit, scannedEvents: 0, truncated: false, possiblyClippedTexts: 0, ambiguousBoundaries: 0, completeHistory: false, surface: "readable_user_chat_journal_only" },
       calibrationAction: "not_performed", mutation: "none"
@@ -54,6 +56,7 @@ export class RecallUsefulnessReviewService {
       const now = this.now(), updatedAt = Number(target.updated_at);
       report.targetStatus = "active"; report.targetUpdatedAt = updatedAt;
       report.attachment = new RecallUsageRepository(this.db).usage(scope, reference.canonical) ?? null;
+      report.individualAttachments = new RecallAttachmentEvidenceService(this.db, {}, this.now).review({ scope, targetRef: reference.canonical, limit });
       report.reviewedFeedback = Object.fromEntries(feedbackKinds.map(kind => [kind, 0])) as Record<RecallFeedbackKind, number>;
       const feedback = this.db.prepare(`SELECT kind,COUNT(*) AS count FROM mnemora_recall_feedback
         WHERE scope=? AND target_ref=? AND created_at>=? AND created_at<=? GROUP BY kind`).all(scope, reference.canonical, updatedAt, now) as Array<{ kind: RecallFeedbackKind; count: number }>;

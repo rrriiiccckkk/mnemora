@@ -578,6 +578,9 @@ and never changes defaults or treats synthetic scores as deployment evidence.
 read-only snapshot boundary for a bounded usefulness-evidence worklist.
 Citations are not confirmations, missing attachment telemetry is unknown,
 and no labels or calibration are changed. See [evidence limits](docs/recall-usefulness-review.zh-CN.md).
+Optional per-assembly version receipts and preview-confirmed source links are
+described in [attachment evidence](docs/recall-attachment-evidence.zh-CN.md).
+These are not causal turn attribution or automatic usefulness labels.
 
 The CLI uses `~/.openclaw/mnemora.db` by default. When it creates a persistent
 database for the first time, it reports the exact path on stderr; set

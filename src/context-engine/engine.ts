@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { delegateCompactionToRuntime } from "openclaw/plugin-sdk/core";
 import type { HarnessContextEngine as ContextEngine } from "openclaw/plugin-sdk/agent-harness-runtime";
 import type { MnemoraConfig } from "../index.js";
@@ -11,6 +11,7 @@ import { sanitizeMemoryForContext } from "../retrieval/context-safety.js";
 import { selectGraphInjection, selectInjectionCandidates, type InjectionSuppressionReason } from "../retrieval/injection-policy.js";
 import { planRecallQuery } from "../retrieval/query-routing.js";
 import { RecallUsageRepository } from "../recall-lifecycle/repository.js";
+import { RecallAttachmentEvidenceService } from "../cognition/recall-attachment.js";
 import { ConfiguredCompactionSummarizer, RuntimeCompactionSummarizer } from "./compaction-model.js";
 import { activeJournalTokenEstimate, ContextCompactionService, type CompactionOptions } from "./compaction-service.js";
 import { estimateTextTokens } from "./token-estimate.js";
@@ -312,6 +313,12 @@ export class MnemoraContextEngine implements ContextEngine {
           exactLocalConstraint: Boolean(plan.tags.length || plan.metadataFilters?.length || plan.mustContain?.length)
         });
         const result = { ...rawResult, candidates: localSelection.candidates, empty: localSelection.candidates.length === 0 };
+        const attachmentEvidence = new RecallAttachmentEvidenceService(graph.store.db, {
+          ...this.config.unifiedRetrieval.attachmentEvidence,
+          enabled: this.config.unifiedRetrieval.attachmentEvidence?.enabled === true && sessionWriteDisposition(params.sessionId, this.config.conversationJournal) === "writable"
+        });
+        let evidenceItems: ReturnType<RecallAttachmentEvidenceService["snapshot"]> = [];
+        try { evidenceItems = attachmentEvidence.snapshot({ scope: this.scope(), candidates: result.candidates }); } catch { /* optional evidence never affects selection */ }
         // Graph recall is bounded by the same standalone budget and joins the
         // memory corpus inside this one attachment. Hybrid uses embeddings when
         // configured; otherwise the graph's exact lexical path remains useful.
@@ -340,6 +347,10 @@ export class MnemoraContextEngine implements ContextEngine {
         if (rendered && estimateTextTokens(rendered) <= available) {
           additions.push(rendered);
           attached = true;
+          try {
+            const refs = new Set(packed.candidates.map(candidate => candidate.contextRef));
+            attachmentEvidence.record({ scope: this.scope(), id: `assembly:${randomUUID()}`, items: evidenceItems.filter(item => refs.has(item.target.ref)) });
+          } catch { /* stale snapshots are omitted, never relabelled as current */ }
           // This optional acceptance signal has a stricter contract than
           // aggregate recall telemetry: it requires the same opaque marker in
           // the request and the actual attached payload, in another session.
