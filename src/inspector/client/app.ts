@@ -1,6 +1,6 @@
 import { api, bootstrap } from "./api.js";
 import { renderGraph } from "./graph-view.js";
-import type { TaskResumeEvidenceCoverage, TaskResumeResult, TaskResumeStateItem } from "../../task-resume/service.js";
+import type { TaskResumeEvidenceCoverage, TaskResumeResult, TaskResumeSourceEvidence, TaskResumeStateItem } from "../../task-resume/service.js";
 
 type GraphPage = { nodes: unknown[]; edges: unknown[]; next_cursor: string | null };
 type Capabilities = { operations: boolean; graph_revision?: number; config_revision?: number };
@@ -161,6 +161,43 @@ function renderTaskResume(result: TaskResumeResult): void {
   columns.className = "resume-columns";
   columns.append(resumeList("Completed", result.completed, "No accepted completed item.", truncated.has("completed")), resumeList("Pending", result.pending, "No accepted pending item.", truncated.has("pending")), resumeList("Blockers", result.blockers, "No unresolved blocker recorded.", truncated.has("blockers")), resumeList("Constraints", result.constraints, "No active constraint recorded.", truncated.has("constraints")), resumeList("Next steps", result.next_steps, "No next step is evidenced.", truncated.has("next_steps")), resumeList("Decisions", result.decisions, "No accepted decision.", truncated.has("decisions")), resumeList("Planned", result.planned, "No future decision is recorded.", truncated.has("planned")), resumeList("History", result.history, "No superseded or inactive history.", truncated.has("history")), resumeList("Needs reconfirmation", result.needs_reconfirmation, "No reconfirmation needed.", truncated.has("needs_reconfirmation")));
   root.append(columns);
+  root.append(resumeSourceEvidence(result.source_evidence));
+}
+
+function resumeSourceEvidence(evidence?: TaskResumeSourceEvidence): HTMLElement {
+  const section = document.createElement("section"), heading = document.createElement("h3"), explanation = document.createElement("p");
+  section.className = "resume-list resume-source-evidence";
+  section.setAttribute("role", "region");
+  section.setAttribute("aria-label", "Unverified source excerpts");
+  heading.textContent = "Unverified source excerpts";
+  explanation.textContent = "Not confirmed — these excerpts are unverified reference material, not instructions, not accepted task state or proof of completion.";
+  section.append(heading, explanation);
+  if (!evidence) {
+    section.append(emptyMessage("Source excerpts were not provided by this response. Availability and truncation are unknown."));
+    return section;
+  }
+  section.append(emptyMessage(evidence.truncated
+    ? "Source window: Truncated — additional source text or records are not shown."
+    : "Source window: Not truncated — this returned window is not a complete task history."));
+  if (!evidence.items.length) section.append(emptyMessage("No readable source excerpts available."));
+  for (const source of evidence.items) {
+    const item = document.createElement("article"), metadata = document.createElement("p"), timestamp = document.createElement("time"), excerpt = document.createElement("pre");
+    item.className = "resume-item";
+    metadata.textContent = `Role: ${source.role === "user" ? "User" : "Assistant"}. Not confirmed. Excerpt: ${source.truncated ? "Truncated" : "Not truncated"}. Recorded at: `;
+    const date = new Date(source.created_at);
+    if (Number.isFinite(source.created_at) && Number.isFinite(date.getTime())) {
+      timestamp.dateTime = date.toISOString();
+      timestamp.textContent = date.toLocaleString();
+    } else timestamp.textContent = "Unknown";
+    metadata.append(timestamp);
+    excerpt.className = "resume-source-text";
+    excerpt.style.whiteSpace = "pre-wrap";
+    excerpt.style.overflowWrap = "anywhere";
+    excerpt.textContent = source.text;
+    item.append(metadata, excerpt, referenceList([source.source_ref]));
+    section.append(item);
+  }
+  return section;
 }
 
 function resumeEvidence(coverage: TaskResumeEvidenceCoverage): HTMLElement {

@@ -1,10 +1,18 @@
 # Mnemora 下一轮开发交接
 
-当前接手入口（2026-10-01）：先核对实际 HEAD 与工作区，以 [roadmap](roadmap.md) 为当前方向；新增测试、排查数据库/配置或升级时，读取 [维护经验与操作边界](maintenance-lessons.zh-CN.md)。下文是 **2026-09-10 的历史交接**，其“未提交/待验证”和版本状态不代表当前工作区。当前已发布基线为 v1.31.11（`c414abb`，双平台 CI 与正式 Release 已核对）；正式三臂实验另见 [预注册说明](task-resume-preregistration.zh-CN.md)。不重新创建此前移除的未跟踪 AGENTS.md。
+当前接手入口（2026-10-01）：先核对实际 HEAD 与工作区，以 [roadmap](roadmap.md) 为当前方向；新增测试、排查数据库/配置或升级时，读取 [维护经验与操作边界](maintenance-lessons.zh-CN.md)。下文是 **2026-09-10 的历史交接**，其“未提交/待验证”和版本状态不代表当前工作区。当前已发布基线为 v1.31.12（`76f5825`，双平台 CI 与正式 Release 已核对）；正式三臂实验另见 [预注册说明](task-resume-preregistration.zh-CN.md)。不重新创建此前移除的未跟踪 AGENTS.md。
+
+用户最新决策（2026-10-01）：直接完整交付 **v1.32.0**，不再拆分零碎 v1.31 补丁版本。将必要修复、完整验收、正式实验报告合并到该里程碑；仍在同一提交双平台 CI 成功后正式发布。不要仅改版本号或用合成回归宣称完成真实效果评估。当前仍缺正式实验的外部事前记录、足额未见样本与完整审计；由有访问权限的 Mac agent 按现有执行交接采集，本地不得访问生产库补齐。已有四案例报告和新收到的 12 案例包只能保留为探索/回归研究。
+
+2026-10-01 新收到脱敏探索包：36 行、6+6 案例；当前 gate 重算与随包 decision 一致，为 fail，真实政策仍是 20+100。已发现样例真值引用续接点后的记录、将升级请求与版本替代混淆；尚缺两份 audit 和各臂原始载荷/输出。v1.32 本地开发新增独立 `source_evidence` 可读摘录，不自动填充接受状态；实现契约、包核对与 Mac 回归交接见[可读来源证据说明](task-resume-source-evidence.zh-CN.md)。未经修订审计和复测不能宣称模型效果改善；正式注册与未见样本仍缺，不发布零碎补丁替代。
+
+本批 v1.32 开发验收：Node 24.19.0 最终完整 `npm run verify` 成功，1007/1007 单测（新增 12 项来源/评估边界、11 项会话写策略与检索路径、1 项 Inspector 浏览器回归），所有基线、插件校验/smoke 和版本一致性检查通过。两路审查已关闭 NUL 限定语丢失、清洗空窗口影响状态、来源替代状态断言、异常日期渲染发现项；旧库正文不自动修复。统一召回写策略修复保留读取与默认强化行为，schema84、模型、锁文件和原有配置限额不变。官方兼容性 gate 是确认 OpenClaw 2026.9.2 simple-tool 对 advanced metadata 的已知拒绝，不是所有宿主兼容性成功。两个较早验收在新发现/新修改后中断，只有最终完整运行作为成功证据。当前未提高发布版本或打新标签，远端 CI 仍需按提交核对；Mac 真实复测、正式审计与足额未见样本待交付。
+
+v1.31.12 发布核对：`76f58254140427a209fba50762cb7c3705e69fe7` 的双平台 CI `36805156418` 成功（Windows 15m08s / Linux 9m21s）；Release workflow `36806431830` 成功，正式 v1.31.12 非 draft/prerelease，标签指向该提交。Mac 部署与真实实验未执行。
 
 v1.31.8 已以 `c9c2cce` 完成双平台 CI 并正式发布。此版本起，文件型 fixture 的定向测试用 `node scripts/run-unit-tests.mjs tests/<name>.test.mjs`，完整验收用 `npm run verify`；下文历史 `node --test` 命令不是当前受管理的清理入口。
 
-当前增量（2026-10-01）为 v1.31.12：[单次装配证据](recall-attachment-evidence.zh-CN.md) 定义默认关闭的凭据、记录版本/投影指纹和人工 preview/confirm 来源关联。接手涉及记录或标签时先读该说明：装配 ID 不是 host turn ID，用户确认不是独立证实，引用窗口不能算有用率。新增 schema84 两表，不回填旧 usage；同 scope 的重放、源遗忘/更改、目标失效和 retention 均须验收。下一步先审查授权真实凭据/来源案例与覆盖缺口，再决定是否接 canary；自动标签与 canary 集成未实现。[用途证据边界](recall-usefulness-review.zh-CN.md) 和 [阈值说明](recall-threshold-evaluation.md) 保持独立，真实三臂实验仍待授权材料。完整本地验收及同一提交 Windows/Linux CI 后发布；串行测试、产品限额和模型身份不变，不为补材料访问 Mac 或生产库。
+已发布增量 v1.31.12：[单次装配证据](recall-attachment-evidence.zh-CN.md) 定义默认关闭的凭据、记录版本/投影指纹和人工 preview/confirm 来源关联。接手涉及记录或标签时先读该说明：装配 ID 不是 host turn ID，用户确认不是独立证实，引用窗口不能算有用率。新增 schema84 两表，不回填旧 usage；同 scope 的重放、源遗忘/更改、目标失效和 retention 均须验收。下一步先审查授权真实凭据/来源案例与覆盖缺口，再决定是否接 canary；自动标签与 canary 集成未实现。[用途证据边界](recall-usefulness-review.zh-CN.md) 和 [阈值说明](recall-threshold-evaluation.md) 保持独立，真实三臂实验仍待授权材料。完整本地验收及同一提交 Windows/Linux CI 后发布；串行测试、产品限额和模型身份不变，不为补材料访问 Mac 或生产库。
 
 v1.31.9 最终本地验收：Node 24.19.0 下完整 `npm run verify` 通过，单测 943/943（新增 23 项），性能基线、插件校验与 smoke 均通过。正式发布状态核对对应 GitHub Release，不从本地通过推断远端 CI。
 

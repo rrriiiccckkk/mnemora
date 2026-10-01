@@ -119,6 +119,8 @@ Inspector 在候选列表和任务详情中同时显示这两项覆盖检查；*
 
 下一批真实实验运行前，使用 `mnemora evaluate task-resume-register <planned-plan.json>` 冻结计划与固定的 v1.32 政策；运行后使用 `mnemora evaluate task-resume-decision <measured-plan.json> <registration.json>` 检查 held-out 效用门槛。这些文件命令不会打开记忆数据库。通过只允许提交人工复核，不会启动试点或证明效果，仍须有可独立核对时间的事前记录。材料哈希、样本下限与零基线规则见 [预注册执行说明](docs/task-resume-preregistration.zh-CN.md)。
 
+v1.32 开发中的续接投影另提供有界 `source_evidence` 可读摘录，明确区分用户请求、助手自述与已接受状态；不凭摘录自动宣称任务完成。字段边界和旧案例复测要求见 [可读来源证据说明](docs/task-resume-source-evidence.zh-CN.md)。真实效果仍待审计与复测。
+
 只有显式以可操作模式启动 Inspector 时，才可从 Journal event、Artifact、Episode 或
 Summary 卡片移除错误记忆。它会先显示有界的下游影响计数，再接受一次短时有效的明确确认；
 不会覆盖原始证据，也不会暴露受影响项的 ID，受影响 Decision 会转为待审。

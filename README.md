@@ -171,6 +171,9 @@ real-world verification. A source-only coverage gap asks the reader to inspect
 evidence first; unavailable sources are never presented as readable merely
 because a reference exists. Reading or selecting a task remains read-only.
 
+The v1.32 development projection adds bounded `source_evidence`
+excerpts, separate from accepted task state; this is not an efficacy claim.
+See [source evidence and matched reruns](docs/task-resume-source-evidence.zh-CN.md).
 Run `npm run benchmark:task-resume` for the 26-sequence synthetic functional
 evaluation. `mnemora evaluate task-resume-comparison <plan.json>` validates and
 reports the three-arm experiment contract without calling a model. Its bundled

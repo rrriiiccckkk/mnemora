@@ -170,6 +170,72 @@ test("task resume shows memory coverage on candidates and selected tasks without
   } finally { await browser.close(); await running.close(); graph.close(); try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
 
+test("task resume source excerpts stay unverified, render as text and tolerate legacy responses", async () => {
+  const directory = createTempDir("mnemora-browser-resume-excerpts-"), graph = new Mnemora({ config: { dbPath: ":memory:" } });
+  const application = createInspectorApplication({ graph, allowOperations: false, artifactDirectory: directory }), running = await startInspector({ graph: application, allowOperations: false }), browser = await chromium.launch({ headless: true });
+  const userText = '<img src="invalid" onerror="window.sourceExecuted=true"> Please finish the rollout.';
+  const assistantText = "The rollout is complete.\nThis is only an assistant report.";
+  const fixture = {
+    kind: "task_resume", status: "needs_reconfirmation", scope: "default",
+    task: { id: "excerpt-task", task_ref: "mnemora://v1/scope/default/episode/excerpt-task", title: "Excerpt-only rollout", goal: "Inspect original reports", progress: "needs_reconfirmation", memory_evidence: { source_available: true, accepted_current_state_available: false }, last_verified_at: null, last_evidence_at: 1700000000000, source_refs: [], artifact_refs: [] },
+    completed: [], pending: [], blockers: [], constraints: [], next_steps: [], decisions: [], planned: [], history: [], needs_reconfirmation: [], truncated_sections: [], truncated: false,
+    source_evidence: { authority: "unverified_source", items: [
+      { source_ref: "mnemora://v1/scope/default/conversation-event/source-user", role: "user", created_at: 1700000000000, text: userText, truncated: false },
+      { source_ref: "mnemora://v1/scope/default/conversation-event/source-assistant", role: "assistant", created_at: 1700000001000, text: assistantText, truncated: true }
+    ], truncated: true }
+  };
+  try {
+    const page = await browser.newPage(), errors = [];
+    page.on("pageerror", error => errors.push(error.message));
+    let response = fixture;
+    await page.route("**/api/task-resume", route => route.fulfill({ json: response }));
+    await page.goto(running.url); await page.waitForSelector("#overview-cards .card");
+    await page.locator('button[data-view="task-resume"]').click();
+    const sources = page.getByRole("region", { name: "Unverified source excerpts" });
+    await sources.waitFor({ timeout: 5000 });
+    assert.match(await sources.textContent(), /Not confirmed.*not accepted task state or proof of completion/);
+    const items = sources.locator("article");
+    assert.equal(await items.count(), 2);
+    assert.match(await items.nth(0).textContent(), /Role: User.*Not confirmed.*Excerpt: Not truncated/);
+    assert.match(await items.nth(1).textContent(), /Role: Assistant.*Not confirmed.*Excerpt: Truncated/);
+    assert.equal(await items.nth(0).locator("time").getAttribute("datetime"), "2023-11-14T22:13:20.000Z");
+    assert.equal(await items.nth(1).locator("time").getAttribute("datetime"), "2023-11-14T22:13:21.000Z");
+    assert.equal(await items.nth(0).locator(".resume-source-text").textContent(), userText);
+    assert.equal(await items.nth(1).locator(".resume-source-text").textContent(), assistantText);
+    assert.match(await sources.textContent(), /Source window: Truncated/);
+    assert.match(await items.nth(0).textContent(), /conversation-event\/source-user/);
+    assert.equal(await sources.locator("img").count(), 0);
+    assert.equal(await page.evaluate(() => window.sourceExecuted), undefined);
+    assert.match(await page.locator(".resume-columns").textContent(), /No accepted completed item/);
+    assert.doesNotMatch(await page.locator(".resume-columns").textContent(), /The rollout is complete|Please finish the rollout/);
+    assert.match(await page.locator(".resume-evidence").textContent(), /Accepted current state in memoryNot available/);
+    const submit = async () => {
+      await page.locator("#task-resume-form").evaluate(form => form.requestSubmit());
+    };
+    response = { ...fixture, source_evidence: { authority: "unverified_source", items: [-8640000000000001, 8640000000000001, "invalid-time"].map((created_at, index) => ({ ...fixture.source_evidence.items[0], source_ref: `mnemora://v1/scope/default/conversation-event/invalid-time-${index}`, created_at })), truncated: false } };
+    await submit();
+    await page.waitForFunction(() => document.querySelector(".resume-source-evidence")?.textContent?.includes("Recorded at: Unknown"), undefined, { timeout: 5000 });
+    assert.equal(await sources.locator("article").count(), 3);
+    assert.deepEqual(await sources.locator("time").allTextContents(), ["Unknown", "Unknown", "Unknown"]);
+    assert.equal(await sources.locator("time[datetime]").count(), 0);
+    assert.deepEqual(await sources.locator(".resume-source-text").allTextContents(), [userText, userText, userText]);
+    assert.equal(await sources.locator("img").count(), 0);
+    assert.deepEqual(errors, [], "Invalid source dates must not interrupt rendering.");
+    response = { ...fixture, source_evidence: { authority: "unverified_source", items: [], truncated: false } };
+    await submit();
+    await page.waitForFunction(() => document.querySelector(".resume-source-evidence")?.textContent?.includes("No readable source excerpts available"));
+    assert.equal(await sources.locator("article").count(), 0);
+    assert.match(await sources.textContent(), /Source window: Not truncated/);
+    const { source_evidence, ...legacy } = fixture;
+    response = legacy;
+    await submit();
+    await page.waitForFunction(() => document.querySelector(".resume-source-evidence")?.textContent?.includes("Source excerpts were not provided by this response"));
+    assert.equal(await sources.locator("article").count(), 0);
+    assert.match(await page.locator("#task-resume-result").textContent(), /Recorded progress: needs reconfirmation/);
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); await running.close(); graph.close(); }
+});
+
 test("recall explanation distinguishes a policy trace from a matching ContextEngine attachment", async () => {
   const directory = createTempDir("mnemora-browser-recall-explain-"), graph = new Mnemora({ config: { dbPath: ":memory:", unifiedRetrieval: { enabled: true, shadowMode: true, tokenBudget: 240, maxItems: 2, minConfidence: .5 } } });
   graph.store.ingest(

@@ -2,13 +2,16 @@
 
 ## Current release plan (2026-10-01)
 
-Current release target: **v1.31.12**, following released baseline **v1.31.11**.
+Current release target: **v1.32.0**, following released baseline **v1.31.12**.
+Operator decision (2026-10-01): deliver the complete v1.32 milestone rather
+than more incremental v1.31 patch releases. Necessary fixes belong to this
+milestone; version bumps alone do not satisfy its measured-evidence gate.
 The historical sections below record earlier completed directions; this
 section is the active planning baseline.
 
 | Version | Product outcome | Release gate |
 | --- | --- | --- |
-| **v1.31.12 — Exact attachment evidence safeguards** | Opt-in bounded assembly receipts freeze target/projection versions and allow preview-confirmed source links; partial coverage is not causal turn attribution or an efficacy denominator. | Actual assembly/default-off/stateless/budget, version drift, source erasure, retention, scope, replay, schema83→84 preservation/restart/restore; complete verify then exact-commit Windows/Linux CI. |
+| **v1.31.12 — Exact attachment evidence safeguards (released)** | Opt-in bounded assembly receipts freeze target/projection versions and allow preview-confirmed source links; partial coverage is not causal turn attribution or an efficacy denominator. | Full verify with 983 unit tests, schema83→84 preservation/restart/restore and exact-commit Windows/Linux CI passed for `76f5825`; formal release published. |
 | **v1.31.11 — Recall usefulness evidence boundaries (released)** | Read-only target-level worklist separates attachment aggregates, bounded mentions and explicit unlinked feedback; missing attribution cannot become an efficacy score. | 964 local unit tests plus full verify; exact-commit Windows/Linux CI and formal release passed for `c414abb`. Optional Windows cache saving disabled after an earlier post-verification timeout, with no checks removed. |
 | **v1.31.10 — Threshold evaluation safeguards (released)** | Read-only manual-unified score scan freezes tuning/test selection and rejects failed/unsafe/budget-invalid evidence; aggregate curves cannot authorize default changes. | Complete verify including 954 tests and exact-commit Windows/Linux CI passed for `ee60045`; formal release published. Real threshold calibration remains pending. |
 | **v1.31.9 — Reference projection trust boundaries (released)** | Shared projection protection covers summary assembly, transcript rewrite and built-in reasoning adapters; records remain auditable. Threat model distinguishes structural safeguards from model resistance. | Complete verify including 943 unit tests and exact-commit Windows/Linux CI passed for `c38fd67`; formal release published. Structural safeguards do not prove model resistance. |
@@ -48,14 +51,25 @@ and invalid evidence no longer influence the Agent through any automatic path.
 1. Freeze **v1.32** value criteria before new model runs using the
    [preregistration guide](task-resume-preregistration.zh-CN.md). The existing
    four-case report is exploratory, not a retrospectively registered test.
-2. Complete v1.31.12 exact attachment safeguards, then audit authorized real
+2. Incorporate necessary reliability fixes into v1.32, not separate v1.31
+   patch releases. v1.31.12 attachment safeguards are released; audit authorized real
    receipt/source-link cases and missing coverage. These assembly IDs are not
    host turn IDs, user confirmation is not independent corroboration, and
    partial receipt windows cannot measure usefulness rates. Automatic label
    capture, canary integration and real threshold labels remain pending;
    neither evidence view authorizes calibration/default changes.
+   The current development increment adds bounded readable source excerpts to
+   resume/Inspector and makes unified recall telemetry respect session write
+   policy. The supplied 12-case exploratory package was recomputed as fail;
+   its truth timing and missing audits must be resolved before efficacy claims.
+   See [source evidence and reruns](task-resume-source-evidence.zh-CN.md).
 3. Run the new authorized held-out comparison under the fixed decision policy.
    Keep a matched rerun of the old four cases as a separate regression study.
+   Deliver the registration, independently timestamped pre-run record,
+   measured plan, collection/annotation audits and decision report as one
+   milestone. A measured fail/inconclusive result is reportable; it does not
+   authorize v1.33. This workspace currently lacks those formal experiment
+   artifacts and cannot access the Mac; synthetic contracts are not substitutes.
 4. Start **v1.33** only when that evidence supports a governed, scoped
    ReasoningMemory canary for a small set of verifiable procedures.
 

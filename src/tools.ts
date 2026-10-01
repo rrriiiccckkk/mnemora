@@ -810,7 +810,7 @@ export class Mnemora {
     return result;
   }
 
-  private async searchMemoryDocuments(query: string, scope: string, limit: number | undefined, mode: SearchMode, signal?: AbortSignal): Promise<import("./types.js").KgMemorySearchResult[]> {
+  private async searchMemoryDocuments(query: string, scope: string, limit: number | undefined, mode: SearchMode, signal?: AbortSignal, recordAccess = true): Promise<import("./types.js").KgMemorySearchResult[]> {
     const bounded = Math.max(1, Math.min(10, Math.trunc(limit ?? this.config.memory?.maxResults ?? 3)));
     const policy = this.config.memory!.retrieval!;
     const candidateLimit = Math.min(50, Math.max(bounded, bounded * policy.candidateMultiplier!));
@@ -825,28 +825,28 @@ export class Mnemora {
     // A tag-only request is a scalar metadata filter, not a semantic question.
     // Do not send `tag:...` to an embedding provider or reinterpret the tag as
     // content; the already scope-local lexical result is authoritative.
-    if (mode === "lexical" || !plan.query) return this.rankMemoryCandidates(lexical, bounded, policy);
+    if (mode === "lexical" || !plan.query) return this.rankMemoryCandidates(lexical, bounded, policy, recordAccess);
     try {
       if (!this.embedder) throw new SemanticSearchUnavailableError("disabled");
       const result = await this.queryEmbedding(plan.query || query, signal);
       const candidateCount = this.store.memoryEmbeddingCandidateCount(result.identity, MEMORY_CHUNK_EMBEDDING_INPUT_VERSION, scope);
       if (candidateCount > this.embeddingConfig.maxVectorScanNodes) throw new SemanticSearchUnavailableError("scale_limit", candidateCount);
       const semantic = this.store.semanticMemorySearch(result.vectors[0], result.identity, MEMORY_CHUNK_EMBEDDING_INPUT_VERSION, scope, candidateLimit, this.config.recall?.semanticMinScore, this.embeddingConfig.maxVectorScanNodes).filter(item => memoryMatchesTags(item.metadata, plan.tags));
-      if (mode === "semantic") return this.finalizeMemoryCandidates(plan.query || query, semantic, bounded, policy, signal);
+      if (mode === "semantic") return this.finalizeMemoryCandidates(plan.query || query, semantic, bounded, policy, signal, recordAccess);
       const byId = new Map<string, { lexical?: import("./types.js").KgMemorySearchResult; semantic?: import("./types.js").KgMemorySearchResult }>();
       for (const item of lexical) byId.set(item.id, { ...(byId.get(item.id) ?? {}), lexical: item });
       for (const item of semantic) byId.set(item.id, { ...(byId.get(item.id) ?? {}), semantic: item });
       const merged = [...byId.values()].map(item => mergeHybridMemoryCandidate(item));
-      return this.finalizeMemoryCandidates(plan.query || query, merged, bounded, policy, signal);
+      return this.finalizeMemoryCandidates(plan.query || query, merged, bounded, policy, signal, recordAccess);
     } catch (error) {
       if (mode === "semantic") throw semanticError(error);
-      return this.finalizeMemoryCandidates(plan.query || query, lexical.map(item => ({ ...item, score_components: { lexical: item.score, semantic: 0 } })), bounded, policy, signal);
+      return this.finalizeMemoryCandidates(plan.query || query, lexical.map(item => ({ ...item, score_components: { lexical: item.score, semantic: 0 } })), bounded, policy, signal, recordAccess);
     }
   }
 
-  private async finalizeMemoryCandidates(query: string, candidates: import("./types.js").KgMemorySearchResult[], limit: number, policy: NonNullable<NonNullable<MnemoraConfig["memory"]>["retrieval"]>, signal?: AbortSignal): Promise<import("./types.js").KgMemorySearchResult[]> {
+  private async finalizeMemoryCandidates(query: string, candidates: import("./types.js").KgMemorySearchResult[], limit: number, policy: NonNullable<NonNullable<MnemoraConfig["memory"]>["retrieval"]>, signal?: AbortSignal, recordAccess = true): Promise<import("./types.js").KgMemorySearchResult[]> {
     const reranked = this.memoryReranker ? await this.memoryReranker.rerank(query, candidates, signal) : candidates;
-    return this.rankMemoryCandidates(reranked, limit, policy);
+    return this.rankMemoryCandidates(reranked, limit, policy, recordAccess);
   }
 
   /** The public lexical memory API is synchronous; retain that contract while
@@ -864,11 +864,11 @@ export class Mnemora {
     return this.rankMemoryCandidates([...found.values()], bounded, policy);
   }
 
-  private rankMemoryCandidates(items: import("./types.js").KgMemorySearchResult[], limit: number, policy: NonNullable<NonNullable<MnemoraConfig["memory"]>["retrieval"]>): import("./types.js").KgMemorySearchResult[] {
+  private rankMemoryCandidates(items: import("./types.js").KgMemorySearchResult[], limit: number, policy: NonNullable<NonNullable<MnemoraConfig["memory"]>["retrieval"]>, recordAccess = true): import("./types.js").KgMemorySearchResult[] {
     const ranked = rankMemoryCandidates(this.memoryLifecycle.decorate(items), limit, policy, item => this.recallFeedback.salience(item.scope, createMnemoraContextRef({ scope: item.scope, kind: "memory-document", id: item.id })), this.now);
     // This is a retrieval-only reinforcement signal. It never changes content,
     // evidence, confidence, graph facts, or automatic-capture documents.
-    this.memoryLifecycle.recordAccess(ranked);
+    if (recordAccess) this.memoryLifecycle.recordAccess(ranked);
     return ranked;
   }
 
@@ -937,7 +937,7 @@ export class Mnemora {
     };
   }
 
-  async kg_context(query: string, max_nodes?: number, max_depth?: number, confidence_threshold?: number, token_budget?: number, mode?: SearchMode, signal?: AbortSignal, scope?: string, options: { recordMetrics?: boolean } = {}): Promise<KgContextResult> {
+  async kg_context(query: string, max_nodes?: number, max_depth?: number, confidence_threshold?: number, token_budget?: number, mode?: SearchMode, signal?: AbortSignal, scope?: string, options: { recordMetrics?: boolean; recordAccess?: boolean } = {}): Promise<KgContextResult> {
     const normalizedScope = normalizeScope(scope, this.config.scope?.default ?? "default");
     const selectedMode = mode ?? this.config.recall?.mode ?? "hybrid";
     // Default recall uses only the fixed seed search. A wider pool is observed
@@ -960,7 +960,7 @@ export class Mnemora {
         selectedNodes = applied.selected.flatMap(item => byId.get(item.id) ?? []);
       }
     } catch { this.reportRecallEvaluationFailure("canary_apply"); /* Canary failures must never degrade default context assembly. */ }
-    const memories = await this.searchMemoryDocuments(query, normalizedScope, this.config.memory?.maxResults, selectedMode, signal);
+    const memories = await this.searchMemoryDocuments(query, normalizedScope, this.config.memory?.maxResults, selectedMode, signal, options.recordAccess !== false);
     return this.store.contextFromSeeds(query, selectedNodes, {
       maxDepth: max_depth ?? this.config.recall?.maxDepth,
       confidenceThreshold: confidence_threshold ?? this.config.recall?.confidenceThreshold,

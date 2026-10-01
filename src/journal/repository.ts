@@ -212,7 +212,10 @@ export class ConversationEventRepository {
     const parentId = input.parentId ? safeId(input.parentId, "") : undefined;
     if (parentId && !this.db.prepare("SELECT 1 FROM mnemora_conversation_events WHERE id=? AND scope=? AND session_id=? AND branch_id=?").get(parentId, scope, sessionId, branchId)) throw new Error("invalid_journal_parent");
     const parts = input.parts.flatMap(part => this.capturePart(part));
-    const normalizedText = parts.filter((part): part is Extract<JournalPart, { type: "text" }> => part.type === "text").map(part => part.text).join("\n") || undefined;
+    // The native TEXT binding can stop at NUL. Keep the complete captured
+    // parts/hash for audit, but remove NUL from the searchable text before
+    // binding so a later failure qualification is not silently discarded.
+    const normalizedText = parts.filter((part): part is Extract<JournalPart, { type: "text" }> => part.type === "text").map(part => part.text).join("\n").replace(/\u0000/gu, "") || undefined;
     const id = safeId(input.id ?? randomUUID(), randomUUID());
     const contentHash = hash(JSON.stringify(parts));
     const origin = input.identityOrigin ?? (correlation ? "host" : "local_receipt");

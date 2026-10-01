@@ -63,13 +63,15 @@ export class TaskResumeEvaluationRunner {
     const mismatchCodes: TaskResumeEvaluationResult["mismatchCodes"] = [];
     try {
       const result = this.subject.resume(item.input), text = resultText(result), refs = resultRefs(result);
+      const sourceItems = "task" in result ? result.source_evidence?.items ?? [] : [];
+      const payloadText = [text, ...sourceItems.map(item => item.text)].join("\n"), payloadRefs = [...refs, ...sourceItems.map(item => item.source_ref)];
       if (item.expected.errorCode || item.expected.status !== result.status) mismatchCodes.push(item.expected.errorCode ? "expected_error" : "status");
       if ("task" in result && item.expected.progress !== undefined && result.task.progress !== item.expected.progress) mismatchCodes.push("progress");
       if (item.sequence.expectedUncertainty !== (result.status === "needs_reconfirmation")) mismatchCodes.push("uncertainty");
       if (item.expected.requiredText?.some(value => !text.includes(value))) mismatchCodes.push("required_text");
-      if (item.expected.forbiddenText?.some(value => text.includes(value))) mismatchCodes.push("forbidden_text");
+      if (item.expected.forbiddenText?.some(value => payloadText.includes(value))) mismatchCodes.push("forbidden_text");
       if (refs.length < (item.expected.minimumSourceRefs ?? 0)) mismatchCodes.push("source_refs");
-      if (refs.some(value => !item.expected.allowedRefPrefixes.some(prefix => value.startsWith(prefix)))) mismatchCodes.push("source_provenance");
+      if (payloadRefs.some(value => !item.expected.allowedRefPrefixes.some(prefix => value.startsWith(prefix)))) mismatchCodes.push("source_provenance");
       return { caseId: item.id, category: item.category, status: mismatchCodes.length ? "failed" : "passed", mismatchCodes, returnedItems: resultItems(result), sourceRefs: refs.length };
     } catch (error) {
       if (item.expected.errorCode === (error instanceof Error ? error.message : "operation_failed")) return { caseId: item.id, category: item.category, status: "passed", mismatchCodes: [], returnedItems: 0, sourceRefs: 0 };

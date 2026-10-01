@@ -4,6 +4,12 @@ Before the next real experiment, use the [v1.32 preregistration and decision gui
 
 For Mac-side data collection and model runs, use the [Chinese OpenClaw execution handoff](task-resume-mac-openclaw-handoff.zh-CN.md). For the subsequent annotator-facing handoff, use the [Chinese labeling guide](task-resume-labeling-handoff.zh-CN.md).
 
+The v1.32 development projection includes bounded, source-linked readable
+excerpts separately from accepted task state. See [the source evidence and
+matched rerun guide](task-resume-source-evidence.zh-CN.md) before rerunning
+the supplied exploratory cases. Do not treat requests as completed actions,
+use post-resume evidence as prior state, or reclassify seen cases as held-out.
+
 `npm run benchmark:task-resume` runs the 26 independent, synthetic
 multi-session sequences in `fixtures/task-resume-evaluation-v2.json`. Each
 case declares only bounded identifiers for its history and restart point, its

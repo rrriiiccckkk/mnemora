@@ -296,6 +296,7 @@ export class MnemoraContextEngine implements ContextEngine {
     if (!automaticWorkExcluded && this.config.mode === "standalone" && this.config.unifiedRetrieval?.enabled && available >= 64 && typeof params.prompt === "string" && params.prompt.trim()) {
       const graph = this.openGraph();
       try {
+        const recallWritesAllowed = sessionWriteDisposition(params.sessionId, this.config.conversationJournal) === "writable";
         const retrieval = new UnifiedRetrievalService(graph.store.db, this.policy(), Date.now, graph.memoryLifecycle);
         const admission = new RecallPolicyService(new VerificationRepository(graph.store.db), this.config.trustLayer?.verification?.enabled === true, this.config.recall?.tokenBudget ?? 800);
         const recallBudget = Math.min(available, this.config.unifiedRetrieval.tokenBudget!);
@@ -315,7 +316,7 @@ export class MnemoraContextEngine implements ContextEngine {
         const result = { ...rawResult, candidates: localSelection.candidates, empty: localSelection.candidates.length === 0 };
         const attachmentEvidence = new RecallAttachmentEvidenceService(graph.store.db, {
           ...this.config.unifiedRetrieval.attachmentEvidence,
-          enabled: this.config.unifiedRetrieval.attachmentEvidence?.enabled === true && sessionWriteDisposition(params.sessionId, this.config.conversationJournal) === "writable"
+          enabled: this.config.unifiedRetrieval.attachmentEvidence?.enabled === true && recallWritesAllowed
         });
         let evidenceItems: ReturnType<RecallAttachmentEvidenceService["snapshot"]> = [];
         try { evidenceItems = attachmentEvidence.snapshot({ scope: this.scope(), candidates: result.candidates }); } catch { /* optional evidence never affects selection */ }
@@ -330,7 +331,7 @@ export class MnemoraContextEngine implements ContextEngine {
         if (routeAllowsGraph && graphBudget && retrievalQuery && typeof graph.kg_context === "function") {
           // One seed may expand to its directly evidenced neighborhood. A broad
           // lexical graph fan-out has low precision for automatic context.
-          const graphContext = await graph.kg_context(retrievalQuery, 1, 1, this.config.unifiedRetrieval.minConfidence, graphBudget, this.config.embeddings?.enabled ? "hybrid" : "lexical", undefined, this.scope(), { recordMetrics: false });
+          const graphContext = await graph.kg_context(retrievalQuery, 1, 1, this.config.unifiedRetrieval.minConfidence, graphBudget, this.config.embeddings?.enabled ? "hybrid" : "lexical", undefined, this.scope(), { recordMetrics: false, recordAccess: recallWritesAllowed });
           const graphAdmission = admission.evaluateAutomaticContext(graphContext, this.scope());
           const admittedGraph = graphAdmission.allowed ? graphAdmission.context ?? graphContext : undefined;
           if (admittedGraph) {
@@ -354,11 +355,11 @@ export class MnemoraContextEngine implements ContextEngine {
           // This optional acceptance signal has a stricter contract than
           // aggregate recall telemetry: it requires the same opaque marker in
           // the request and the actual attached payload, in another session.
-          try { new FirstUseVerificationRepository(graph.store.db).recordActualAttachment({ scope: this.scope(), sessionId: params.sessionId, query: retrievalQuery, attachment: rendered }); } catch { /* first-use telemetry never changes recall */ }
+          if (recallWritesAllowed) try { new FirstUseVerificationRepository(graph.store.db).recordActualAttachment({ scope: this.scope(), sessionId: params.sessionId, query: retrievalQuery, attachment: rendered }); } catch { /* first-use telemetry never changes recall */ }
           // Only this successful public ContextEngine attachment counts as a
           // recall. Search, shadow diagnostics, graph expansion, and a prompt
           // that did not fit are intentionally not lifecycle signals.
-          try {
+          if (recallWritesAllowed) try {
             const attachedCandidates = packed.candidates;
             new RecallUsageRepository(graph.store.db).recordInjected({ scope: this.scope(), targetRefs: attachedCandidates.map(candidate => candidate.contextRef) });
             graph.memoryLifecycle.recordAccessRefs(attachedCandidates.flatMap(candidate => {
@@ -367,7 +368,7 @@ export class MnemoraContextEngine implements ContextEngine {
             }));
           } catch { /* usage telemetry never changes recall availability */ }
         }
-        if (this.config.unifiedRetrieval.shadowMode) try {
+        if (recallWritesAllowed && this.config.unifiedRetrieval.shadowMode) try {
           graph.unifiedRecallShadow.record({ scope: this.scope(), query: retrievalQuery, localCandidates: rawResult.candidates.length, localSelected: packed.candidates.length, localSuppressed: localAdmission.excluded + localSelection.suppressed, graphCandidates, graphAttached, graphSuppression, attached });
         } catch { /* optional telemetry never changes host context assembly */ }
       } catch { /* recall must remain fail-open: host messages are authoritative */ }
