@@ -10,23 +10,34 @@ import { TaskResumeValueGate } from "../dist/task-resume/preregistration.js";
 
 const script = fileURLToPath(new URL("../scripts/task-resume-experiment.mjs", import.meta.url));
 const repo = fileURLToPath(new URL("../", import.meta.url));
-function cli(args, directory = createTempDir("experiment-cli-"), extraEnv = {}, importError) {
+function cli(args, directory = createTempDir("experiment-cli-"), extraEnv = {}, importError, mockFetch = false) {
   const database = join(directory, "must-not-create.db");
   const witness = join(directory, "network-calls");
   const offline = `import fs from 'node:fs';import {registerHooks} from 'node:module';
     registerHooks({resolve(specifier,context,next){const result=next(specifier,context);if(/\\/dist\\/(?:index|cli|tools)\\.js$/.test(result.url)||specifier.startsWith('openclaw'))throw new Error('detached_import_forbidden');
       if(${JSON.stringify(importError ?? null)}!==null && result.url.endsWith('/dist/task-resume/experiment.js'))throw new Error(${JSON.stringify(importError ?? "")});return result;}});
-    globalThis.fetch=()=>{fs.appendFileSync(${JSON.stringify(witness)},'called');throw new Error('offline_test_network_forbidden');};`;
+    globalThis.fetch=async(url,options)=>{fs.appendFileSync(${JSON.stringify(witness)},'called\\n');
+      if(!${JSON.stringify(mockFetch)})throw new Error('offline_test_network_forbidden');
+      if(url!=='https://example.invalid/chat/completions'||options.headers.authorization!=='Bearer PRIVATE_TEST_KEY')throw new Error('unexpected_request');
+      const request=JSON.parse(options.body);
+      if(${JSON.stringify(mockFetch)}==='partial'&&fs.readFileSync(${JSON.stringify(witness)},'utf8').trim().split('\\n').length===6){
+        fs.unlinkSync(${JSON.stringify(join(args[2] ?? directory, "cell-000000.result.json"))});
+        fs.unlinkSync(${JSON.stringify(join(args[2] ?? directory, "cell-000000.start.json"))});
+      }
+      return new Response(JSON.stringify({model:request.model,choices:[{message:{content:'PRIVATE_REGRESSION_OUTPUT'},finish_reason:'stop'}],usage:{prompt_tokens:80,completion_tokens:20,total_tokens:100}}),{headers:{'content-type':'application/json'}});};`;
   const result = spawnSync(process.execPath, ["--import", `data:text/javascript,${encodeURIComponent(offline)}`, script, ...args], {
     cwd: directory, encoding: "utf8", timeout: 30000, windowsHide: true,
     env: { ...tempEnvironment(), MNEMORA_DB: database, MNEMORA_EXPERIMENT_API_KEY: "PRIVATE_TEST_KEY", ...extraEnv }
   });
   assert.ifError(result.error);
   assert.equal(existsSync(database), false, "the detached command must never open MNEMORA_DB");
-  assert.equal(existsSync(witness), false, "offline commands must not dispatch a model request");
+  if (!mockFetch) assert.equal(existsSync(witness), false, "offline commands must not dispatch a model request");
   assert.doesNotMatch(result.stderr, /PRIVATE_TEST_KEY/);
   return result;
 }
+
+const callCount = directory => existsSync(join(directory, "network-calls"))
+  ? readFileSync(join(directory, "network-calls"), "utf8").trim().split("\n").length : 0;
 
 const fixture = () => ({
   version: 1, id: "cli:test", kind: "synthetic", mode: "controlled_memory", implementationRef: "0".repeat(40),
@@ -53,12 +64,92 @@ test("detached help is structured JSON and never initializes a database", () => 
   assert.equal(result.status, 0, result.stderr);
   const output = JSON.parse(result.stdout);
   assert.equal(output.status, "help");
-  assert.equal(output.commands.length, 6);
+  assert.equal(output.commands.length, 7);
   assert.equal(output.latencyBoundary, "controlled_experiment_not_production_end_to_end");
 });
 
 test("run without explicit execution fails before workspace access or any network call", () => {
   failure(cli(["run", "absent", "registration.json", "external.json"]), "experiment_cli_execute_required");
+});
+
+const regressionArgs = (bundle, workspace, maxCalls = 6, maxTotalTokens = 6000) =>
+  ["regression", bundle, workspace, "--max-calls", String(maxCalls), "--max-total-tokens", String(maxTotalTokens), "--execute"];
+
+test("regression requires execute before argument, key or material checks and creates nothing", () => {
+  const directory = createTempDir("cli-regression-consent-"), workspace = join(directory, "private");
+  for (const args of [["regression"], regressionArgs("absent", workspace).slice(0, -1),
+    [...regressionArgs("absent", workspace).slice(0, -1), "--unknown"]]) {
+    failure(cli(args, directory, { MNEMORA_EXPERIMENT_API_KEY: "" }), "experiment_cli_execute_required");
+    assert.deepEqual(readdirSync(directory), []);
+  }
+});
+
+test("regression rejects unknown, duplicate and invalid budgets without effects", () => {
+  const directory = createTempDir("cli-regression-args-"), workspace = join(directory, "private");
+  const args = regressionArgs("absent", workspace);
+  for (const invalid of [[...args, "--unknown"], [...args, "--execute"], [...args, "--max-calls", "6"],
+    [...args, "extra"], regressionArgs("absent", workspace, 0), regressionArgs("absent", workspace, 1.5),
+    regressionArgs("absent", workspace, 6, -1), regressionArgs("absent", workspace, 6, "1e3"),
+    regressionArgs("absent", workspace, 6, "9007199254740992")]) {
+    failure(cli(invalid, directory), "experiment_cli_invalid_arguments");
+    assert.deepEqual(readdirSync(directory), []);
+  }
+});
+
+test("regression missing key fails before files or workspace access", () => {
+  const directory = createTempDir("cli-regression-key-"), workspace = join(directory, "private");
+  for (const key of ["", " PRIVATE_TEST_KEY", "PRIVATE_TEST_KEY "]) {
+    failure(cli(regressionArgs("absent", workspace), directory, { MNEMORA_EXPERIMENT_API_KEY: key }), "experiment_cli_api_key_required");
+    assert.deepEqual(readdirSync(directory), []);
+  }
+});
+
+test("regression executes six offline calls, resumes without calls and refuses material or budget drift and formal export", () => {
+  const directory = createTempDir("cli-regression-run-"), bundle = join(directory, "bundle.json"), path = join(directory, "private");
+  const input = fixture(); writeFileSync(bundle, serialize(input));
+  const args = regressionArgs(bundle, path);
+  const first = success(cli(args, directory, {}, undefined, true));
+  assert.equal(first.status, "complete"); assert.equal(callCount(directory), 6);
+  assert.equal(first.completed, 6); assert.equal(first.totalTokens, 600);
+  assert.equal(first.efficacy, "not_established"); assert.equal(first.eligibleForPilotReview, false);
+  assert.doesNotMatch(JSON.stringify(first), /PRIVATE_REGRESSION_OUTPUT|Verify health|messages|cells/);
+  const json = first.files.find(name => /^regression-report-[a-f0-9]{64}\.json$/u.test(name));
+  const report = JSON.parse(readFileSync(join(path, json)));
+  assert.equal(report.kind, "task_resume_regression_report"); assert.equal(report.status, "complete");
+  assert.match(readFileSync(join(path, "annotation-packet.json"), "utf8"), /PRIVATE_REGRESSION_OUTPUT/);
+  const before = new Map(readdirSync(path).map(name => [name, readFileSync(join(path, name))]));
+  assert.deepEqual(success(cli(args, directory, {}, undefined, true)), first);
+  assert.equal(callCount(directory), 6, "resume dispatches zero additional calls");
+  input.system = "Changed material"; writeFileSync(bundle, serialize(input));
+  failure(cli(args, directory, {}, undefined, true), "experiment_cli_output_conflict");
+  writeFileSync(bundle, serialize(fixture()));
+  failure(cli(regressionArgs(bundle, path, 7), directory, {}, undefined, true), "invalid_task_resume_experiment_regression_allowance_binding");
+  const labels = join(directory, "labels.json"); writeFileSync(labels, "{}");
+  failure(cli(["export", path, labels], directory, {}, undefined, true), "invalid_task_resume_experiment_regression_not_measured");
+  assert.equal(callCount(directory), 6);
+  assert.deepEqual(readdirSync(path), [...before.keys()]);
+  for (const [name, contents] of before) assert.deepEqual(readFileSync(join(path, name)), contents);
+  for (const name of ["registration.json", "external-record.json", "labels-template.json", "measured-plan.json"]) assert.equal(existsSync(join(path, name)), false);
+});
+
+test("regression snapshots evolve from incomplete to complete without overwriting reports and blocked exits one", () => {
+  const directory = createTempDir("cli-regression-snapshot-"), bundle = join(directory, "bundle.json"), path = join(directory, "private");
+  writeFileSync(bundle, serialize(fixture()));
+  const args = regressionArgs(bundle, path);
+  // Inject loss of an earlier cell's private files at the fetch boundary, before the final check.
+  const partial = cli(args, directory, {}, undefined, "partial");
+  assert.equal(partial.status, 2, partial.stderr); assert.equal(JSON.parse(partial.stdout).status, "incomplete");
+  assert.equal(existsSync(join(path, "annotation-packet.json")), false);
+  const partialFiles = new Map(JSON.parse(partial.stdout).files.map(name => [name, readFileSync(join(path, name))]));
+  const complete = success(cli(args, directory, {}, undefined, true));
+  assert.equal(complete.status, "complete");
+  for (const [name, bytes] of partialFiles) assert.deepEqual(readFileSync(join(path, name)), bytes);
+  assert.equal(callCount(directory), 7);
+  assert.notDeepEqual(complete.files, [...partialFiles.keys()]);
+  unlinkSync(join(path, "cell-000000.result.json"));
+  const blocked = cli(args, directory, {}, undefined, true);
+  assert.equal(blocked.status, 1); assert.equal(JSON.parse(blocked.stdout).status, "blocked");
+  assert.equal(callCount(directory), 7);
 });
 
 test("every command rejects extra arguments before any effects", () => {

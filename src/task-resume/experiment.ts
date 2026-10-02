@@ -29,6 +29,7 @@ interface ExperimentCase {
 }
 export interface TaskResumeExperimentBundle {
   version: 1; id: string; kind: "authorized_real" | "synthetic"; mode: "controlled_memory";
+  purpose?: "regression";
   implementationRef: string;
   protocol: TaskResumeComparisonPlan["protocol"];
   splits: TaskResumeComparisonPlan["splits"];
@@ -54,7 +55,8 @@ export interface PreparedTaskResumeExperiment {
 
 /** Builds explicit two-message requests. No tools, host bootstrap or memory DB are involved. */
 export function prepareTaskResumeExperiment(input: unknown): PreparedTaskResumeExperiment {
-  const value = object(input, ["version", "id", "kind", "mode", "implementationRef", "protocol", "splits", "settings", "system", "cases"]);
+  const value = object(input, ["version", "id", "kind", "mode", "purpose", "implementationRef", "protocol", "splits", "settings", "system", "cases"]);
+  if (value.purpose !== undefined && value.purpose !== "regression") invalid("purpose");
   if (value.version !== 1 || !["authorized_real", "synthetic"].includes(String(value.kind)) || value.mode !== "controlled_memory") invalid("bundle");
   const protocol = object(value.protocol, ["modelId", "historySetId", "taskSetId", "tokenBudget", "latencyBudgetMs"]);
   const splits = object(value.splits, ["tuningCaseIds", "testCaseIds"]);
@@ -98,7 +100,7 @@ export function prepareTaskResumeExperiment(input: unknown): PreparedTaskResumeE
     if (!memoryText.length && memoryRefs.length) invalid("empty_memory_sources");
     return { caseId: ids[index], cutoffAt, cutoffSourceId, history, truth, currentContext: text(item.currentContext, 64000, true), question: text(item.question, 16000), mnemora: { text: memoryText, sourceIds: memoryRefs, producer: text(memory.producer, 4000), historySha256: memory.historySha256 as string } };
   });
-  const bundle: TaskResumeExperimentBundle = { version: 1, id: plan.id, kind: value.kind as TaskResumeExperimentBundle["kind"], mode: "controlled_memory", implementationRef, protocol: plan.protocol, splits: plan.splits, settings: { endpoint, temperature: settings.temperature, maxTokens, simpleTopK }, system: text(value.system, 64000), cases };
+  const bundle: TaskResumeExperimentBundle = { version: 1, id: plan.id, kind: value.kind as TaskResumeExperimentBundle["kind"], mode: "controlled_memory", ...(value.purpose === "regression" ? { purpose: "regression" as const } : {}), implementationRef, protocol: plan.protocol, splits: plan.splits, settings: { endpoint, temperature: settings.temperature, maxTokens, simpleTopK }, system: text(value.system, 64000), cases };
   const artifacts: Record<string, string> = {
     "bundle.json": serialize(bundle),
     "case-materials.json": serialize(cases.map(({ truth: _truth, ...item }) => item)),
@@ -112,7 +114,9 @@ export function prepareTaskResumeExperiment(input: unknown): PreparedTaskResumeE
     artifacts[name] = serialize({ arm, mode: bundle.mode, implementationRef, runtimeVersion: mnemoraVersion, runtimeFilesSha256: hash(artifacts["runtime-files.json"]), endpoint, modelId: plan.protocol.modelId, temperature: bundle.settings.temperature, maxTokens, order: "tuning_then_test_balanced_rotation.v1", retry: "never_automatic", latencyBoundary: "model_dispatch_to_validated_response", excludedCosts: ["historical_memory_formation", "precomputed_mnemora_projection", "evidence_disk_writes"], ...(arm === "simple_retrieval" ? { algorithm: "cjk-bigram-overlap.v1", topK: simpleTopK } : {}) });
     armConfigSha256[arm] = hash(artifacts[name]);
   }
-  const frozenPlan = { ...plan, evidence: { kind: bundle.kind, caseManifestSha256: hash(artifacts["case-materials.json"]), rubricSha256: hash(artifacts["rubric.json"]), commonPromptSha256: hash(artifacts["common-prompt.json"]), armConfigSha256 } };
+  // The formal gate rejects this extra key. Real regression cases remain real,
+  // without masquerading as synthetic or obtaining a formal registration.
+  const frozenPlan = { ...plan, ...(bundle.purpose ? { purpose: bundle.purpose } : {}), evidence: { kind: bundle.kind, caseManifestSha256: hash(artifacts["case-materials.json"]), rubricSha256: hash(artifacts["rubric.json"]), commonPromptSha256: hash(artifacts["common-prompt.json"]), armConfigSha256 } };
   artifacts["planned-plan.json"] = serialize(frozenPlan);
   const cells = cases.flatMap((item, caseIndex) => {
     // Fixed balanced rotation reduces always-last effects without post-result randomization.
@@ -155,6 +159,10 @@ export interface ExperimentCheck {
 interface RunRecord {
   fingerprint: string; registration: unknown; externalRecord: ExperimentRunOptions["externalRecord"]; runStartedAt: number;
 }
+export interface RegressionRunOptions extends Omit<ExperimentRunOptions, "externalRecord"> {
+  maxCalls: number;
+  maxTotalTokens: number;
+}
 interface StartRecord { fingerprint: string; index: number; caseId: string; arm: Arm; startedAt: number; request: ExperimentModelRequest; requestSha256: string }
 interface ResultRecord {
   status: "valid" | "invalid" | "failed"; reason?: string;
@@ -166,6 +174,7 @@ interface ResultRecord {
 const LABEL_FIELDS = ["continuationCorrect", "staleFactUsed", "repeatedStep", "irrelevantMemoryInjected"] as const;
 export interface ExperimentReviewPacket {
   version: 1; mode: "controlled_memory"; packetSha256: string;
+  purpose?: "regression";
   rubric: typeof ANNOTATION_RUBRIC;
   limitations: string[];
   items: { blindId: string; caseId: string; cutoffAt: number; cutoffSourceId: string; history: HistoryItem[]; input: ExperimentModelRequest["messages"]; truth: TruthItem[]; output: string; sourceIds: string[] }[];
@@ -191,10 +200,37 @@ export class TaskResumeExperimentWorkspace {
   get prepared(): PreparedTaskResumeExperiment { return this.readPrepared(); }
 
   async run(registration: unknown, options: ExperimentRunOptions): Promise<ExperimentCheck> {
+    if (this.readPrepared().bundle.purpose === "regression") invalid("regression_not_formal");
+    return this.runControlled(registration, options);
+  }
+
+  async runRegression(options: RegressionRunOptions): Promise<ExperimentCheck> {
     if (options.execute !== true) invalid("execute_required");
     const prepared = this.readPrepared();
-    new TaskResumeValueGate().evaluate(prepared.plan, registration);
-    const registeredAt = object(registration).registeredAt as number;
+    if (prepared.bundle.purpose !== "regression") invalid("formal_not_regression");
+    const maxCalls = integer(options.maxCalls, 1, 6000), maxTotalTokens = integer(options.maxTotalTokens, 1, Number.MAX_SAFE_INTEGER);
+    // Reserve every cell's full configured budget before any dispatch. This is
+    // not a provider billing guarantee; overreported/unknown costs still stop.
+    if (maxCalls < prepared.cells.length || maxTotalTokens < prepared.cells.length * prepared.plan.protocol.tokenBudget) invalid("regression_allowance");
+    const path = this.path("regression-authorization.json");
+    const allowance = { kind: "task_resume_regression_authorization", fingerprint: prepared.fingerprint, maxCalls, maxTotalTokens };
+    if (!existsSync(path)) {
+      try { writeExclusive(path, serialize({ ...allowance, authorizedAt: Date.now() })); }
+      catch (error) { if (!error || typeof error !== "object" || !("code" in error) || error.code !== "EEXIST") throw error; }
+    }
+    const registration = object(readJson(path), [...Object.keys(allowance), "authorizedAt"]);
+    if (Object.entries(allowance).some(([key, value]) => registration[key] !== value)) invalid("regression_allowance_binding");
+    const authorizedAt = integer(registration.authorizedAt, 1, Date.now());
+    return this.runControlled(registration, { ...options, externalRecord: { reference: "local_regression_acknowledgement_not_independent_record", recordedAt: authorizedAt } });
+  }
+
+  private async runControlled(registration: unknown, options: ExperimentRunOptions): Promise<ExperimentCheck> {
+    if (options.execute !== true) invalid("execute_required");
+    const prepared = this.readPrepared();
+    const regression = prepared.bundle.purpose === "regression";
+    if (regression) this.regressionAuthorization(prepared, registration);
+    else new TaskResumeValueGate().evaluate(prepared.plan, registration);
+    const registeredAt = object(registration)[regression ? "authorizedAt" : "registeredAt"] as number;
     const external = object(options.externalRecord, ["reference", "recordedAt"]);
     text(external.reference, 2048);
     const recordedAt = integer(external.recordedAt, registeredAt, Date.now());
@@ -205,7 +241,7 @@ export class TaskResumeExperimentWorkspace {
       const recordPath = this.path("run.json");
       if (!existsSync(recordPath)) {
         const runStartedAt = Date.now();
-        if (runStartedAt <= registeredAt || recordedAt > runStartedAt) invalid("registration_timeline");
+        if (runStartedAt < registeredAt || !regression && runStartedAt === registeredAt || recordedAt > runStartedAt) invalid("registration_timeline");
         writeExclusive(recordPath, serialize({ fingerprint: prepared.fingerprint, registration, externalRecord, runStartedAt }));
       }
       const run = this.readRun(prepared);
@@ -215,6 +251,12 @@ export class TaskResumeExperimentWorkspace {
       for (const cell of prepared.cells) {
         const resultPath = this.path(cellName(cell.index, "result"));
         if (existsSync(resultPath)) continue;
+        if (regression) {
+          const authorization = this.regressionAuthorization(prepared, registration);
+          const attempted = prepared.cells.filter(item => existsSync(this.path(cellName(item.index, "start"))));
+          const spent = attempted.reduce((sum, item) => sum + this.validResult(prepared, item, run).tokens!, 0);
+          if (attempted.length >= authorization.maxCalls || spent + prepared.plan.protocol.tokenBudget > authorization.maxTotalTokens) invalid("regression_allowance");
+        }
         // Regenerate after each await; material edits cannot drift into a later request.
         if (this.readPrepared().fingerprint !== prepared.fingerprint) invalid("material_drift");
         const startedAt = Date.now();
@@ -271,8 +313,30 @@ export class TaskResumeExperimentWorkspace {
       const blindId = hash(`${prepared.fingerprint}:${cell.requestSha256}:${result.responseSha256}:${cell.index}`).slice(0, 32);
       return { blindId, caseId: cell.caseId, cutoffAt: item.cutoffAt, cutoffSourceId: item.cutoffSourceId, history: item.history, input: cell.request.messages, truth: item.truth, output: (result.response as { choices: { message: { content: string } }[] }).choices[0].message.content, sourceIds: item.history.map(source => source.id) };
     }).sort((a, b) => a.blindId.localeCompare(b.blindId));
-    const base = { version: 1 as const, mode: "controlled_memory" as const, rubric: ANNOTATION_RUBRIC, limitations: ["Arm names are hidden and order is deterministic, but memory wording can reveal the condition.", "Source time and references are checked structurally. An authorized reviewer must audit task-state semantics, future-information leakage, and the external registration record.", "Latency covers model dispatch through the validated response. Historical formation, precomputed projection and evidence disk writes are excluded; this is not production end-to-end latency."], items };
+    const regression = prepared.bundle.purpose === "regression";
+    const base = { version: 1 as const, mode: "controlled_memory" as const, ...(regression ? { purpose: "regression" as const } : {}), rubric: ANNOTATION_RUBRIC, limitations: ["Arm names are hidden and order is deterministic, but memory wording can reveal the condition.", regression ? "Regression-only optional AI preliminary review. No external registration record or human adjudication is required. Labels cannot authorize measured export or pilot review; source semantics still require evidence, not guesses." : "Source time and references are checked structurally. An authorized reviewer must audit task-state semantics, future-information leakage, and the external registration record.", "Latency covers model dispatch through the validated response. Historical formation, precomputed projection and evidence disk writes are excluded; this is not production end-to-end latency."], items };
     return { ...base, packetSha256: hash(serialize(base)) };
+  }
+
+  regressionReport() {
+    const prepared = this.readPrepared();
+    if (prepared.bundle.purpose !== "regression") invalid("formal_not_regression");
+    const check = this.check(), run = existsSync(this.path("run.json")) ? this.readRun(prepared) : undefined;
+    const cells = prepared.cells.map(cell => {
+      const issue = check.issues.find(issue => issue.index === cell.index);
+      if (issue || !run) return { index: cell.index, caseId: cell.caseId, arm: cell.arm, status: issue?.reason ?? "not_run" };
+      const result = this.validResult(prepared, cell, run), payload = result.response as { usage: { prompt_tokens: number; completion_tokens: number }; choices: { message: { content: string } }[] };
+      return { index: cell.index, caseId: cell.caseId, arm: cell.arm, status: "valid", tokens: result.tokens!, promptTokens: payload.usage.prompt_tokens, completionTokens: payload.usage.completion_tokens, latencyMs: result.latencyMs, output: payload.choices[0].message.content };
+    });
+    const sum = (field: "tokens" | "promptTokens" | "completionTokens") => cells.reduce((total, cell) => total + (field in cell ? cell[field]! : 0), 0);
+    const arms = TASK_RESUME_COMPARISON_ARMS.map(arm => {
+      const rows = cells.filter(cell => cell.arm === arm && cell.status === "valid");
+      return { arm, completed: rows.length, totalTokens: rows.reduce((sum, cell) => sum + (cell.tokens ?? 0), 0), promptTokens: rows.reduce((sum, cell) => sum + (cell.promptTokens ?? 0), 0), completionTokens: rows.reduce((sum, cell) => sum + (cell.completionTokens ?? 0), 0) };
+    });
+    const simple = arms[1], memory = arms[2];
+    return { kind: "task_resume_regression_report" as const, status: check.status === "ready_for_annotation" ? "complete" as const : check.status, fingerprint: prepared.fingerprint, efficacy: "not_established" as const, eligibleForPilotReview: false as const, annotationStatus: "unreviewed" as const,
+      summary: { expected: check.expected, completed: check.completed, attempted: prepared.cells.filter(cell => existsSync(this.path(cellName(cell.index, "start")))).length, totalTokens: sum("tokens"), promptTokens: sum("promptTokens"), completionTokens: sum("completionTokens"), costCoverage: check.completed === check.expected ? "provider_usage_only" : "incomplete_or_unknown", memoryToSimpleTokenRatio: check.status === "ready_for_annotation" && simple.totalTokens ? memory.totalTokens / simple.totalTokens : null }, arms, cells, issues: check.issues,
+      limitations: ["Regression only, not preregistered efficacy evidence. No measured export or pilot approval.", "Labels are unreviewed; output differences do not imply correctness. AI review is optional and must remain preliminary.", "Totals include only validated cells; failed or ambiguous calls may have unreported costs. Formation and reviewer calls are excluded.", "Token allowance is checked locally, not a provider billing cap. Latency is dispatch-to-validated-response only."] };
   }
 
   /** Explicit human labels only. Raw text and label reasons never enter the measured plan. */
@@ -283,6 +347,7 @@ export class TaskResumeExperimentWorkspace {
     annotationAudit: { packetSha256: string; labels: unknown[]; limitations: string[] };
     collectionAudit: { review: Record<string, unknown>; externalRecord: ExperimentRunOptions["externalRecord"]; registrationCommitmentSha256: string };
   } {
+    if (this.readPrepared().bundle.purpose === "regression") invalid("regression_not_measured");
     const packet = this.reviewPacket(), value = object(input, ["packetSha256", "labels", "collectionAudit"]);
     if (value.packetSha256 !== packet.packetSha256) invalid("annotation_packet");
     if (!Array.isArray(value.labels) || value.labels.length !== packet.items.length) invalid("labels");
@@ -333,12 +398,21 @@ export class TaskResumeExperimentWorkspace {
   private readRun(prepared: PreparedTaskResumeExperiment): RunRecord {
     const run = object(readJson(this.path("run.json")), ["fingerprint", "registration", "externalRecord", "runStartedAt"]) as unknown as RunRecord;
     if (run.fingerprint !== prepared.fingerprint) invalid("run_binding");
-    new TaskResumeValueGate().evaluate(prepared.plan, run.registration);
-    const registeredAt = object(run.registration).registeredAt as number;
-    integer(run.runStartedAt, registeredAt + 1, Date.now());
+    const regression = prepared.bundle.purpose === "regression";
+    if (regression) this.regressionAuthorization(prepared, run.registration);
+    else new TaskResumeValueGate().evaluate(prepared.plan, run.registration);
+    const registeredAt = object(run.registration)[regression ? "authorizedAt" : "registeredAt"] as number;
+    integer(run.runStartedAt, registeredAt + (regression ? 0 : 1), Date.now());
     const external = object(run.externalRecord, ["reference", "recordedAt"]);
     text(external.reference, 2048); integer(external.recordedAt, registeredAt, run.runStartedAt);
+    if (regression && (external.reference !== "local_regression_acknowledgement_not_independent_record" || external.recordedAt !== registeredAt)) invalid("regression_allowance_binding");
     return run;
+  }
+  private regressionAuthorization(prepared: PreparedTaskResumeExperiment, input: unknown) {
+    const value = object(input, ["kind", "fingerprint", "maxCalls", "maxTotalTokens", "authorizedAt"]);
+    if (value.kind !== "task_resume_regression_authorization" || value.fingerprint !== prepared.fingerprint || serialize(value) !== serialize(readJson(this.path("regression-authorization.json")))) invalid("regression_allowance_binding");
+    integer(value.authorizedAt, 1, Date.now());
+    return { maxCalls: integer(value.maxCalls, prepared.cells.length, 6000), maxTotalTokens: integer(value.maxTotalTokens, prepared.cells.length * prepared.plan.protocol.tokenBudget, Number.MAX_SAFE_INTEGER) };
   }
   private readPrepared(): PreparedTaskResumeExperiment {
     const prepared = prepareTaskResumeExperiment(readJson(this.path("bundle.json")));

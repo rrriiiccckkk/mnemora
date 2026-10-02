@@ -54,6 +54,72 @@ const registered = workspace => new TaskResumeValueGate(() => Date.now() - 10).r
 const externalRecord = registration => ({ reference: "synthetic:record", recordedAt: registration.registeredAt });
 const collectionAudit = { reviewerId: "reviewer:fixture", cutoffEvidenceChecked: true, memoryFormationChecked: true, authorizationAndDeidentificationChecked: true, externalRecordChecked: true, notes: "Synthetic fixtures only; no independent real-world verification." };
 
+test("regression runs without an external record and cannot produce formal measured evidence", async () => {
+  const directory = join(createTempDir("regression-"), "private");
+  const workspace = experiment.TaskResumeExperimentWorkspace.create(directory, { ...fixture(), kind: "authorized_real", purpose: "regression" });
+  let calls = 0;
+  const options = { execute: true, maxCalls: 6, maxTotalTokens: 6000, transport: async request => { calls++; return response(request); } };
+  await workspace.runRegression(options);
+  const report = workspace.regressionReport();
+  assert.equal(report.kind, "task_resume_regression_report");
+  assert.equal(report.status, "complete");
+  assert.equal(report.eligibleForPilotReview, false);
+  assert.equal(report.summary.totalTokens, 600);
+  assert.equal(report.summary.promptTokens, 480);
+  assert.equal(report.summary.completionTokens, 120);
+  assert.equal(report.annotationStatus, "unreviewed");
+  assert.equal(workspace.prepared.bundle.kind, "authorized_real");
+  const packet = workspace.reviewPacket();
+  assert.equal(packet.purpose, "regression");
+  assert.match(packet.limitations.join(" "), /No external registration/);
+  assert.doesNotMatch(packet.limitations.join(" "), /must audit.*external registration record/);
+  assert.equal(calls, 6);
+  await workspace.runRegression(options);
+  assert.equal(calls, 6);
+  assert.throws(() => new TaskResumeValueGate().register(workspace.prepared.plan), /invalid_task_resume_preregistration/);
+  assert.throws(() => workspace.exportMeasured({}), /regression_not_measured/);
+});
+
+test("regression requires explicit fixed allowance and stops ambiguous calls without retries", async () => {
+  const workspace = experiment.TaskResumeExperimentWorkspace.create(join(createTempDir("regression-limit-"), "private"), { ...fixture(), purpose: "regression" });
+  let calls = 0;
+  const options = { execute: true, maxCalls: 6, maxTotalTokens: 6000, transport: async () => { calls++; throw new Error("private unknown-cost error"); } };
+  await assert.rejects(workspace.runRegression({ ...options, execute: false }), /execute_required/);
+  await assert.rejects(workspace.runRegression({ ...options, maxCalls: 5 }), /regression_allowance/);
+  await assert.rejects(workspace.runRegression({ ...options, maxTotalTokens: 5999 }), /regression_allowance/);
+  assert.equal(existsSync(join(workspace.directory, "regression-authorization.json")), false);
+  assert.equal(calls, 0);
+  const check = await workspace.runRegression(options);
+  assert.equal(check.status, "blocked");
+  await workspace.runRegression(options);
+  assert.equal(calls, 1);
+  const report = workspace.regressionReport();
+  assert.equal(report.summary.attempted, 1);
+  assert.equal(report.summary.totalTokens, 0);
+  assert.equal(report.summary.costCoverage, "incomplete_or_unknown");
+  assert.equal(report.summary.memoryToSimpleTokenRatio, null);
+  assert.doesNotMatch(JSON.stringify(report), /private unknown-cost error/);
+  await assert.rejects(workspace.runRegression({ ...options, maxTotalTokens: 7000 }), /regression_allowance_binding/);
+  await assert.rejects(workspace.run({}, { execute: true, externalRecord: {}, transport: options.transport }), /regression_not_formal/);
+  const formal = createWorkspace();
+  await assert.rejects(formal.runRegression(options), /formal_not_regression/);
+});
+
+test("regression concurrent dispatch and invalid usage remain blocked", async () => {
+  const workspace = experiment.TaskResumeExperimentWorkspace.create(join(createTempDir("regression-concurrent-"), "private"), { ...fixture(), purpose: "regression" });
+  let resolveFirst, calls = 0;
+  const options = { execute: true, maxCalls: 6, maxTotalTokens: 6000, transport: async request => { calls++; await new Promise(resolve => { resolveFirst = resolve; }); return { ...response(request), usage: { total_tokens: 100 } }; } };
+  const first = workspace.runRegression(options);
+  assert.equal(calls, 1);
+  await assert.rejects(workspace.runRegression(options), /EEXIST/);
+  assert.equal(calls, 1);
+  resolveFirst();
+  assert.equal((await first).status, "blocked");
+  await workspace.runRegression(options);
+  assert.equal(calls, 1);
+  assert.equal(workspace.regressionReport().summary.costCoverage, "incomplete_or_unknown");
+});
+
 test("explicit execution records six cells and resuming never calls a completed cell again", async () => {
   const workspace = createWorkspace(); let calls = 0;
   const transport = async request => { calls++; return response(request); };

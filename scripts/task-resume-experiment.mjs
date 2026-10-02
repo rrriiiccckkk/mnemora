@@ -9,12 +9,13 @@ const labelFields = ["continuationCorrect", "staleFactUsed", "repeatedStep", "ir
 const commands = [
   "prepare <bundle.json> <new-private-dir>", "register <dir>",
   "run <dir> <registration.json> <external-record.json> --execute", "check <dir>",
-  "review <dir>", "export <dir> <labels.json>"
+  "review <dir>", "export <dir> <labels.json>",
+  "regression <bundle.json> <private-dir> --max-calls N --max-total-tokens N --execute"
 ];
 
 function help() {
   return { status: "help", commands, latencyBoundary: "controlled_experiment_not_production_end_to_end",
-    authorization: "Only run --execute may call a model. Independently timestamp the registration before running; no external record is created automatically." };
+    authorization: "Only run --execute or regression --execute may call a model. The formal run requires independent registration; regression is non-formal and never establishes efficacy." };
 }
 
 class CliError extends Error {
@@ -138,8 +139,54 @@ function labelTemplate(packet) {
       basis: Object.fromEntries(labelFields.map(field => [field, { refs: [], reason: null }])) })) };
 }
 
+function regressionOptions(args) {
+  // Explicit consent takes precedence, including over malformed arguments.
+  if (!args.slice(1).includes("--execute")) fail("execute_required");
+  if (args.length !== 8 || args.slice(1, 3).some(arg => !arg || arg.startsWith("--"))) fail("invalid_arguments");
+  const values = {}, seen = new Set();
+  for (let index = 3; index < args.length; index++) {
+    const flag = args[index];
+    if (!["--execute", "--max-calls", "--max-total-tokens"].includes(flag) || seen.has(flag)) fail("invalid_arguments");
+    seen.add(flag);
+    if (flag === "--execute") continue;
+    const value = args[++index];
+    if (!/^[1-9][0-9]*$/u.test(value ?? "") || !Number.isSafeInteger(Number(value))) fail("invalid_arguments");
+    values[flag === "--max-calls" ? "maxCalls" : "maxTotalTokens"] = Number(value);
+  }
+  if (seen.size !== 3) fail("invalid_arguments");
+  return values;
+}
+
+async function regression(args) {
+  const budgets = regressionOptions(args), apiKey = process.env.MNEMORA_EXPERIMENT_API_KEY;
+  if (typeof apiKey !== "string" || !apiKey.trim() || apiKey !== apiKey.trim() || /[\r\n]/u.test(apiKey)) fail("api_key_required");
+  const directory = guardedDirectory(args[2], false);
+  const { TaskResumeExperimentWorkspace, prepareTaskResumeExperiment, serialize, hash } = await import("../dist/task-resume/experiment.js");
+  const input = { ...readJson(args[1]), purpose: "regression" }, prepared = prepareTaskResumeExperiment(input);
+  if (Object.values(prepared.artifacts).some(contents => Buffer.byteLength(contents) > MAX_BYTES)) fail("invalid_file");
+  const workspace = existsSync(directory) ? new TaskResumeExperimentWorkspace(directory) : TaskResumeExperimentWorkspace.create(directory, input);
+  if (workspace.prepared.fingerprint !== prepared.fingerprint) fail("output_conflict");
+  const { callExperimentModel } = await import("../dist/task-resume/experiment-transport.js");
+  await workspace.runRegression({ execute: true, ...budgets, transport: (request, options) => {
+    guardedDirectory(directory);
+    return callExperimentModel(request, { ...options, apiKey });
+  } });
+  const report = workspace.regressionReport(), contents = serialize(report), reportHash = hash(contents);
+  const jsonName = `regression-report-${reportHash}.json`, markdownName = `regression-report-${reportHash}.md`;
+  // Explicitly allowlist numerical counts; never expose cells, prompts or provider bodies.
+  const counts = Object.fromEntries(Object.entries(report.summary).filter(([key, value]) =>
+    /^(expected|completed|attempted|totalTokens|promptTokens|completionTokens)$/u.test(key)
+    && Number.isSafeInteger(value) && value >= 0));
+  const markdown = `# Task resume regression\n\nStatus: ${report.status}\n\n${Object.entries(counts).map(([key, value]) => `${key}: ${value}\n`).join("\n")}\nEfficacy: not_established\n\nEligible for pilot review: false\n`;
+  const outputs = { [jsonName]: contents, [markdownName]: markdown };
+  if (report.status === "complete") outputs["annotation-packet.json"] = serialize(workspace.reviewPacket());
+  writeOutputs(directory, outputs);
+  return { command: "regression", status: report.status, ...counts, efficacy: "not_established", eligibleForPilotReview: false, files: Object.keys(outputs) };
+}
+
 async function main(args) {
   if (!args.length || args.length === 1 && ["help", "--help", "-h"].includes(args[0])) return help();
+  if (args[0] === "regression") return regression(args);
   const [command] = args, counts = { prepare: 3, register: 2, run: 5, check: 2, review: 2, export: 3 };
   if (command === "run" && args.length === 4) fail("execute_required");
   if (args.length !== counts[command] || args.slice(1).some((arg, index) => arg.startsWith("--") && !(command === "run" && index === 3 && arg === "--execute"))) fail("invalid_arguments");
@@ -196,6 +243,7 @@ async function main(args) {
 try {
   const result = await main(process.argv.slice(2));
   process.stdout.write(JSON.stringify(result) + "\n");
+  if (result.command === "regression") process.exitCode = result.status === "blocked" ? 1 : result.status === "incomplete" ? 2 : 0;
   if (result.command === "check" || result.command === "run") {
     process.exitCode = result.check.status === "blocked" ? 1 : result.check.status === "incomplete" ? 2 : 0;
   }

@@ -1,5 +1,8 @@
 # 三臂实验工具包：交给 Mac 上的 OpenClaw agent
 
+只做日常联调时，改用[一键 regression 入口](task-resume-regression.zh-CN.md)，
+无需外部事前记录或人工标签。下文继续适用于正式实验，不豁免其要求。
+
 你负责材料采集与调用固定工具，不自由改写三组提示或判决规则。先用流程案例验收，再做旧案例匹配回归；正式实验仍按[预注册规则](task-resume-preregistration.zh-CN.md)使用新样本。下面的工具只支持 **controlled-memory**：固定载荷的单轮模型对照，不是 ContextEngine 自动注入或生产任务执行测试。
 
 ## 先准备什么

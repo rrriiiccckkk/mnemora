@@ -2,6 +2,12 @@
 
 ## Current release plan (2026-10-01)
 
+2026-10-02 update: v1.32.1 shipped at `8ceb6e2` after exact-commit CI
+`36872183713` and Release `36874535555`. Active v1.32.2 work adds a separate
+[one-command regression flow](task-resume-regression.zh-CN.md), not a formal
+efficacy or v1.33 pilot release. Regression reports cannot satisfy the value
+gate; the existing formal protocol remains unchanged.
+
 Current released baseline: **v1.32.0** (`c41f791`), with exact-commit
 Windows/Linux CI `36856873736` and formal Release `36858385777` verified.
 Active development: a controlled-memory three-arm experiment runner, automatic
