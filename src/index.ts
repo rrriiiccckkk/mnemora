@@ -1,4 +1,5 @@
 export * from "./schema.js";
+export * from "./task-resume/memory.js";
 export * from "./relationships.js";
 export * from "./slug.js";
 export * from "./types.js";

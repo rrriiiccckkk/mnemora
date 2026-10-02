@@ -35,6 +35,7 @@ import { createEmbedder } from "./embeddings.js";
 import { RecallFeedbackRepository, ReflectionService, type RecallFeedbackKind } from "./cognition/reflection.js";
 import { CognitionGraduationService } from "./cognition/graduation.js";
 import { TaskResumeService } from "./task-resume/service.js";
+import { renderTaskResumeMemory } from "./task-resume/memory.js";
 import { TaskResumeComparisonRunner, validateTaskResumeComparisonPlan } from "./task-resume/comparison.js";
 import { TaskResumeValueGate } from "./task-resume/preregistration.js";
 import { EvaluationRunner, serializeEvaluationReport, validateEvaluationDataset, RecallThresholdScanRunner, validateRecallThresholdScanPlan } from "./evaluation/index.js";
@@ -334,14 +335,17 @@ function consolidationCommand(graph: Mnemora, raw: string[]): unknown {
 /** Explicit, read-only task continuation. It never changes recall or schedules work. */
 function taskResumeCommand(graph: Mnemora, raw: string[]): unknown {
   const { positional, options } = parseOptions(raw);
-  if (Object.keys(options).some(key => !["scope", "limit", "task-ref"].includes(key))) throw new CliError("invalid_arguments");
+  if (Object.keys(options).some(key => !["scope", "limit", "task-ref", "format"].includes(key))) throw new CliError("invalid_arguments");
+  const format = option(options, "format") ?? "full";
+  if (format !== "full" && format !== "compact") throw new CliError("invalid_arguments");
   const query = positional.join(" ").trim(), limit = boundedLimit(option(options, "limit"));
-  return new TaskResumeService(graph.store.db).resume({
+  const result = new TaskResumeService(graph.store.db).resume({
     scope: option(options, "scope") ?? process.env.SCOPE ?? "default",
     ...(query ? { query } : {}),
     ...(option(options, "task-ref") ? { taskRef: option(options, "task-ref") } : {}),
     ...(limit ? { limit } : {})
   });
+  return format === "full" ? result : JSON.parse(renderTaskResumeMemory(result, "compact"));
 }
 
 async function cognitionCommand(graph: Mnemora, raw: string[]): Promise<unknown> {
@@ -716,7 +720,7 @@ function recallCommand(graph: Mnemora, command: string | undefined, args: string
 
 function parseOptions(args: string[]): { positional: string[]; options: Record<string, string | true> } {
   const positional: string[] = [], options: Record<string, string | true> = {};
-  const values = new Set(["scope", "limit", "task-ref", "preview-hash", "issued-by", "token-budget", "max-items", "historical-at", "stale-after-days", "min-age-days", "adapter", "status", "after-id"]);
+  const values = new Set(["scope", "limit", "task-ref", "format", "preview-hash", "issued-by", "token-budget", "max-items", "historical-at", "stale-after-days", "min-age-days", "adapter", "status", "after-id"]);
   for (let index = 0; index < args.length; index++) {
     const item = args[index];
     if (!item.startsWith("--")) { positional.push(item); continue; }
