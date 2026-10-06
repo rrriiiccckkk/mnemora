@@ -15,7 +15,10 @@ test("built-in AnchorVerifier uses a killable, heap-bounded child process and pr
   const address = server.address();
   const baseURL = `http://127.0.0.1:${address.port}/v1`;
   try {
-    const provider = createAnchorVerificationProvider({ llm: { apiKey: "fixture-secret", baseURL, model: "fixture-model" }, trustLayer: { verification: { automatic: { enabled: true, timeoutMs: 1000 } } } });
+    // This is a success-path test, not a one-second startup benchmark.
+    // Loaded Windows runners need time to start the isolated process. The
+    // caller-cancellation test below retains its short timeout unchanged.
+    const provider = createAnchorVerificationProvider({ llm: { apiKey: "fixture-secret", baseURL, model: "fixture-model" }, trustLayer: { verification: { automatic: { enabled: true, timeoutMs: process.platform === "win32" ? 10000 : 1000 } } } });
     assert.ok(provider);
     const decision = await provider.verify({ claim_id: "claim:1", quote: "direct support", snapshot: "source snapshot", signal: new AbortController().signal, maxOutputBytes: 4096 });
     assert.deepEqual(decision, { status: "verified", verification_confidence: .9, source_quality: .8 });
