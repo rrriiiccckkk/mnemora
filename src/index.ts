@@ -247,6 +247,8 @@ export interface MnemoraConfig {
   /** Explicitly opt in to Mnemora owning OpenClaw's exclusive ContextEngine slot. */
   contextEngine?: {
     enabled?: boolean;
+    /** Content-free, explicit short-window diagnostics in an existing private directory. */
+    assemblyDiagnostics?: import("./context-engine/assembly-diagnostics.js").AssemblyDiagnosticOptions;
     maxContextTokens?: number;
     maxSummaryChars?: number;
     protectedRecentEvents?: number;

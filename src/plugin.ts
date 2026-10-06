@@ -80,6 +80,7 @@ const configSchema = Type.Object({
     replayFloodThresholdInternal: Type.Optional(Type.Integer({ default: 8, minimum: 1, maximum: 512 }))
   }, { additionalProperties: false })),
   contextEngine: Type.Optional(Type.Object({
+    assemblyDiagnostics: Type.Optional(Type.Object({ enabled: Type.Optional(Type.Boolean({ default: false })), directory: Type.Optional(Type.String({ minLength: 1 })), scopes: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { maxItems: 32 })), expiresAt: Type.Optional(Type.Integer({ minimum: 1 })) }, { additionalProperties: false })),
     enabled: Type.Optional(Type.Boolean({ default: false })),
     maxContextTokens: Type.Optional(Type.Integer({ default: 8000, minimum: 256, maximum: 64000 })),
     maxSummaryChars: Type.Optional(Type.Integer({ default: 8000, minimum: 256, maximum: 32000 })),

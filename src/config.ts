@@ -189,6 +189,7 @@ export function normalizeConfig(input: Partial<MnemoraConfig> = {}): MnemoraConf
       replayFloodThresholdInternal: clamp(input.conversationJournal?.replayFloodThresholdInternal, 8, 1, 512)
     },
     contextEngine: {
+      ...(input.contextEngine?.assemblyDiagnostics ? { assemblyDiagnostics: { enabled: input.contextEngine.assemblyDiagnostics.enabled === true, directory: input.contextEngine.assemblyDiagnostics.directory, scopes: Array.isArray(input.contextEngine.assemblyDiagnostics.scopes) ? input.contextEngine.assemblyDiagnostics.scopes.filter((value): value is string => typeof value === "string").slice(0, 32) : [], expiresAt: input.contextEngine.assemblyDiagnostics.expiresAt } } : {}),
       enabled: input.contextEngine?.enabled === true,
       maxContextTokens: clamp(input.contextEngine?.maxContextTokens, 8000, 256, 64000),
       maxSummaryChars: clamp(input.contextEngine?.maxSummaryChars, 8000, 256, 32000),

@@ -1,3 +1,4 @@
+import { recordAssemblyDiagnostic, type DiagnosticSegment } from "./assembly-diagnostics.js";
 import { createHash, randomUUID } from "node:crypto";
 import { delegateCompactionToRuntime } from "openclaw/plugin-sdk/core";
 import type { HarnessContextEngine as ContextEngine } from "openclaw/plugin-sdk/agent-harness-runtime";
@@ -8,7 +9,7 @@ import type { CompletedTurn, ContextAssemblyInput } from "./lifecycle.js";
 import { contextDomain, estimateMessageTokens, messageText, selectBoundHostMessages, type HostMessage } from "./message-safety.js";
 import { UnifiedRetrievalService } from "../retrieval/service.js";
 import { sanitizeMemoryForContext } from "../retrieval/context-safety.js";
-import { ProjectionEvidenceReader, renderProjectionEvidence } from "../retrieval/projection-evidence.js";
+import { ProjectionEvidenceReader, renderProjectionEvidence, limitProjectionEvidence } from "../retrieval/projection-evidence.js";
 import { selectGraphInjection, selectInjectionCandidates, type InjectionSuppressionReason } from "../retrieval/injection-policy.js";
 import { planRecallQuery } from "../retrieval/query-routing.js";
 import { RecallUsageRepository } from "../recall-lifecycle/repository.js";
@@ -293,6 +294,7 @@ export class MnemoraContextEngine implements ContextEngine {
     // no legacy prompt hook, so duplicate recall cannot be revived by runtime
     // ordering or an old compatibility setting.
     const additions: string[] = [];
+    const diagnosticSegments: DiagnosticSegment[] = [];
     const available = Math.max(0, budget - estimatedTokens);
     if (!automaticWorkExcluded && this.config.mode === "standalone" && this.config.unifiedRetrieval?.enabled && available >= 64 && typeof params.prompt === "string" && params.prompt.trim()) {
       const graph = this.openGraph();
@@ -348,6 +350,7 @@ export class MnemoraContextEngine implements ContextEngine {
         let attached = false;
         if (rendered && estimateTextTokens(rendered) <= available) {
           additions.push(rendered);
+          diagnosticSegments.push({ kind: "unified_retrieval", text: rendered, candidates: packed.candidates, graphAttached: packed.graphAttached });
           attached = true;
           try {
             const refs = new Set(packed.candidates.map(candidate => candidate.contextRef));
@@ -383,11 +386,25 @@ export class MnemoraContextEngine implements ContextEngine {
     if (!automaticWorkExcluded && remaining >= 64 && typeof params.prompt === "string" && params.prompt.trim()) {
       try {
         const reasoning = await this.lifecycle.onAssemble?.({ sessionId: params.sessionId, query: params.prompt.trim(), tokenBudget: remaining, ...(agentId ? { agentId } : {}) });
-        if (reasoning && estimateTextTokens(additions.length ? `${additions.join("\n\n")}\n\n${reasoning}` : reasoning) <= budget - estimatedTokens) additions.push(reasoning);
+        if (reasoning && estimateTextTokens(additions.length ? `${additions.join("\n\n")}\n\n${reasoning}` : reasoning) <= budget - estimatedTokens) { additions.push(reasoning); diagnosticSegments.push({ kind: "reasoning", text: reasoning }); }
       } catch { /* optional governed reasoning must remain fail-open */ }
     }
     const addition = additions.length ? additions.join("\n\n") : undefined;
     const total = estimatedTokens + currentAdditionTokens();
+    if (this.config.contextEngine?.assemblyDiagnostics?.enabled && !automaticWorkExcluded && sessionWriteDisposition(params.sessionId, this.config.conversationJournal) === "writable") {
+      try {
+        // Only returned system compaction text is fingerprinted. Ordinary user,
+        // assistant, tool and host policy text never enters the diagnostic sink.
+        for (const message of projectedMessages) {
+          if (message.role !== "system") continue;
+          const parts = typeof message.content === "string" ? [message.content] : Array.isArray(message.content) ? message.content.flatMap(part => part && typeof part === "object" && "type" in part && part.type === "text" && "text" in part && typeof part.text === "string" ? [part.text] : []) : [];
+          for (const part of parts) for (const match of part.matchAll(/<MNEMORA_COMPACTION summary_id="([^"<>]+)"[^>]*>[\s\S]*?<\/MNEMORA_COMPACTION>/g)) {
+            diagnosticSegments.push({ kind: "compaction", text: match[0], summaryId: match[1], origin: message === projected.summary ? "plugin_projection" : "host_message", ...(message === projected.summary ? projected.diagnostic : {}) });
+          }
+        }
+        recordAssemblyDiagnostic(this.config.contextEngine.assemblyDiagnostics, { scope: this.scope(), sessionId: params.sessionId, estimatedTokens: total, segments: diagnosticSegments });
+      } catch { /* diagnostics cannot change host assembly availability */ }
+    }
     return { messages, estimatedTokens: total, promptAuthority: boundedMessages.overBudget || total > budget ? "preassembly_may_overflow" as const : "assembled" as const, ...(addition ? { systemPromptAddition: addition } : {}) };
   }
 
@@ -461,7 +478,7 @@ export class MnemoraContextEngine implements ContextEngine {
     return Math.min(this.config.contextEngine!.maxContextTokens!, requested);
   }
 
-  private compactionProjection(sessionId: string, messages: HostMessage[], budget: number): { messages: HostMessage[]; summary?: HostMessage; summaryTokens: number } {
+  private compactionProjection(sessionId: string, messages: HostMessage[], budget: number): { messages: HostMessage[]; summary?: HostMessage; summaryTokens: number; diagnostic?: Pick<DiagnosticSegment, "sourceRefs" | "sourceWindow" | "windowTruncated" | "contentTruncated"> } {
     // Previously rewritten envelopes can be below the projection threshold.
     // Add the boundary there too, without modifying any user/assistant text.
     messages = messages.map(message => {
@@ -494,7 +511,10 @@ export class MnemoraContextEngine implements ContextEngine {
       for (let count = evidence.sources.length; count >= 0; count--) {
         const summary: HostMessage = { role: "system", content: `<MNEMORA_COMPACTION summary_id="${root.id}" source_linked="true" authority="non_authoritative" priority="reference">\n${content}\n${renderProjectionEvidence(evidence, count)}\n</MNEMORA_COMPACTION>` };
         const summaryTokens = estimateMessageTokens(summary);
-        if (summaryTokens + freshTokens + (count > 0 ? recallReserve : 0) <= budget) return { messages: fresh, summary, summaryTokens };
+        if (summaryTokens + freshTokens + (count > 0 ? recallReserve : 0) <= budget) {
+          const window = limitProjectionEvidence(evidence, count);
+          return { messages: fresh, summary, summaryTokens, diagnostic: { sourceRefs: window.sources.map(source => source.source_ref), sourceWindow: window.source_window, windowTruncated: window.truncated, contentTruncated: root.content.length > this.config.contextEngine!.maxSummaryChars! } };
+        }
       }
       return { messages, summaryTokens: 0 };
     } catch { return { messages, summaryTokens: 0 }; }
