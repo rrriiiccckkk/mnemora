@@ -152,12 +152,20 @@ adding fixtures, changing storage/configuration or upgrading a deployment.
 
 ```bash
 npm run check
+npm run verify:fast
+npm run test:host
+npm run dogfood:mnemora
 npm run verify
 ```
 
 The full suite includes serial unit tests, build, browser checks, benchmarks,
 plugin validation, smoke tests and the SDK compatibility expectation gate.
 Release tags require successful Windows and Linux CI for the exact commit.
+
+See [local development](docs/development.md) for the isolated host and project
+trial. Full verification builds once; fast verification accepts selected test
+filenames. The project trial uses a separate `project:mnemora` database and
+the daily Gateway's public stateless model interface.
 
 ## License
 

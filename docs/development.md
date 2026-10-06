@@ -1,0 +1,103 @@
+# Local development
+
+Use Node 24, matching CI. `.nvmrc` supports `nvm install && nvm use`.
+Then run `npm ci`. Each worktree needs its own dependencies and build output.
+
+## Verification
+
+```bash
+# Default plugin, ContextEngine and compatibility-gate tests, plus smoke/schema checks
+npm run verify:fast
+
+# Replace the default selection with exact filenames from tests/
+npm run verify:fast -- context-engine.test.mjs plugin.test.mjs
+
+# Complete offline suite: all unit tests, benchmarks, plugin and release checks
+npm run verify
+
+# Installed OpenClaw host integration, separately from pinned offline checks
+npm run test:host
+
+# Real provider, two sessions and one actual development decision in project:mnemora
+npm run dogfood:mnemora
+```
+
+Both verification modes build TypeScript and the Inspector once. The complete
+mode retains all checks from the original `verify` command. Individual existing
+benchmark commands remain available and build their own prerequisites.
+Fast mode is feedback during development, not a substitute for full verification.
+
+## Isolated host integration
+
+`test:host` uses the `openclaw` executable on PATH. To select an executable
+explicitly, set `MNEMORA_OPENCLAW_BIN` to its path. The reported host version is
+independent of the repository's pinned OpenClaw development dependency.
+
+Each synthetic test creates a system temporary fixture with a private state directory, config,
+workspace, synthetic home, immutable plugin build snapshot and Mnemora database.
+The snapshot keeps changing test artifacts out of host source-consistency checks.
+It starts a foreground Gateway
+on an available loopback port, with token authentication and a loopback mock
+OpenAI-compatible model. Provider and channel credentials are not inherited;
+shell-environment loading is disabled. No real model account is required.
+It never installs, stops or restarts the daily Gateway service.
+
+The test checks actual plugin loading and the selected ContextEngine through:
+
+1. A synthetic agent turn reaching the local mock model.
+2. Durable capture of user and assistant journal events through `afterTurn`
+   on older hosts or atomic `commitTurn` on hosts with admitted-turn finalization.
+3. Shutdown and restart preserving event IDs without replay duplication.
+4. A fresh session receiving the stored canary evidence in its model request.
+
+The test kills only its own Gateway process on exit. Its parent removes the
+fixture after the worker exits, including native database handles. Port selection is
+best effort: if another process claims the port, the test fails rather than
+replacing it. Loopback listeners must be allowed by the execution sandbox.
+
+This deterministic integration test covers host wiring and persisted recall,
+not model quality, real provider authentication, channels, or statistical
+effectiveness of ReasoningMemory. Use the existing benchmarks and governed
+deidentified datasets for those separate evaluations. The older
+`plugin:official:compat` check intentionally asserts the pinned 2026.9.2 CLI's
+known metadata rejection; passing it does not establish newer-host compatibility.
+Both host checks isolate configuration from the daily OpenClaw installation.
+The ContextEngine declares fenced, atomic advancement for newer hosts. Journal
+transactions key receipts by the host advancement key; retries after restart
+return `duplicate`, and failed transactions are not acknowledged.
+
+## Project dogfood
+
+`dogfood:mnemora` launches the same isolated host with scope `project:mnemora`
+and a separate database. It records the actual `OFG_CONFIG_ISOLATION` development
+decision, restarts its Gateway, and asks about that decision in a fresh session.
+The loopback model bridge calls `openclaw infer model run --gateway --json`, the
+public stateless inference interface of the daily host. This uses the already
+configured model account and can incur its normal inference cost. No provider
+credentials, daily conversations or daily memory database are copied.
+
+Unified retrieval stays enabled, with redacted shadow telemetry. Shadow is
+observability after normal recall, not a no-attachment mode. ReasoningMemory
+shadow is restricted to the project scope; delivery, extraction, automatic
+episode formation and model compaction stay disabled in this canary.
+
+The script retains bounded `dogfood-result.json`, `dogfood-debug.json` and Gateway
+logs under the printed `.dogfood/<run-id>` directory. Its parent removes the
+separate database and configuration after the worker exits. Debug artifacts
+contain only this development task's requests and answers and remain private,
+ignored local files. It stops its own Gateway after both turns. Run the command
+again for another bounded trial; it does not install a persistent service.
+
+Two turns establish wiring, persistence and a recalled decision. They do not
+establish improved development speed or ReasoningMemory efficacy. Proxy usage
+counts are fixture values, so this trial does not measure token cost or latency.
+
+OpenClaw documents the configuration and state overrides in its
+[environment reference](https://docs.openclaw.ai/help/environment).
+
+## Reproducible bug reports
+
+Record the commit, Node and host versions, relevant option values, synthetic
+input, expected result and actual result. Convert recurring recall or capture
+failures into bounded fixtures under `tests/`, with explicit scope and source
+evidence. Keep confirmed architecture decisions in repository documentation.

@@ -127,11 +127,18 @@ v1.32 为明确选择的任务增加有界的 `source_evidence` 可读摘录，�
 
 ```bash
 npm run check
+npm run verify:fast
+npm run test:host
+npm run dogfood:mnemora
 npm run verify
 ```
 
 完整验收包含串行单测、构建、浏览器检查、基线评估、插件校验、smoke 与 SDK 兼容性预期检查。
 发布标签必须对应 Windows、Linux CI 均成功的同一提交。
+
+隔离宿主与项目试用见[本地开发指南](docs/development.md)。完整验证只构建一次；
+快速验证可指定测试文件。项目试用使用独立的 `project:mnemora` 数据库，
+通过日常 Gateway 的公开无会话接口复用模型。
 
 ## 许可证
 

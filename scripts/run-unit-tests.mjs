@@ -22,6 +22,6 @@ export async function runUnitTests(files = readdirSync(testDirectory).filter(nam
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  try { process.exitCode = await runUnitTests(process.argv.length > 2 ? process.argv.slice(2).map(path => resolve(path)) : undefined); }
+  try { process.exitCode = await runUnitTests(process.argv.length > 2 ? process.argv.slice(2).map(path => resolve(path.includes("/") || path.includes("\\") ? path : `tests/${path}`)) : undefined); }
   catch (error) { console.error(error); process.exitCode = error.testExitCode ?? 1; }
 }

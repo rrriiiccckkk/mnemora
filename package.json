@@ -1,6 +1,6 @@
 {
   "name": "mnemora",
-  "version": "1.32.5",
+  "version": "1.32.6",
   "description": "Local-first, evidence-first memory runtime for persistent OpenClaw agents.",
   "type": "module",
   "engines": {
@@ -35,7 +35,10 @@
     "benchmark:reasoning": "npm run build && node scripts/benchmark-reasoning-runtime.mjs && node scripts/benchmark-reasoning-delivery-effectiveness.mjs",
     "benchmark:task-resume": "npm run build && node scripts/run-unit-tests.mjs tests/task-resume-evaluation.test.mjs tests/task-resume-comparison.test.mjs tests/task-resume-preregistration.test.mjs",
     "benchmark:graduation": "npm run build && node scripts/benchmark-single-memory-harness-graduation.mjs",
-    "verify": "npm run check && npm test && npm run benchmark:hybrid && npm run benchmark:quality && npm run benchmark:insights && npm run benchmark:query && npm run benchmark:inspector && npm run benchmark:lifecycle && npm run benchmark:ingestion && npm run benchmark:harness && npm run benchmark:recall-quality && npm run benchmark:cognition && npm run benchmark:reasoning && npm run benchmark:task-resume && npm run benchmark:graduation && npm run plugin:validate && npm run plugin:official:compat && npm run release:validate"
+    "verify": "node scripts/verify.mjs full",
+    "verify:fast": "node scripts/verify.mjs fast",
+    "test:host": "npm run build && node scripts/test-openclaw-host.mjs",
+    "dogfood:mnemora": "npm run build && node scripts/test-openclaw-host.mjs --dogfood"
   },
   "keywords": [
     "openclaw",
