@@ -1,5 +1,5 @@
 import type { DatabaseSyncInstance } from "@photostructure/sqlite";
-import { createMnemoraContextRef } from "../context/context-ref.js";
+import { authorizeMnemoraContextRef, createMnemoraContextRef } from "../context/context-ref.js";
 import { normalizeScope } from "../scope.js";
 import { ConversationEventRepository } from "../journal/repository.js";
 import { EpisodeRepository } from "../episodes/repository.js";
@@ -11,6 +11,7 @@ import { sanitizeMemoryForContext } from "./context-safety.js";
 import { RecallFeedbackRepository } from "../cognition/reflection.js";
 import type { MemoryDocumentLifecycleService } from "../memory-lifecycle/service.js";
 import { estimateTextTokens } from "../token-estimate.js";
+import { ProjectionEvidenceReader, limitProjectionEvidence, renderProjectionEvidence } from "./projection-evidence.js";
 
 const bounded = (value: unknown, fallback: number, min: number, max: number) => Number.isFinite(Number(value)) ? Math.min(max, Math.max(min, Math.trunc(Number(value)))) : fallback;
 const score = (base: number, confidence: number, freshness: number, authority: RetrievalAuthority) => base * (.55 + confidence * .3 + freshness * .15) * authorityWeight(authority);
@@ -119,11 +120,15 @@ export class UnifiedRetrievalService {
       if (candidate.confidence < floor) { lowConfidence++; continue; }
       if (now - candidate.freshness > oldest) { stale++; continue; }
       if (adjustedScore < hardMinScore) { lowConfidence++; continue; }
-      const selected = adjustedScore === candidate.score ? candidate : { ...candidate, score: adjustedScore };
+      let selected = adjustedScore === candidate.score ? candidate : { ...candidate, score: adjustedScore };
       // Candidate budgets include their eventual reference and provenance
       // envelope. The final packet is packed again below, where its shared
       // header and graph expansion can be measured exactly.
-      const estimatedTokens = estimateTextTokens(this.renderItem(selected, candidates.length + 1));
+      let estimatedTokens = estimateTextTokens(this.renderItem(selected, candidates.length + 1));
+      while (used + estimatedTokens > budget && selected.projectionEvidence?.sources.length) {
+        selected = { ...selected, projectionEvidence: limitProjectionEvidence(selected.projectionEvidence, selected.projectionEvidence.sources.length - 1) };
+        estimatedTokens = estimateTextTokens(this.renderItem(selected, candidates.length + 1));
+      }
       if (candidates.length >= limit || used + estimatedTokens > budget) { budgetExcluded++; continue; }
       candidates.push({ ...selected, estimatedTokens }); used += estimatedTokens;
     }
@@ -141,7 +146,19 @@ export class UnifiedRetrievalService {
    * time instead of discarding a whole otherwise useful attachment.
    */
   packPrompt(result: UnifiedFindResult, maxItems = 8, graphSupplement?: string, tokenBudget?: number): PackedUnifiedPrompt {
-    const candidates = result.candidates.slice(0, bounded(maxItems, 8, 1, 20));
+    const candidates = result.candidates.slice(0, bounded(maxItems, 8, 1, 20)).flatMap(item => {
+      if (item.kind !== "summary" && item.kind !== "episode") return [item];
+      // Refresh the window at injection time: an earlier find is not permission
+      // to replay source text after a correction, retention or forgetting.
+      let projectionEvidence;
+      try {
+        const source = authorizeMnemoraContextRef(item.contextRef, { scope: result.scope, kinds: [item.kind] });
+        const reader = new ProjectionEvidenceReader(this.db);
+        if (!reader.isActive(item.kind, source.id, result.scope)) return [];
+        projectionEvidence = reader.read(item.kind, source.id, result.scope);
+      } catch { return []; }
+      return [{ ...item, projectionEvidence }];
+    });
     let supplement = sanitizeMemoryForContext(graphSupplement, 3200);
     const budget = tokenBudget === undefined ? undefined : bounded(tokenBudget, 0, 0, 8000);
     const render = () => this.renderPrompt(result.scope, candidates, supplement);
@@ -155,6 +172,15 @@ export class UnifiedRetrievalService {
       prompt = render();
     }
     if (!prompt) return { candidates: [], graphAttached: false, estimatedTokens: 0 };
+    while (budget !== undefined && estimateTextTokens(prompt) > budget) {
+      let index = candidates.length - 1;
+      while (index >= 0 && !candidates[index].projectionEvidence?.sources.length) index--;
+      if (index < 0) break;
+      const candidate = candidates[index], evidence = candidate.projectionEvidence!;
+      candidates[index] = { ...candidate, projectionEvidence: limitProjectionEvidence(evidence, evidence.sources.length - 1) };
+      prompt = render();
+      if (!prompt) return { candidates: [], graphAttached: false, estimatedTokens: 0 };
+    }
     while (budget !== undefined && estimateTextTokens(prompt) > budget && candidates.length) {
       candidates.pop();
       prompt = render();
@@ -173,6 +199,7 @@ export class UnifiedRetrievalService {
     const excerpt = text(input.excerpt); if (!excerpt) return;
     const confidence = Math.max(0, Math.min(1, input.confidence ?? .6)), updatedAt = Number.isSafeInteger(input.updatedAt) ? input.updatedAt! : this.now(), candidateRef = ref(input.scope, input.kind, input.id), sourceRefs = [...new Set(input.sourceRefs ?? [candidateRef])].slice(0, 12), f = freshness(updatedAt, this.now());
     raw.push({ contextRef: candidateRef, kind: input.kind, scope: input.scope, title: text(input.title, 160) || input.kind, excerpt, estimatedTokens: estimateTextTokens(excerpt), bytes: Buffer.byteLength(excerpt), score: score(1, confidence, f, input.authority) * Math.max(0, Math.min(2, Number(input.scoreMultiplier ?? 1))), sourceIds: [...new Set(input.sourceIds ?? [])].slice(0, 50), sourceRefs, authority: input.authority, confidence, freshness: updatedAt, selectionReason: input.selectionReason ?? "lexical_match" });
+    if (input.kind === "summary" || input.kind === "episode") raw[raw.length - 1].projectionEvidence = new ProjectionEvidenceReader(this.db).read(input.kind, input.id, input.scope);
   }
 
   private renderItem(item: RetrievalCandidate, index: number): string {
@@ -181,7 +208,10 @@ export class UnifiedRetrievalService {
     // every external label here can crowd out the only useful candidate at a
     // small configured budget; the canonical record remains the audit route.
     const canonicalSource = provenance[0] ?? item.contextRef;
-    return `[${index}] ref=${sanitizeMemoryForContext(item.contextRef, 320)}; kind=${item.kind}; authority=${item.authority}; confidence=${item.confidence.toFixed(2)}\n${sanitizeMemoryForContext(item.excerpt)}\nprovenance_refs=${provenance.map(source => sanitizeMemoryForContext(source, 320)).join(",")}; source=${sanitizeMemoryForContext(canonicalSource, 320)}`;
+    const derived = item.kind === "summary" || item.kind === "episode";
+    const projection = derived ? `\n${renderProjectionEvidence(item.projectionEvidence)}` : "";
+    const origin = derived ? "; content_origin=derived_paraphrase; claim_verification=not_verified" : "";
+    return `[${index}] ref=${sanitizeMemoryForContext(item.contextRef, 320)}; kind=${item.kind}; authority=${item.authority}; confidence=${item.confidence.toFixed(2)}${origin}\n${sanitizeMemoryForContext(item.excerpt)}\nprovenance_refs=${provenance.map(source => sanitizeMemoryForContext(source, 320)).join(",")}; source=${sanitizeMemoryForContext(canonicalSource, 320)}${projection}`;
   }
 
   private renderPrompt(scope: string, items: readonly RetrievalCandidate[], supplement: string): string | undefined {

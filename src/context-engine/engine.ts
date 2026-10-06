@@ -8,6 +8,7 @@ import type { CompletedTurn, ContextAssemblyInput } from "./lifecycle.js";
 import { contextDomain, estimateMessageTokens, messageText, selectBoundHostMessages, type HostMessage } from "./message-safety.js";
 import { UnifiedRetrievalService } from "../retrieval/service.js";
 import { sanitizeMemoryForContext } from "../retrieval/context-safety.js";
+import { ProjectionEvidenceReader, renderProjectionEvidence } from "../retrieval/projection-evidence.js";
 import { selectGraphInjection, selectInjectionCandidates, type InjectionSuppressionReason } from "../retrieval/injection-policy.js";
 import { planRecallQuery } from "../retrieval/query-routing.js";
 import { RecallUsageRepository } from "../recall-lifecycle/repository.js";
@@ -461,6 +462,18 @@ export class MnemoraContextEngine implements ContextEngine {
   }
 
   private compactionProjection(sessionId: string, messages: HostMessage[], budget: number): { messages: HostMessage[]; summary?: HostMessage; summaryTokens: number } {
+    // Previously rewritten envelopes can be below the projection threshold.
+    // Add the boundary there too, without modifying any user/assistant text.
+    messages = messages.map(message => {
+      const containsBoundary = (value: unknown) => typeof value === "string" && (value.includes("claim_verification=not_verified") || value.includes('"claim_verification":"not_verified"'));
+      const content = typeof message.content === "string" ? message.content : "";
+      const alreadyAnnotated = containsBoundary(content) || Array.isArray(message.content) && message.content.some(part => part && typeof part === "object" && containsBoundary(part.text));
+      if (String(message.role ?? "").toLowerCase() !== "system" || !isCompactionEnvelope(message) || alreadyAnnotated) return message;
+      const notice = renderProjectionEvidence(undefined, 0);
+      if (Array.isArray(message.content)) return { ...message, content: [...message.content, { type: "text", text: notice }] };
+      if (typeof message.content !== "string") return message;
+      return { ...message, content: `${content}\n${notice}` };
+    });
     const options = this.config.contextEngine?.compaction;
     if (!options?.enabled || estimate(messages) < Math.floor(budget * options.contextThreshold!)) return { messages, summaryTokens: 0 };
     let graph: ReturnType<MnemoraContextEngine["openGraph"]> | undefined;
@@ -472,10 +485,18 @@ export class MnemoraContextEngine implements ContextEngine {
       const compacted = messages.filter(message => !isCompactionEnvelope(message));
       const fresh = freshTail(compacted, options.freshTailCount!);
       const content = sanitizeMemoryForContext(root.content, this.config.contextEngine!.maxSummaryChars!);
-      const summary: HostMessage = { role: "system", content: `<MNEMORA_COMPACTION summary_id="${root.id}" source_linked="true" authority="non_authoritative" priority="reference">\n${content}\n</MNEMORA_COMPACTION>` };
-      const summaryTokens = estimateMessageTokens(summary), currentUser = [...fresh].reverse().find(message => contextDomain(message) === "user_chat" && String(message.role ?? "").toLowerCase() === "user");
-      if (summaryTokens + (currentUser ? estimateMessageTokens(currentUser) : 0) > budget) return { messages, summaryTokens: 0 };
-      return { messages: fresh, summary, summaryTokens };
+      const evidence = new ProjectionEvidenceReader(graph.store.db).read("summary", root.id, this.scope());
+      const freshTokens = estimate(fresh);
+      // Quotes are optional inspection aids. Do not let them crowd out the
+      // existing small-budget unified recall; the minimal boundary stays even
+      // when both optional recall and source quotes cannot fit together.
+      const recallReserve = this.config.mode === "standalone" && this.config.unifiedRetrieval?.enabled ? Math.min(128, this.config.unifiedRetrieval.tokenBudget ?? 800) : 0;
+      for (let count = evidence.sources.length; count >= 0; count--) {
+        const summary: HostMessage = { role: "system", content: `<MNEMORA_COMPACTION summary_id="${root.id}" source_linked="true" authority="non_authoritative" priority="reference">\n${content}\n${renderProjectionEvidence(evidence, count)}\n</MNEMORA_COMPACTION>` };
+        const summaryTokens = estimateMessageTokens(summary);
+        if (summaryTokens + freshTokens + (count > 0 ? recallReserve : 0) <= budget) return { messages: fresh, summary, summaryTokens };
+      }
+      return { messages, summaryTokens: 0 };
     } catch { return { messages, summaryTokens: 0 }; }
     finally { try { graph?.close(); } catch { /* projection remains fail-open */ } }
   }

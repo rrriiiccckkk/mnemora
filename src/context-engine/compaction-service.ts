@@ -5,6 +5,7 @@ import { CompactionRunRepository, type CompactionRun } from "./compaction-run-re
 import { SummaryRepository, type SummaryNode } from "./summary-repository.js";
 import { estimateCompactionTokens } from "./token-estimate.js";
 import { sanitizeMemoryForContext } from "../retrieval/context-safety.js";
+import { renderProjectionEvidence } from "../retrieval/projection-evidence.js";
 
 type RewriteRuntime = { rewriteTranscriptEntries?(request: { replacements: Array<{ entryId: string; message: unknown }>; allowedRewriteSuffixEntryIds?: string[] }): Promise<{ changed: boolean; bytesFreed?: number; rewrittenEntries?: number; reason?: string }> };
 type Row = { id: string; role: string | null; normalized_text: string | null; entry_id: string; sequence: number };
@@ -170,7 +171,7 @@ export class ContextCompactionService {
 
   private summaryMessage(summary: SummaryNode, maxChars: number): string {
     const content = sanitizeMemoryForContext(summary.content, maxChars);
-    return `<MNEMORA_COMPACTION summary_id="${summary.id}" source_linked="true" authority="non_authoritative" priority="reference">\n${content}\n</MNEMORA_COMPACTION>`;
+    return `<MNEMORA_COMPACTION summary_id="${summary.id}" source_linked="true" authority="non_authoritative" priority="reference">\n${content}\n${renderProjectionEvidence(undefined, 0)}\n</MNEMORA_COMPACTION>`;
   }
 
   private rows(scope: string, sessionId: string): Row[] {

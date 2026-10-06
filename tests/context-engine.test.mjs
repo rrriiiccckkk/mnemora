@@ -197,11 +197,41 @@ test("v6.16 chunks bounded leaves into an expandable root and preserves every so
     });
     assert.equal(result.compacted, true, JSON.stringify(result)); assert.equal(result.details.chunks, 4); assert.equal(calls, 4); assert.equal(rewrite.replacements.length, 8);
     assert.deepEqual(rewrite.replacements.map(item => item.entryId), ["m1", "m2", "m3", "m4", "m5", "m6", "m7", "m8"]);
+    assert.match(String(rewrite.replacements[0].message.content), /claim_verification=not_verified/);
     const summaries = new SummaryRepository(store.db, policy), root = summaries.roots("default", "chunked")[0];
     assert.equal(root.level, 1); assert.equal(root.childSummaryIds.length, 4); assert.equal(root.injectionEligible, true);
     assert.equal(summaries.expand(root.id, "default").events.length, 8);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM mnemora_conversation_events WHERE id IN (SELECT event_id FROM mnemora_summary_event_edges) AND deleted_at IS NULL").get().n, 8);
   } finally { store.close(); }
+});
+
+test("already rewritten short compaction envelopes retain the derived boundary", async () => {
+  const directory = createTempDir("mnemora-short-compaction-boundary-"), dbPath = join(directory, "memory.db");
+  const config = normalizeConfig({ dbPath, contextEngine: { enabled: true, maxContextTokens: 2048, compaction: { enabled: true } } });
+  const open = () => { const store = new GraphologyStore(dbPath); return { store, close() { store.close(); } }; };
+  const engine = new MnemoraContextEngine(config, open);
+  const messages = [{ id: "old", role: "system", content: '<MNEMORA_COMPACTION summary_id="legacy" authority="non_authoritative">删除了 laya-mlx</MNEMORA_COMPACTION>' }, { id: "current", role: "user", content: "核对背景；不要把问句当执行记录" }];
+  try {
+    const assembled = await engine.assemble({ sessionId: "short", messages, tokenBudget: 2048 });
+    assert.match(String(assembled.messages[0].content), /claim_verification=not_verified/);
+    assert.match(String(assembled.messages[0].content), /Questions and requests are not execution records/);
+    assert.equal(assembled.messages.find(message => message.id === "current").content, messages[1].content);
+    assert.ok(assembled.estimatedTokens <= 2048);
+  } finally { try { rmSync(directory, { recursive: true, force: true }); } catch {} }
+});
+
+test("legacy compaction annotation preserves structured content blocks", async () => {
+  const config = normalizeConfig({ dbPath: ":memory:", contextEngine: { enabled: true, maxContextTokens: 32000, compaction: { enabled: false } } });
+  const engine = new MnemoraContextEngine(config, () => { throw new Error("unexpected_database_access"); });
+  const blocks = [{ type: "text", text: `<MNEMORA_COMPACTION summary_id="legacy">原摘要正文${"x".repeat(17000)}</MNEMORA_COMPACTION>` }, { type: "text", text: "限定语：仅为报告，不是执行确认" }];
+  const snapshot = structuredClone(blocks);
+  const result = await engine.assemble({ sessionId: "blocks", messages: [{ role: "system", content: blocks }, { role: "user", content: "请核对" }], tokenBudget: 32000 });
+  assert.ok(Array.isArray(result.messages[0].content));
+  assert.deepEqual(result.messages[0].content.slice(0, 2), snapshot);
+  assert.match(result.messages[0].content[2].text, /claim_verification=not_verified/);
+  const repeated = await engine.assemble({ sessionId: "blocks", messages: result.messages, tokenBudget: 32000 });
+  assert.deepEqual(repeated.messages[0].content, result.messages[0].content);
+  assert.deepEqual(blocks, snapshot);
 });
 
 test("v6.16 assembles one summary root with a strict fresh tail and proactively compacts afterTurn", async () => {
@@ -220,6 +250,8 @@ test("v6.16 assembles one summary root with a strict fresh tail and proactively 
     assert.equal(assembled.estimatedTokens <= 256, true);
     assert.equal(assembled.messages.length, 3);
     assert.equal(assembled.messages[0].role, "system"); assert.match(String(assembled.messages[0].content), /MNEMORA_COMPACTION/);
+    assert.match(String(assembled.messages[0].content), /claim_verification=not_verified/);
+    assert.match(String(assembled.messages[0].content), /Questions and requests are not execution records/);
     assert.deepEqual(assembled.messages.slice(1).map(item => item.id), ["m5", "m6"]);
     assert.equal(assembled.promptAuthority, "assembled");
   } finally { try { rmSync(directory, { recursive: true, force: true }); } catch {} }
