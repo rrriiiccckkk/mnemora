@@ -38,7 +38,8 @@
     "verify": "node scripts/verify.mjs full",
     "verify:fast": "node scripts/verify.mjs fast",
     "test:host": "npm run build && node scripts/test-openclaw-host.mjs",
-    "dogfood:mnemora": "npm run build && node scripts/test-openclaw-host.mjs --dogfood"
+    "dogfood:mnemora": "npm run build && node scripts/test-openclaw-host.mjs --dogfood",
+    "dev:memory": "node scripts/project-memory.mjs"
   },
   "keywords": [
     "openclaw",

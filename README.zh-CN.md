@@ -143,3 +143,7 @@ npm run verify
 ## 许可证
 
 [MIT](LICENSE)
+
+持久项目记忆助手：`npm run dev:memory -- status` 查看状态，
+`npm run dev:memory -- ask --message "继续当前开发任务"` 接续决定。
+使用方法和边界见[开发指南](docs/development.md#persistent-project-memory-adviser)。

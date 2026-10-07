@@ -160,6 +160,10 @@ npm run verify
 
 The full suite includes serial unit tests, build, browser checks, benchmarks,
 plugin validation, smoke tests and the SDK compatibility expectation gate.
+Persistent project memory adviser: `npm run dev:memory -- status` or
+`npm run dev:memory -- ask --message "Continue my task"`. See the
+[development guide](docs/development.md#persistent-project-memory-adviser).
+
 Release tags require successful Windows and Linux CI for the exact commit.
 
 See [local development](docs/development.md) for the isolated host and project

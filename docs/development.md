@@ -101,3 +101,39 @@ Record the commit, Node and host versions, relevant option values, synthetic
 input, expected result and actual result. Convert recurring recall or capture
 failures into bounded fixtures under `tests/`, with explicit scope and source
 evidence. Keep confirmed architecture decisions in repository documentation.
+
+## Persistent project memory adviser
+
+```bash
+npm run dev:memory -- status
+npm run dev:memory -- ask --message "继续 PROJECT_ENTRY，请回忆已验证的决定和未完成项"
+npm run dev:memory -- ask --file path/to/verified-task-note.md
+```
+
+This local development command keeps its database, workspace and agent state
+under the ignored `.dogfood/project-mnemora` directory. It starts its own loopback
+Gateway for each request and stops it afterward. Every invocation uses a fresh
+session, so prior decisions must be retrieved from durable project memory.
+Unlike `dogfood:mnemora`, the database survives later invocations. The installed
+Mnemora package is snapshotted by version; `MNEMORA_PROJECT_PLUGIN` overrides its
+path. The command needs built repository output and the installed host on PATH.
+
+It uses `project:mnemora`, normal bounded unified recall with shadow telemetry,
+and reasoning shadow with delivery disabled. Extraction, automatic episode
+formation and compaction remain disabled. The daily host's configuration and
+database are not changed. An exclusive lock prevents concurrent runs; after an
+unclean termination, inspect its PID before manually removing the stale lock.
+
+The daily host's public stateless model interface accepts text only. This is a
+memory adviser, not a second agent that can edit code or execute tools. Codex
+performs the work; consult the adviser at task start and submit a concise note
+of actual decisions, validation and open items at task completion. Recalled
+answers are reference material and must be checked against current code. Each
+ask incurs the normal model charge. Usage values in the compatible proxy are
+synthetic and cannot establish token savings or latency. Keep secrets and
+unrelated personal conversations out of project notes. `status` uses no model.
+
+Evaluate 3–5 genuine development tasks before changing memory policy. Record
+whether decisions were recalled correctly, how many facts needed restating,
+incorrect or irrelevant recall, and the operations actually avoided. Do not
+claim measured speed improvement from a successful two-turn recall check.

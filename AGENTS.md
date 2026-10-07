@@ -26,7 +26,12 @@ development dependency: report both versions when investigating compatibility.
 
 ## Development loop
 
-1. Inspect the affected module and its tests. Make a focused change.
+1. For continuing Mnemora project tasks, consult `npm run dev:memory -- ask
+   --message "<task and question>"` when prior decisions are relevant. Treat
+   recalled answers as reference and verify against code. Inspect the affected
+   module and tests, then make a focused change. Record actual validation and
+   remaining work through the same entry at completion; never record planned
+   checks as completed. See `docs/development.md`.
 2. Run `npm run verify:fast` for the default plugin/lifecycle checks, or
    `npm run verify:fast -- <filename.test.mjs> ...` for selected files from `tests/`.
    Selection replaces the default tests; it does not discover dependencies.
