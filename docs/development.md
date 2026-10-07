@@ -137,3 +137,12 @@ Evaluate 3–5 genuine development tasks before changing memory policy. Record
 whether decisions were recalled correctly, how many facts needed restating,
 incorrect or irrelevant recall, and the operations actually avoided. Do not
 claim measured speed improvement from a successful two-turn recall check.
+
+### Task identifier recall regression
+
+`node scripts/test-openclaw-host.mjs --task-recall` exercises a bounded synthetic
+case where short generic history competes with a detailed task completion. Add
+`--dogfood` to use the daily Gateway's real stateless model. The fixture keeps a
+1500-token budget, tests uppercase/lowercase task identifiers in fresh sessions,
+and rejects foreign-scope evidence. It uses parent-owned temporary state rather
+than the persistent operational project database.

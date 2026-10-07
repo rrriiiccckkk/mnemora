@@ -56,6 +56,12 @@ export function safeIdentifierHints(input: string): string[] {
   return unique(values.filter(value => value.length <= 96 && !sensitiveIdentifier.test(value))).slice(0, 4);
 }
 
+/** Read-time exact-match patterns are bounded and exclude secret-like labels.
+ * They never expand a query, infer a scope, or authorize any candidate. */
+export function safeIdentifierMatchers(input: string): readonly RegExp[] {
+  return safeIdentifierHints(input.trim().slice(0, 512).toLocaleUpperCase()).map(identifier => new RegExp(`(?<![\\p{L}\\p{N}_])${identifier}(?![\\p{L}\\p{N}_])`, "u"));
+}
+
 /** The bounded map mirrors common bilingual memory vocabulary without model
  * calls. It intentionally produces at most four alternates at the plan edge. */
 const bilingualSynonyms: ReadonlyArray<readonly [string, string]> = [

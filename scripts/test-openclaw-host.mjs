@@ -8,10 +8,12 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import { Mnemora } from "../dist/index.js";
+import { Mnemora, ConversationEventRepository } from "../dist/index.js";
 import { createTempDir, runInTempProcess } from "../tests/helpers/temp.mjs";
 
+const taskRecall = process.argv.includes("--task-recall");
 const project = process.argv.includes("--project");
+if (project && taskRecall) throw new Error("Task recall fixtures require an isolated host; persistent project mode is forbidden");
 const projectStatus = project && process.argv.includes("--status");
 let projectMessage;
 if (project && !projectStatus) {
@@ -26,14 +28,18 @@ if (project && !projectStatus) {
 }
 const dogfood = project || process.argv.includes("--dogfood");
 if (!project && !process.argv.includes("--worker")) {
-  process.exit(await runInTempProcess([fileURLToPath(import.meta.url), "--worker", ...(dogfood ? ["--dogfood"] : [])]));
+  process.exit(await runInTempProcess([fileURLToPath(import.meta.url), "--worker", ...(dogfood ? ["--dogfood"] : []), ...(taskRecall ? ["--task-recall"] : [])]));
 }
-const taskMarker = "OFG_CONFIG_ISOLATION";
-const taskEvidence = "构建校验只能读取测试专用空配置，禁止读取日常配置，禁止复制宿主凭据";
-const firstMessage = dogfood
+const taskMarker = taskRecall ? "RELEASE_TASK_42" : "OFG_CONFIG_ISOLATION";
+const taskEvidence = taskRecall ? "CURRENT_COMMIT_42" : "构建校验只能读取测试专用空配置，禁止读取日常配置，禁止复制宿主凭据";
+const firstMessage = taskRecall
+  ? "继续 RELEASE_TASK_42，发布的最终提交与状态是什么？请只依据记忆，不执行工具。"
+  : dogfood
   ? `Mnemora 开发任务 ${taskMarker}：official-plugin-gate.mjs 使用固定的 OpenClaw 版本，但子进程默认继承日常宿主环境，未隔离配置和凭据。当前 CLI 的元数据拒绝检查能通过，仍需消除环境耦合。修复决定：${taskEvidence}。我们将为两次 build/validate 调用生成一个独立 state/config，并添加环境白名单与外层配置损坏的回归测试。请用中文给出三项验证点，不调用工具，不宣称已经执行。`
   : "Remember: MNEMORA_HOST_CANARY_7F3A uses sapphire widgets.";
-const secondMessage = dogfood
+const secondMessage = taskRecall
+  ? "继续 release_task_42，发布最终提交是什么？请只依据记忆，不执行工具。"
+  : dogfood
   ? `继续 ${taskMarker} 修复任务。之前决定如何处理配置与凭据？请依据记忆给出验证点；没有证据就明确说明。用中文简短回答，不调用工具。`
   : "What widgets does MNEMORA_HOST_CANARY_7F3A use?";
 
@@ -201,8 +207,18 @@ try {
     agents: { defaults: { workspace, model: { primary: "hostmock/host-test" }, heartbeat: { every: "0m" } } },
     memory: { search: { enabled: false } },
     models: { providers: { hostmock: { baseUrl: `http://127.0.0.1:${model.address().port}/v1`, apiKey: "synthetic-host-test", api: "openai-completions", models: [{ id: "host-test", name: "Host test", reasoning: false, input: ["text"], contextWindow: 64000, maxTokens: 1024, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] } } },
-    plugins: { allow: ["mnemora"], load: { paths: [pluginRoot] }, slots: { contextEngine: "mnemora" }, entries: { mnemora: { enabled: true, config: { dbPath, toolSurface: "core", scope: { default: scope }, conversationJournal: { enabled: true }, contextEngine: { enabled: true, compaction: { enabled: false } }, episodicMemory: { enabled: true, autoExtract: false }, extraction: { enabled: false, autoExtract: false }, unifiedRetrieval: { enabled: true, shadowMode: true, tokenBudget: dogfood ? 1500 : 800 }, cognition: { reasoningRuntime: { shadowMode: true, scopes: [scope], delivery: { enabled: false, scopes: [] } } } } } } }
+    plugins: { allow: ["mnemora"], load: { paths: [pluginRoot] }, slots: { contextEngine: "mnemora" }, entries: { mnemora: { enabled: true, config: { dbPath, toolSurface: "core", scope: { default: scope }, conversationJournal: { enabled: true }, contextEngine: { enabled: true, compaction: { enabled: false } }, episodicMemory: { enabled: true, autoExtract: false }, extraction: { enabled: false, autoExtract: false }, unifiedRetrieval: { enabled: true, shadowMode: true, tokenBudget: dogfood || taskRecall ? 1500 : 800 }, cognition: { reasoningRuntime: { shadowMode: true, scopes: [scope], delivery: { enabled: false, scopes: [] } } } } } } }
   }, null, 2), { mode: 0o600 });
+  if (taskRecall) {
+    const graph = new Mnemora({ config: { dbPath } });
+    try {
+      const journal = new ConversationEventRepository(graph.store.db, { maxInlineChars: 16000, maxEventBytes: 262144, sensitiveContentPolicy: "redact" }), now = Date.now();
+      for (let index = 0; index < 10; index++) journal.append({ scope, sessionId: `older-${index}`, kind: "user_message", role: "user", createdAt: now - 20000 + index, parts: [{ type: "text", text: `历史发布提交状态：OLD_BATCH_${index} 已结束。${"此前项目验证已完成。".repeat(10)}` }] });
+      journal.append({ scope, sessionId: "completion", kind: "user_message", role: "user", createdAt: now - 1000, parts: [{ type: "text", text: `RELEASE_TASK_42 发布完成，最终提交为 CURRENT_COMMIT_42，两个平台校验成功。${"构建校验与持久化验证均通过；这是一条详细的完成记录。".repeat(26)}` }] });
+      journal.append({ scope: "project:foreign", sessionId: "foreign", kind: "user_message", role: "user", createdAt: now, parts: [{ type: "text", text: "RELEASE_TASK_42 发布完成，最终提交为 FOREIGN_COMMIT_42。" }] });
+    } finally { graph.close(); }
+  }
+  const priorTaskEvents = taskRecall ? journalIds() : [];
   await startGateway(port);
   const priorProjectEvents = project ? journalIds() : [];
   await command(["agent", "--session-id", randomUUID(), "--message", project ? projectMessage : firstMessage, "--thinking", "off", "--json", "--timeout", dogfood ? "120" : "30"], dogfood ? 150000 : 60000);
@@ -226,15 +242,20 @@ try {
   } else {
   // afterTurn can finish after the agent RPC returns; wait for durable capture.
   let captured = [];
-  for (let attempt = 0; attempt < 40; attempt++) { captured = journalIds(); if (captured.length >= 2) break; await delay(250); }
-  assert.ok(captured.length >= 2, "Real host must capture user and assistant events");
+  for (let attempt = 0; attempt < 40; attempt++) { captured = journalIds(); if (captured.length >= Math.max(2, priorTaskEvents.length + 2)) break; await delay(250); }
+  assert.ok(captured.length >= Math.max(2, priorTaskEvents.length + 2), "Real host must capture user and assistant events");
   await stopGateway();
   assert.deepEqual(journalIds(), captured, "Journal must survive Gateway shutdown");
   await startGateway(port);
   assert.deepEqual(journalIds(), captured, "Gateway restart must preserve existing events without replay duplicates");
   requests.length = 0;
   await command(["agent", "--session-id", randomUUID(), "--message", secondMessage, "--thinking", "off", "--json", "--timeout", dogfood ? "120" : "30"], dogfood ? 150000 : 60000);
-  assert.ok(requests.some(input => JSON.stringify(input.messages).normalize("NFKC").includes((dogfood ? taskEvidence : "sapphire widgets").normalize("NFKC"))), "A fresh session must receive persisted evidence through ContextEngine recall");
+  assert.ok(requests.some(input => JSON.stringify(input.messages).normalize("NFKC").includes((dogfood || taskRecall ? taskEvidence : "sapphire widgets").normalize("NFKC"))), "A fresh session must receive persisted evidence through ContextEngine recall");
+  if (taskRecall) {
+    assert.ok(requests.every(input => !JSON.stringify(input.messages).includes("FOREIGN_COMMIT_42")), "Foreign scope must not enter the model request");
+    if (dogfood) assert.ok(replies.every(reply => reply.text.includes("CURRENT_COMMIT_42")), "Actual model must identify the current completion from recalled evidence");
+    console.log("task identifier recall passed: detailed completion retained, bounded context, no foreign scope");
+  }
   if (dogfood) {
     writeFileSync(join(directory, "dogfood-result.json"), JSON.stringify({ task: taskMarker, scope, capturedEvents: captured.length, restartPreservedEvents: true, recalledDecisionInFreshSession: true, reasoningDeliveryEnabled: false, inferenceTransport: "daily-gateway-stateless", replies }, null, 2), { mode: 0o600 });
     console.log("dogfood passed: project:mnemora, actual provider, persisted development decision in a fresh session");

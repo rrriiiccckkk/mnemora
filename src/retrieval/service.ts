@@ -6,7 +6,7 @@ import { EpisodeRepository } from "../episodes/repository.js";
 import { ArtifactRepository } from "../artifacts/repository.js";
 import type { JournalCapturePolicy } from "../journal/types.js";
 import type { RecallMetadataFilter, RetrievalAuthority, RetrievalCandidate, RetrievalIntent, RetrievalIntentCategory, RetrievalKind, UnifiedFindResult } from "./types.js";
-import { memoryMatchesMetadataFilters, memoryMatchesTags, textContainsAll } from "./query-routing.js";
+import { memoryMatchesMetadataFilters, memoryMatchesTags, safeIdentifierMatchers, textContainsAll } from "./query-routing.js";
 import { sanitizeMemoryForContext } from "./context-safety.js";
 import { RecallFeedbackRepository } from "../cognition/reflection.js";
 import type { MemoryDocumentLifecycleService } from "../memory-lifecycle/service.js";
@@ -50,8 +50,15 @@ const intentBoost = (kind: RetrievalKind, category: RetrievalIntentCategory | un
 };
 /** Long projections are down-weighted; canonical memory documents are the
  * corpus and are explicitly exempt from this relevance-only normalization. */
-const lengthNormalization = (candidate: RetrievalCandidate): number => {
+const lengthNormalization = (candidate: RetrievalCandidate, identifiers: readonly RegExp[]): number => {
   if (candidate.kind === "memory-document" || candidate.excerpt.length <= 500) return 1;
+  // An explicit technical identifier is stronger evidence of relevance than
+  // record length. Preserve its source authority and confidence rather than
+  // letting short generic history crowd a detailed task record out of budget.
+  if (candidate.kind === "conversation-event" && identifiers.length) {
+    const content = candidate.excerpt.toLocaleUpperCase();
+    if (identifiers.some(identifier => identifier.test(content))) return 1;
+  }
   return Math.min(1, 1 / (1 + .5 * Math.log2(Math.max(1, candidate.excerpt.length) / 500)));
 };
 
@@ -107,8 +114,9 @@ export class UnifiedRetrievalService {
     // Explicit user feedback is a retrieval-only signal. A neutral record
     // preserves the prior score exactly; negative feedback can demote a
     // candidate but can never mutate confidence, evidence, or lifecycle.
+    const identifiers = safeIdentifierMatchers(query);
     const adjusted = raw.map(candidate => {
-      const derivedScore = Math.min(1, candidate.score * intentBoost(candidate.kind, intentCategory) * lengthNormalization(candidate));
+      const derivedScore = Math.min(1, candidate.score * intentBoost(candidate.kind, intentCategory) * lengthNormalization(candidate, identifiers));
       const derived = derivedScore === candidate.score ? candidate : { ...candidate, score: derivedScore };
       return { candidate: derived, score: derivedScore * feedbackFactor(derived, feedback) };
     });

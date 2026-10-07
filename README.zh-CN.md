@@ -147,3 +147,6 @@ npm run verify
 持久项目记忆助手：`npm run dev:memory -- status` 查看状态，
 `npm run dev:memory -- ask --message "继续当前开发任务"` 接续决定。
 使用方法和边界见[开发指南](docs/development.md#persistent-project-memory-adviser)。
+
+Journal 召回支持 ASCII 技术标识符的大小写匹配；明确匹配任务标识符的详细记录
+不会仅因篇幅较长而降权，可信度、来源、scope 和 token 预算约束继续生效。

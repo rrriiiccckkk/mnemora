@@ -9,6 +9,10 @@ test("project entry rejects ambiguous inputs before any provider call or state a
   assert.equal(child.status, 1);
   assert.match(child.stderr, /Usage:/);
   assert.doesNotMatch(child.stdout, /Host test artifacts|OpenClaw/);
+  const fixture = spawnSync(process.execPath, ["scripts/test-openclaw-host.mjs", "--project", "--task-recall", "--message", "x"], { encoding: "utf8" });
+  assert.equal(fixture.status, 1);
+  assert.match(fixture.stderr, /Task recall fixtures require an isolated host/);
+  assert.doesNotMatch(fixture.stdout, /Host test artifacts|OpenClaw/);
 });
 
 test("project entry passes messages literally without shell interpretation", () => {

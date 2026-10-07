@@ -86,3 +86,13 @@ function removeTemporaryDirectory(directory) {
     if (process.platform !== "win32" || error?.code !== "EPERM") throw error;
   }
 }
+
+
+test("exact task identifiers remain ahead of generic history during diversification", () => {
+  const exact = candidate("task", "completion", "RELEASE_TASK_42 发布完成，最终提交为 CURRENT_COMMIT_42。", .75);
+  const generic = candidate("generic", "history", "历史发布提交状态：其他项目已结束。", .99);
+  const prefix = candidate("prefix", "history", "RELEASE_TASK_420 发布完成。", .99);
+  const result = selectInjectionCandidates({ query: "继续 release_task_42，发布提交状态是什么？", candidates: [generic, prefix, exact], maxItems: 1, diversityLambda: .75 });
+  assert.deepEqual(result.candidates, [exact]);
+  assert.equal(exact.score, .75);
+});

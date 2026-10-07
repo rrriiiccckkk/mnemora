@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { GraphologyStore, ConversationEventRepository, EpisodeRepository, ArtifactRepository, Mnemora, UnifiedRetrievalService } from "../dist/index.js";
 import { createMnemoraContextRef } from "../dist/context/context-ref.js";
+import { selectInjectionCandidates } from "../dist/retrieval/injection-policy.js";
 import { TaskOutcomeService } from "../dist/cognition/outcomes.js";
 import { ReasoningMemoryService } from "../dist/cognition/reasoning.js";
 const policy={maxInlineChars:16000,maxEventBytes:262144,sensitiveContentPolicy:"redact"};
@@ -37,3 +38,52 @@ test("automatic context keeps admitted ReasoningMemory behind governed delivery"
 test("final prompt packing uses rendered CJK text and drops candidates progressively",()=>{const store=new GraphologyStore(":memory:"),service=new UnifiedRetrievalService(store.db,policy);try{const candidates=Array.from({length:4},(_,index)=>({contextRef:`mnemora://v1/scope/a/memory-document/m${index}`,kind:"memory-document",scope:"a",title:"中文记忆",excerpt:"乌龙茶偏好".repeat(110),estimatedTokens:1,bytes:1,score:1-index/10,sourceIds:[],sourceRefs:[`mnemora://v1/scope/a/memory-document/m${index}`],authority:"source_linked",confidence:.9,freshness:1,selectionReason:"lexical_match"}));const packed=service.packPrompt({version:"unified-find-v2",intent:"general",scope:"a",empty:false,excluded:{duplicate:0,budget:0,lowConfidence:0,stale:0},candidates},8,undefined,800);assert.equal(packed.estimatedTokens<=800,true);assert.equal(packed.candidates.length>0&&packed.candidates.length<4,true);assert.match(packed.prompt??"",/乌龙茶偏好/);}finally{store.close();}});
 
 test("final prompt packing keeps one compact canonical citation at the legacy 128-token budget",()=>{const store=new GraphologyStore(":memory:"),service=new UnifiedRetrievalService(store.db,policy),ref="mnemora://v1/scope/default/memory-document/memory%3Alegacy";try{const candidate={contextRef:ref,kind:"memory-document",scope:"default",title:"TypeScript preference",excerpt:"Public migrated memory: TypeScript is the preferred project language.",estimatedTokens:1,bytes:69,score:1,sourceIds:[],sourceRefs:[ref,"memory-lancedb-pro:legacy:1"],authority:"source_linked",confidence:.7,freshness:1,selectionReason:"lexical_match"},packed=service.packPrompt({version:"unified-find-v2",intent:"general",scope:"default",empty:false,excluded:{duplicate:0,budget:0,lowConfidence:0,stale:0},candidates:[candidate]},2,undefined,128);assert.equal(packed.estimatedTokens<=128,true);assert.equal(packed.candidates.length,1);assert.match(packed.prompt??"",/TypeScript/);assert.match(packed.prompt??"",/source=mnemora:\/\//);}finally{store.close();}});
+
+
+test("task identifier recall preserves a longer completion record within the normal prompt budget", () => {
+  const store = new GraphologyStore(":memory:"), now = 1700000000000;
+  try {
+    const journal = new ConversationEventRepository(store.db, policy);
+    for (let index = 0; index < 10; index++) journal.append({ scope: "project-a", sessionId: `old-${index}`, kind: "user_message", role: "user", createdAt: now - 20000 + index, parts: [{ type: "text", text: `历史发布提交状态：OLD_BATCH_${index} 已结束。${"此前项目验证已完成。".repeat(10)}` }] });
+    const completion = journal.append({ scope: "project-a", sessionId: "completion", kind: "user_message", role: "user", createdAt: now - 1000, parts: [{ type: "text", text: `RELEASE_TASK_42 发布完成，最终提交为 NEW_COMMIT_42，两个平台校验成功。${"构建校验与持久化验证均通过；这是一条详细的完成记录。".repeat(26)}` }] });
+    journal.append({ scope: "project-a", sessionId: "previous-question", kind: "user_message", role: "user", createdAt: now, parts: [{ type: "text", text: "继续 RELEASE_TASK_42，发布的最终提交与状态是什么？请只依据记忆。" }] });
+    journal.append({ scope: "project-b", sessionId: "foreign", kind: "user_message", role: "user", createdAt: now, parts: [{ type: "text", text: "RELEASE_TASK_42 发布完成，最终提交为 FOREIGN_COMMIT_42。" }] });
+    const service = new UnifiedRetrievalService(store.db, policy, () => now);
+    for (const marker of ["RELEASE_TASK_42", "release_task_42"]) {
+      const result = service.find({ scope: "project-a", query: `继续 ${marker}，发布的最终提交与状态是什么？`, limit: 20, tokenBudget: 1500 });
+      assert.ok(result.candidates.some(item => item.contextRef.endsWith(encodeURIComponent(completion.id))));
+      const selected = selectInjectionCandidates({ query: `继续 ${marker}，发布最终提交是什么？`, candidates: result.candidates, maxItems: 8, diversityLambda: .75 });
+      const packed = service.packPrompt({ ...result, candidates: selected.candidates }, 8, undefined, 1500);
+      assert.match(packed.prompt ?? "", /NEW_COMMIT_42/);
+      assert.doesNotMatch(packed.prompt ?? "", /FOREIGN_COMMIT_42/);
+      assert.ok(packed.estimatedTokens <= 1500);
+    }
+  } finally { store.close(); }
+});
+
+test("a task identifier prefix cannot displace the exact completion record", () => {
+  const store = new GraphologyStore(":memory:"), now = 1700000000000;
+  try {
+    const journal = new ConversationEventRepository(store.db, policy);
+    const text = "详细发布状态与验证记录。".repeat(50);
+    const exact = journal.append({ scope: "a", sessionId: "exact", kind: "user_message", role: "user", createdAt: now - 1000, parts: [{ type: "text", text: `RELEASE_TASK_42 最终提交 EXACT_COMMIT。${text}` }] });
+    const prefix = journal.append({ scope: "a", sessionId: "prefix", kind: "user_message", role: "user", createdAt: now, parts: [{ type: "text", text: `RELEASE_TASK_420 最终提交 PREFIX_COMMIT。${text}` }] });
+    const service = new UnifiedRetrievalService(store.db, policy, () => now);
+    const result = service.find({ scope: "a", query: "继续 RELEASE_TASK_42，发布的最终提交与状态是什么？", limit: 1, tokenBudget: 1500 });
+    assert.equal(result.candidates.length, 1);
+    assert.ok(result.candidates[0].contextRef.endsWith(encodeURIComponent(exact.id)));
+    assert.ok(!result.candidates.some(item => item.contextRef.endsWith(encodeURIComponent(prefix.id))));
+  } finally { store.close(); }
+});
+
+test("identifier relevance does not bypass confidence floors or secret-label exclusions", () => {
+  const store = new GraphologyStore(":memory:");
+  try {
+    const journal = new ConversationEventRepository(store.db, policy), text = "详细验证背景。".repeat(110);
+    journal.append({ scope: "a", sessionId: "assistant", kind: "assistant_message", role: "assistant", parts: [{ type: "text", text: `RELEASE_TASK_42 的发布状态。${text}` }] });
+    journal.append({ scope: "a", sessionId: "secret-label", kind: "user_message", role: "user", parts: [{ type: "text", text: `PRIVATE_SIGNING_KEY 的命名讨论。${text}` }] });
+    const service = new UnifiedRetrievalService(store.db, policy);
+    assert.equal(service.find({ scope: "a", query: "RELEASE_TASK_42", minConfidence: .9 }).empty, true);
+    assert.equal(service.find({ scope: "a", query: "PRIVATE_SIGNING_KEY", hardMinScore: .85 }).empty, true);
+  } finally { store.close(); }
+});

@@ -1,5 +1,6 @@
 import type { KgContextResult } from "../types.js";
 import type { RetrievalCandidate } from "./types.js";
+import { safeIdentifierMatchers } from "./query-routing.js";
 
 export type InjectionSuppressionReason = "no_anchor_terms" | "no_anchor_match";
 
@@ -39,6 +40,21 @@ export function selectInjectionCandidates(input: {
   if (!anchors.length) return { candidates: [], suppressed: input.candidates.length, reason: "no_anchor_terms" };
   const matched = input.candidates.filter(candidate => containsAnchor(`${candidate.title}\n${candidate.excerpt}`, anchors));
   if (!matched.length) return { candidates: [], suppressed: input.candidates.length, reason: "no_anchor_match" };
+  const identifiers = safeIdentifierMatchers(input.query);
+  const exact = identifiers.length ? matched.filter(candidate => {
+    const content = `${candidate.title}\n${candidate.excerpt}`.toLocaleUpperCase();
+    return identifiers.some(identifier => identifier.test(content));
+  }) : [];
+  // Diversify within exact task matches before considering generic history.
+  // Otherwise final prompt packing can drop the only task completion after
+  // MMR moves it behind less-overlapping, but unrelated, generic records.
+  if (exact.length) {
+    const refs = new Set(exact.map(candidate => candidate.contextRef));
+    const selected = diversify(exact, input.maxItems, input.diversityLambda);
+    const remaining = Math.max(0, Math.min(20, Math.trunc(input.maxItems)) - selected.length);
+    if (remaining) selected.push(...diversify(matched.filter(candidate => !refs.has(candidate.contextRef)), remaining, input.diversityLambda));
+    return { candidates: selected, suppressed: input.candidates.length - matched.length };
+  }
   return { candidates: diversify(matched, input.maxItems, input.diversityLambda), suppressed: input.candidates.length - matched.length };
 }
 

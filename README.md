@@ -174,3 +174,7 @@ the daily Gateway's public stateless model interface.
 ## License
 
 [MIT](LICENSE)
+
+Journal recall matches ASCII technical identifiers across case differences.
+An exact task identifier prevents a detailed conversation record from being
+penalized solely for length; confidence, provenance, scope and token limits still apply.

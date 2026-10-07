@@ -300,7 +300,9 @@ export class ConversationEventRepository {
   search(scope: string, query: string, limit = 20): JournalEvent[] {
     const bounded = query.trim().slice(0, 512), take = Math.min(100, Math.max(1, limit));
     if (!bounded) return [];
-    const rows = this.db.prepare("SELECT id FROM mnemora_conversation_events WHERE scope=? AND deleted_at IS NULL AND instr(COALESCE(normalized_text,''),?)>0 ORDER BY created_at DESC,id DESC LIMIT ?").all(normalizeScope(scope), bounded, take) as Array<{ id: string }>;
+    // ASCII technical identifiers must survive lowercased lexical expansion;
+    // the exact scope and parameterized literal-substring search stay intact.
+    const rows = this.db.prepare("SELECT id FROM mnemora_conversation_events WHERE scope=? AND deleted_at IS NULL AND instr(lower(COALESCE(normalized_text,'')),lower(?))>0 ORDER BY created_at DESC,id DESC LIMIT ?").all(normalizeScope(scope), bounded, take) as Array<{ id: string }>;
     return rows.flatMap(row => { const event = this.get(row.id, scope); return event ? [event] : []; });
   }
 
