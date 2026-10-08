@@ -1,6 +1,6 @@
 {
   "name": "mnemora",
-  "version": "1.32.8",
+  "version": "1.32.9",
   "description": "Local-first, evidence-first memory runtime for persistent OpenClaw agents.",
   "type": "module",
   "engines": {

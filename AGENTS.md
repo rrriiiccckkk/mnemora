@@ -56,3 +56,13 @@ run builds concurrently within one checkout because they share `dist/`.
 Completion reports should state the resulting behavior, validation performed,
 and material limitations. Publishing, deploying to the daily host, and
 changing live memory policy are separate from local development validation.
+
+## Default delivery preference
+
+The user has authorized completing ordinary development work through commit
+and patch release after required checks pass. Avoid asking again whether to
+commit or publish completed work. Verify exact-commit Linux and Windows CI
+before publishing; report the final commit and release. Ask only for missing
+information that is necessary, destructive/out-of-scope actions or enforced
+permission requests. Daily-host deployment and live memory policy changes
+remain separate from publishing.
