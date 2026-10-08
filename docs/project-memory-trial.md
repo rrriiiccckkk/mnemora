@@ -13,7 +13,7 @@ test fixture. The daily Gateway provides stateless inference only.
 | --- | --- | --- | --- |
 | OFG_CONFIG_ISOLATION | Isolated official build/validate environment and config; regression tests; published 1.32.6 after exact-commit Linux/Windows CI | Earlier independent trial retrieved the decision across sessions | Completed before persistent setup; not evidence of persistent entry |
 | PROJECT_ENTRY | Added persistent on-demand entry, installed-plugin snapshot, exclusive lock, bounded CLI input, local Codex handoff and development guidance | A separate invocation/fresh session recalled database retention, tool boundary and outstanding full regression without repeating the prior note | Completed locally |
-| TASK_IDENTIFIER_RECALL | Diagnosed a stale release response after the 1.32.7 upgrade; fixed task-specific length weighting, case matching and final selection priority | Synthetic reproduction plus real-model host restart/lowercase recall check passed | Full verification passed: 1084 tests passed, one platform skip; local patch awaits release |
+| TASK_IDENTIFIER_RECALL | Diagnosed a stale release response after the 1.32.7 upgrade; fixed task-specific length weighting, case matching and final selection priority | Synthetic reproduction plus real-model host restart/lowercase recall check passed | Full verification passed: 1084 tests passed, one platform skip; included in v1.32.8; installed-runtime upgrade remains separate |
 
 For PROJECT_ENTRY the first process captured two events, exited and released its
 lock. The next invocation used the same project database with a fresh session;

@@ -61,4 +61,5 @@ A concise verified release checkpoint was written through the existing project
 memory entry. A new session on the installed 1.32.7 runtime then correctly recalled
 1.32.7 and its final commit, 0912e4a, instead of historical 1.32.6. This checkpoint
 allows the current trial to continue; it does not deploy the source correction.
-The patch remains local pending a subsequent release.
+The source correction is included in v1.32.8; upgrading the installed plugin is
+a separate deployment step.
