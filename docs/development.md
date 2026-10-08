@@ -146,3 +146,29 @@ case where short generic history competes with a detailed task completion. Add
 1500-token budget, tests uppercase/lowercase task identifiers in fresh sessions,
 and rejects foreign-scope evidence. It uses parent-owned temporary state rather
 than the persistent operational project database.
+
+## Project call measurements
+
+Successful project answers include a `measurement` object. The private
+`.dogfood/project-mnemora/measurements.jsonl` records each request that reaches
+the host execution block, including failures, after normal cleanup. A unique
+run ID links the answer and final measurement. `elapsedMs` uses a monotonic
+clock and includes setup, inference, durable capture and Gateway shutdown; each
+`inference` entry measures a public CLI call separately, including failed calls.
+`inputChars` is the forwarded prompt's character count, not a token estimate.
+No prompt, answer or credentials are retained in this measurement log.
+
+The installed OpenClaw 2026.9.8 public stateless `model.run` result exposes
+provider/model and outputs but no provider token usage. `tokenUsage` is therefore
+`null`, with an explicit reason. The compatible proxy's fixture counts must never
+be substituted. No dollar cost or token saving can be calculated from this log.
+Invalid input, early setup failure, signals and forced termination may happen
+before final logging; absence of a row does not mean a successful zero-cost call.
+`status` does not call a model or add measurement rows.
+
+These are adviser-call measurements, not total Codex task time. For genuine
+development tasks, separately record the task, a source-verified recall verdict,
+actual edits/checks, failures and operations demonstrably avoided. Historical
+measurements cannot be backfilled and repeated recall questions do not count as
+independent development tasks. This exploratory local trial is separate from
+the formally preregistered task-resume efficacy experiment.

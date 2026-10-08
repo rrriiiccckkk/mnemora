@@ -2,7 +2,7 @@
 
 The active local entry is `npm run dev:memory` in the development worktree.
 The preserved workspace root also delegates through
-`node scripts/project-memory.mjs`. The installed 1.32.6 plugin is used by a
+`node scripts/project-memory.mjs`. The installed 1.32.8 plugin is used by a
 separate on-demand Gateway. Project database/config/state stay under the ignored
 `.dogfood/project-mnemora` directory. This is operational project memory, not a
 test fixture. The daily Gateway provides stateless inference only.
@@ -13,7 +13,8 @@ test fixture. The daily Gateway provides stateless inference only.
 | --- | --- | --- | --- |
 | OFG_CONFIG_ISOLATION | Isolated official build/validate environment and config; regression tests; published 1.32.6 after exact-commit Linux/Windows CI | Earlier independent trial retrieved the decision across sessions | Completed before persistent setup; not evidence of persistent entry |
 | PROJECT_ENTRY | Added persistent on-demand entry, installed-plugin snapshot, exclusive lock, bounded CLI input, local Codex handoff and development guidance | A separate invocation/fresh session recalled database retention, tool boundary and outstanding full regression without repeating the prior note | Completed locally |
-| TASK_IDENTIFIER_RECALL | Diagnosed a stale release response after the 1.32.7 upgrade; fixed task-specific length weighting, case matching and final selection priority | Synthetic reproduction plus real-model host restart/lowercase recall check passed | Full verification passed: 1084 tests passed, one platform skip; included in v1.32.8; installed-runtime upgrade remains separate |
+| PROJECT_USAGE_MEASUREMENT | Added monotonic adviser-call timing and private measurement records; public stateless interface was checked and has no provider usage | Initial adviser answer correctly withheld efficiency claims but added unsupported interface details; code inspection remains the source of truth | Completed locally: 4 targeted checks and 1086 full-suite tests passed; real measured call preserved events; no efficiency benefit established |
+| TASK_IDENTIFIER_RECALL | Diagnosed a stale release response after the 1.32.7 upgrade; fixed task-specific length weighting, case matching and final selection priority | Synthetic reproduction plus real-model host restart/lowercase recall check passed | Full verification passed: 1084 tests passed, one platform skip; included in v1.32.8; installation and fresh-session recall subsequently verified on 1.32.8 |
 
 For PROJECT_ENTRY the first process captured two events, exited and released its
 lock. The next invocation used the same project database with a fresh session;
@@ -61,3 +62,30 @@ memory policy are unchanged.
 
 See [task identifier regression evidence](development-recall-regression.md) for the
 observed failure, bounded diagnosis and corrected host check.
+
+## Prospective efficiency recording
+
+PROJECT_ENTRY and TASK_IDENTIFIER_RECALL are genuine completed development
+tasks. Their elapsed time/token cost was not measured and cannot be reconstructed
+from proxy fixture values. Installation acknowledgements and release checks are
+not additional independent development tasks. PROJECT_USAGE_MEASUREMENT is the
+third genuine task, addressing the missing instrumentation encountered when
+starting this evaluation. Its actual verification is recorded below.
+
+The adviser recalled the lack of efficiency evidence but also volunteered
+unsupported claims about session/usage interfaces. Those claims were not accepted
+as facts; direct inspection and one minimal public invocation established the
+actual interface limitation. This counts as an imperfect recall, not a flawless
+answer or a demonstrated avoided inspection.
+
+See [the exploratory efficiency record](project-efficiency-evaluation.md) for
+the first measured call and the missing comparison evidence.
+
+## Instrumentation task validation
+
+Four targeted checks passed. Full verification passed 1086 tests with zero
+failures and one Windows-only ACL skip on macOS; all script benchmarks, the 17
+task-resume checks and plugin/release consistency gates passed. A real fresh
+project invocation used installed 1.32.8, retained earlier journal IDs, added two
+events (30 total), survived Gateway shutdown and wrote a private measurement row.
+This validates timing/capture wiring, not provider token cost or task savings.

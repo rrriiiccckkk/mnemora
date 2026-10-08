@@ -163,6 +163,8 @@ plugin validation, smoke tests and the SDK compatibility expectation gate.
 Persistent project memory adviser: `npm run dev:memory -- status` or
 `npm run dev:memory -- ask --message "Continue my task"`. See the
 [development guide](docs/development.md#persistent-project-memory-adviser).
+Project calls retain elapsed-time measurements privately; unavailable provider
+token usage is reported as missing, never replaced by proxy fixture counts.
 
 Release tags require successful Windows and Linux CI for the exact commit.
 
