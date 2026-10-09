@@ -7,7 +7,7 @@ export function projectMeasurement(id, pluginVersion, elapsedMs, succeeded, call
     elapsedMs: Math.round(elapsedMs),
     inference: calls.map(call => {
       if (!Number.isFinite(call.elapsedMs) || call.elapsedMs < 0 || !Number.isSafeInteger(call.inputChars) || call.inputChars < 0) throw new Error("Invalid inference measurement");
-      return { status: call.status === "succeeded" ? "succeeded" : "failed", elapsedMs: Math.round(call.elapsedMs), inputChars: call.inputChars };
+      return { status: call.status === "succeeded" ? "succeeded" : "failed", elapsedMs: Math.round(call.elapsedMs), inputChars: call.inputChars, responseValidation: call.responseValidation === "request_bound" ? "request_bound" : "not_validated" };
     }),
     tokenUsage: null,
     tokenUsageUnavailableReason: "Public stateless inference does not expose provider token usage; proxy counts are synthetic",

@@ -1,5 +1,23 @@
 # Mnemora Roadmap
 
+## Current development sequence (2026-10-09)
+
+Installed/released baseline: v1.32.9 (`c34b35d`), with exact-commit
+Linux/Windows CI and formal Release verified. The user authorized combining
+project adviser continuation reliability and overhead reduction into v1.32.10.
+Pin the original question across retries, validate request-bound replies, and
+forward admitted memory evidence without unrelated host prompt boilerplate.
+Validate real-host restart recall and preserve scope/budget constraints.
+
+The observed character reduction is not measured task-speed or token savings.
+Continue prospective real-task comparison afterward; v1.33 remains gated by
+the existing preregistered value evidence. Ordinary completed development is
+submitted and published after required checks under the user's standing
+authorization. Deployment to the daily host remains separate.
+
+The following dated plan records the formal evidence milestone and historical
+release sequence; it does not supersede the current installed baseline.
+
 ## Current release plan (2026-10-01)
 
 2026-10-02 update: v1.32.1 shipped at `8ceb6e2` after exact-commit CI

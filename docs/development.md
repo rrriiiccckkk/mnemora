@@ -172,3 +172,34 @@ actual edits/checks, failures and operations demonstrably avoided. Historical
 measurements cannot be backfilled and repeated recall questions do not count as
 independent development tasks. This exploratory local trial is separate from
 the formally preregistered task-resume efficacy experiment.
+
+## Adviser request reliability and prompt overhead
+
+The bridge pins the command's original question for the whole agent turn,
+including host empty-response retries. It forwards only `MNEMORA_MEMORY` packets
+from the isolated host's system attachment, verbatim and deduplicated, together
+with that question. Tool catalogues, workspace bootstrap templates, runtime
+directives, host retry prompts and prior assistant replies are excluded. User
+messages cannot manufacture an attachment. Unknown attachment formats are not
+interpreted as evidence. Missing evidence remains missing.
+
+Each public inference request requires a JSON reply with the matching random
+request ID and a bounded answer, without extra fields. Unstructured replies and
+wrong IDs fail the request rather than being accepted as successful answers.
+`responseValidation=request_bound` records this contract check separately from
+transport status; it is not a correctness or hallucination score. A correctly
+formatted answer can still be wrong and requires source verification.
+
+The forwarded prompt is bounded to 30000 characters and the original question
+to 12000. Existing host retrieval scope and 1500-token attachment budget stay
+unchanged. This repository bridge does not alter the daily Gateway prompt.
+The first actual compact call forwarded 4614 characters versus the earlier
+48794-character observation (different questions, not a matched experiment).
+Total time was 27032 ms and public CLI inference 15137 ms: reduced input size
+does not establish latency, token or cost savings.
+
+The observed unrelated reply quoted wording matching the installed host's
+empty-response continuation instruction. Source inspection and a synthetic
+retry fixture reproduce how answering the last user message loses the command
+question. The original per-attempt project requests were not retained, so this
+is evidence of the mechanism rather than a complete causal trace of that call.

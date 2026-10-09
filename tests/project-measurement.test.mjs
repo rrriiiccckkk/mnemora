@@ -9,7 +9,7 @@ test("project telemetry preserves failed calls and excludes proxy usage and conv
   ]);
   assert.equal(result.status, "failed");
   assert.equal(result.elapsedMs, 121);
-  assert.deepEqual(result.inference, [{ status: "failed", elapsedMs: 90, inputChars: 500 }, { status: "succeeded", elapsedMs: 11, inputChars: 300 }]);
+  assert.deepEqual(result.inference, [{ status: "failed", elapsedMs: 90, inputChars: 500, responseValidation: "not_validated" }, { status: "succeeded", elapsedMs: 11, inputChars: 300, responseValidation: "not_validated" }]);
   assert.equal(result.tokenUsage, null);
   assert.doesNotMatch(JSON.stringify(result), /private prompt|private reply|total_tokens/);
   assert.equal(projectMeasurement("run-2", "1.32.8", 10, true, []).tokenUsage, null);

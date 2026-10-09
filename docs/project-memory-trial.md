@@ -89,3 +89,11 @@ task-resume checks and plugin/release consistency gates passed. A real fresh
 project invocation used installed 1.32.8, retained earlier journal IDs, added two
 events (30 total), survived Gateway shutdown and wrote a private measurement row.
 This validates timing/capture wiring, not provider token cost or task savings.
+
+PROJECT_ADVISER_RELIABILITY combines original-question binding across host
+retries with compact attachment forwarding. Initial real call preserved journal
+IDs (38 events) and reduced input to 4614 characters. Full verification passed
+1089 tests (zero failures, one platform skip), all benchmarks and 17 task-resume
+checks; real-model restart/lowercase recall and foreign-scope exclusion passed.
+The historical installed-version note in memory was stale and was not accepted
+as live installation evidence.

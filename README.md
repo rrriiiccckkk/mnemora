@@ -180,3 +180,7 @@ the daily Gateway's public stateless model interface.
 Journal recall matches ASCII technical identifiers across case differences.
 An exact task identifier prevents a detailed conversation record from being
 penalized solely for length; confidence, provenance, scope and token limits still apply.
+
+The project adviser pins the original question across host retries and forwards
+only admitted memory attachments. Request-bound JSON replies are checked before
+acceptance; this checks the response contract, not factual correctness.
