@@ -147,8 +147,9 @@ npm run verify
 持久项目记忆助手：`npm run dev:memory -- status` 查看状态，
 `npm run dev:memory -- ask --message "继续当前开发任务"` 接续决定。
 使用方法和边界见[开发指南](docs/development.md#persistent-project-memory-adviser)。
-项目调用会私下记录实测耗时；供应商 token 用量不可用时明确记为缺失，
-不使用代理测试占位数代替。
+项目调用私下记录实测耗时和公共 Gateway 返回的有效供应商 token 用量，
+缓存用量只计算一次，缺失仍记为未知。Journal 证据附带记录时间；助手压缩
+重复引用，同时保留冲突历史。这些计量本身不能证明效率收益。
 
 Journal 召回支持 ASCII 技术标识符的大小写匹配；明确匹配任务标识符的详细记录
 不会仅因篇幅较长而降权，可信度、来源、scope 和 token 预算约束继续生效。

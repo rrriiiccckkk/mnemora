@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
 import { projectMeasurement } from "./project-measurement.mjs";
 import { adviserPrompt, adviserAnswer } from "./project-adviser.mjs";
+import { gatewayInferenceRequest, gatewayInferenceAnswer, providerTokenUsage } from "./project-inference.mjs";
 import { spawn } from "node:child_process";
 import { cpSync, mkdirSync, appendFileSync, writeFileSync, symlinkSync, readFileSync, existsSync, openSync, closeSync, unlinkSync, statSync, renameSync } from "node:fs";
 import { createServer } from "node:http";
@@ -105,29 +106,33 @@ let projectSucceeded = false;
 let activeQuestion = project ? projectMessage : firstMessage;
 async function completeViaDailyGateway(input) {
   const requestId = randomUUID();
-  const { prompt } = adviserPrompt(input.messages, activeQuestion, requestId);
-  const call = { status: "failed", responseValidation: "not_validated", elapsedMs: 0, inputChars: prompt.length };
+  const { prompt, memoryChars, forwardedMemoryChars } = adviserPrompt(input.messages, activeQuestion, requestId);
+  const call = { status: "failed", responseValidation: "not_validated", elapsedMs: 0, inputChars: prompt.length, memoryChars, forwardedMemoryChars, usageSource: "public_gateway_agent_meta", tokenUsage: null };
   const callStarted = performance.now();
   try { return await new Promise((resolve, reject) => {
     // Public stateless inference reuses the running Gateway's model/auth;
     // no provider credentials or daily memory are copied into the canary.
-    const child = spawn(cli, ["infer", "model", "run", "--gateway", "--prompt", prompt, "--thinking", "off", "--json"], { cwd: root, env: { ...process.env, PATH: env.PATH }, stdio: ["ignore", "pipe", "pipe"] });
-    let output = "", errors = "";
-    child.stdout.on("data", chunk => { output += chunk; });
-    child.stderr.on("data", chunk => { errors = (errors + chunk).slice(-4000); });
+    const params = gatewayInferenceRequest(prompt, `model-run-${randomUUID()}`, randomUUID());
+    const child = spawn(cli, ["gateway", "call", "agent", "--params", JSON.stringify(params), "--expect-final", "--timeout", "85000", "--json"], { cwd: root, env: { ...process.env, PATH: env.PATH }, stdio: ["ignore", "pipe", "pipe"] });
+    let output = "";
+    let overflow = false;
+    child.stdout.on("data", chunk => { if (output.length + chunk.length > 512000) { overflow = true; child.kill("SIGKILL"); } else output += chunk; });
+    child.stderr.resume();
     const timer = setTimeout(() => child.kill("SIGKILL"), 90000);
     child.once("error", error => { clearTimeout(timer); reject(error); });
     child.once("close", code => {
       clearTimeout(timer);
       try {
-        if (code !== 0) throw new Error(`Public model inference failed (${code}): ${errors}`);
+        if (code !== 0 || overflow) throw new Error(`Public model inference failed (${code}); outcome/usage may be unknown`);
         const result = JSON.parse(output.slice(output.indexOf("{")));
-        const rawText = result.outputs?.map(item => item.text ?? "").join("\n").trim();
-        const text = adviserAnswer(rawText, requestId);
-        if (!result.ok || !text || text.length > 16000) throw new Error("Public model inference returned no bounded text");
+        // Retain reported usage even if the answer/protocol fails validation.
+        // Known usage does not imply success; absent usage is never zero.
+        call.tokenUsage = providerTokenUsage(result?.result?.meta?.agentMeta?.usage);
+        const answer = gatewayInferenceAnswer(result, prompt);
+        const text = adviserAnswer(answer.text, requestId);
         call.status = "succeeded";
         call.responseValidation = "request_bound";
-        replies.push({ provider: result.provider, model: result.model, text });
+        replies.push({ provider: answer.provider, model: answer.model, text });
         resolve(text);
       } catch (error) { reject(error); }
     });

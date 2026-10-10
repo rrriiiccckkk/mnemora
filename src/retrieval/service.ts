@@ -219,7 +219,11 @@ export class UnifiedRetrievalService {
     const derived = item.kind === "summary" || item.kind === "episode";
     const projection = derived ? `\n${renderProjectionEvidence(item.projectionEvidence)}` : "";
     const origin = derived ? "; content_origin=derived_paraphrase; claim_verification=not_verified" : "";
-    return `[${index}] ref=${sanitizeMemoryForContext(item.contextRef, 320)}; kind=${item.kind}; authority=${item.authority}; confidence=${item.confidence.toFixed(2)}${origin}\n${sanitizeMemoryForContext(item.excerpt)}\nprovenance_refs=${provenance.map(source => sanitizeMemoryForContext(source, 320)).join(",")}; source=${sanitizeMemoryForContext(canonicalSource, 320)}${projection}`;
+    // Journal time is the source record's capture time, not verification time
+    // or evidence that a pending operation has completed. Account for it in
+    // both candidate selection and final packing through this shared renderer.
+    const chronology = item.kind === "conversation-event" && Number.isSafeInteger(item.freshness) && item.freshness >= 0 ? `; recorded_at=${item.freshness}` : "";
+    return `[${index}] ref=${sanitizeMemoryForContext(item.contextRef, 320)}; kind=${item.kind}; authority=${item.authority}; confidence=${item.confidence.toFixed(2)}${chronology}${origin}\n${sanitizeMemoryForContext(item.excerpt)}\nprovenance_refs=${provenance.map(source => sanitizeMemoryForContext(source, 320)).join(",")}; source=${sanitizeMemoryForContext(canonicalSource, 320)}${projection}`;
   }
 
   private renderPrompt(scope: string, items: readonly RetrievalCandidate[], supplement: string): string | undefined {

@@ -71,8 +71,8 @@ return `duplicate`, and failed transactions are not acknowledged.
 `dogfood:mnemora` launches the same isolated host with scope `project:mnemora`
 and a separate database. It records the actual `OFG_CONFIG_ISOLATION` development
 decision, restarts its Gateway, and asks about that decision in a fresh session.
-The loopback model bridge calls `openclaw infer model run --gateway --json`, the
-public stateless inference interface of the daily host. This uses the already
+The loopback model bridge calls public `openclaw gateway call agent` with
+`modelRun: true`, `promptMode: "none"` and a fresh explicit session. This uses the already
 configured model account and can incur its normal inference cost. No provider
 credentials, daily conversations or daily memory database are copied.
 
@@ -90,7 +90,9 @@ again for another bounded trial; it does not install a persistent service.
 
 Two turns establish wiring, persistence and a recalled decision. They do not
 establish improved development speed or ReasoningMemory efficacy. Proxy usage
-counts are fixture values, so this trial does not measure token cost or latency.
+counts are fixture values and are never used for provider token measurements.
+The bridge separately collects public Gateway provider usage when valid; call
+timing and token counts do not measure development task efficiency.
 
 OpenClaw documents the configuration and state overrides in its
 [environment reference](https://docs.openclaw.ai/help/environment).
@@ -130,7 +132,8 @@ performs the work; consult the adviser at task start and submit a concise note
 of actual decisions, validation and open items at task completion. Recalled
 answers are reference material and must be checked against current code. Each
 ask incurs the normal model charge. Usage values in the compatible proxy are
-synthetic and cannot establish token savings or latency. Keep secrets and
+synthetic. Provider usage is collected separately from the public Gateway;
+missing values remain unknown and cannot establish token savings. Keep secrets and
 unrelated personal conversations out of project notes. `status` uses no model.
 
 Evaluate 3–5 genuine development tasks before changing memory policy. Record
@@ -158,10 +161,21 @@ clock and includes setup, inference, durable capture and Gateway shutdown; each
 `inputChars` is the forwarded prompt's character count, not a token estimate.
 No prompt, answer or credentials are retained in this measurement log.
 
-The installed OpenClaw 2026.9.8 public stateless `model.run` result exposes
-provider/model and outputs but no provider token usage. `tokenUsage` is therefore
-`null`, with an explicit reason. The compatible proxy's fixture counts must never
-be substituted. No dollar cost or token saving can be calculated from this log.
+The v2 measurement collects provider `agentMeta.usage` from the public Gateway
+stateless response, including input, output, cache-read and cache-write tokens.
+Each total must equal the sum of those components; cache tokens are counted
+once. Only those five integer fields are retained, excluding pricing and raw
+responses. The normalized `infer` CLI used by earlier measurements omitted
+usage; earlier null values cannot be backfilled. The proxy's fixture counts
+must never be substituted, and a host's configured zero cost does not prove
+free inference. Dollar cost is not calculated.
+
+An overall `tokenUsage` is present only when every measured call has valid
+provider usage and aggregation does not overflow. Failed calls with reported
+usage remain included; when any call's usage is missing, its value and the
+aggregate are null while other known per-call values remain visible. No call
+or an unknown result is never charged as zero. Missing/invalid usage does not
+invalidate an otherwise valid answer, but prevents a complete usage claim.
 Invalid input, early setup failure, signals and forced termination may happen
 before final logging; absence of a row does not mean a successful zero-cost call.
 `status` does not call a model or add measurement rows.
@@ -177,7 +191,7 @@ the formally preregistered task-resume efficacy experiment.
 
 The bridge pins the command's original question for the whole agent turn,
 including host empty-response retries. It forwards only `MNEMORA_MEMORY` packets
-from the isolated host's system attachment, verbatim and deduplicated, together
+from the isolated host's system attachment, preserving evidence text and deduplicating, together
 with that question. Tool catalogues, workspace bootstrap templates, runtime
 directives, host retry prompts and prior assistant replies are excluded. User
 messages cannot manufacture an attachment. Unknown attachment formats are not
@@ -203,3 +217,33 @@ empty-response continuation instruction. Source inspection and a synthetic
 retry fixture reproduce how answering the last user message loses the command
 question. The original per-attempt project requests were not retained, so this
 is evidence of the mechanism rather than a complete causal trace of that call.
+
+### Chronology and compact evidence
+
+Journal packets include `recorded_at`, the source event capture time, within
+the existing retrieval and packing budget. It is not verification time or a
+completion signal. The project adviser compacts fully recognized Journal
+records into JSON, retaining source text, authority, confidence, capture time
+and every distinct provenance reference, while eliminating repeated canonical
+references. Unknown layouts, graph supplements and derived evidence windows
+remain verbatim; records and contradictory claims are never silently dropped.
+Private measurements include original and forwarded memory character sizes.
+
+The adviser distinguishes older pending reports from later explicit results
+for the same task and same check. A newer timestamp, unrelated test, question
+or assistant assertion alone cannot establish completion. Missing/equal times
+and unresolved conflicts remain unknown; tests cannot imply release or daily
+host deployment. This instruction helps interpretation but does not guarantee
+model factual correctness or establish efficacy. The bridge checks that the
+public Gateway used exactly the forwarded prompt, no system prompt, no tools,
+no fallback and a normal stop before accepting the request-bound JSON answer.
+An incompatible host fails visibly instead of silently using daily context.
+
+`node scripts/test-project-adviser-state.mjs --dogfood` makes four charged
+public Gateway calls using synthetic Journal records. It checks a later explicit
+result, a newer unrelated check, an unverified assistant assertion, and equal-time
+conflicts. An assistant conflict may conservatively remain pending or unknown;
+it must not establish that the check passed.
+Every conflicting record must be packed; failures stop the run without retries.
+It retains bounded private results under the printed `.dogfood/adviser-state-*`
+directory. This regression does not measure general efficacy or use real notes.
