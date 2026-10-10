@@ -172,7 +172,11 @@ free inference. Dollar cost is not calculated.
 
 An overall `tokenUsage` is present only when every measured call has valid
 provider usage and aggregation does not overflow. Failed calls with reported
-usage remain included; when any call's usage is missing, its value and the
+usage remain included, including positive input/cache usage with zero output
+tokens. The bridge reads complete bounded JSON counters before checking the
+CLI exit code, but a nonzero exit or an empty answer still fails the call.
+Truncated/overflowing output and all-zero placeholder counters remain unknown.
+When any call's usage is missing, its value and the
 aggregate are null while other known per-call values remain visible. No call
 or an unknown result is never charged as zero. Missing/invalid usage does not
 invalidate an otherwise valid answer, but prevents a complete usage claim.

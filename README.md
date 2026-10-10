@@ -164,7 +164,8 @@ Persistent project memory adviser: `npm run dev:memory -- status` or
 `npm run dev:memory -- ask --message "Continue my task"`. See the
 [development guide](docs/development.md#persistent-project-memory-adviser).
 Project calls privately retain elapsed time and validated public Gateway provider
-token usage, including caches; missing usage remains unknown. Journal evidence
+token usage, including caches and failed calls with zero output; missing usage
+remains unknown. Nonzero CLI exits still fail even when usage is reported. Journal evidence
 carries capture times; the adviser removes duplicate citation overhead while
 retaining conflicting history. These measurements do not prove efficiency gains.
 

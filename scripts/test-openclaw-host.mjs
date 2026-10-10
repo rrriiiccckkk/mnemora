@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
 import { projectMeasurement } from "./project-measurement.mjs";
 import { adviserPrompt, adviserAnswer } from "./project-adviser.mjs";
-import { gatewayInferenceRequest, gatewayInferenceAnswer, providerTokenUsage } from "./project-inference.mjs";
+import { gatewayInferenceRequest, gatewayInferenceResult } from "./project-inference.mjs";
 import { spawn } from "node:child_process";
 import { cpSync, mkdirSync, appendFileSync, writeFileSync, symlinkSync, readFileSync, existsSync, openSync, closeSync, unlinkSync, statSync, renameSync } from "node:fs";
 import { createServer } from "node:http";
@@ -123,12 +123,12 @@ async function completeViaDailyGateway(input) {
     child.once("close", code => {
       clearTimeout(timer);
       try {
-        if (code !== 0 || overflow) throw new Error(`Public model inference failed (${code}); outcome/usage may be unknown`);
-        const result = JSON.parse(output.slice(output.indexOf("{")));
         // Retain reported usage even if the answer/protocol fails validation.
         // Known usage does not imply success; absent usage is never zero.
-        call.tokenUsage = providerTokenUsage(result?.result?.meta?.agentMeta?.usage);
-        const answer = gatewayInferenceAnswer(result, prompt);
+        const result = gatewayInferenceResult(output, code, prompt, overflow);
+        call.tokenUsage = result.tokenUsage;
+        if (result.error) throw result.error;
+        const answer = result.answer;
         const text = adviserAnswer(answer.text, requestId);
         call.status = "succeeded";
         call.responseValidation = "request_bound";

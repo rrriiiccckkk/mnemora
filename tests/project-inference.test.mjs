@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { gatewayInferenceRequest, gatewayInferenceAnswer } from "../scripts/project-inference.mjs";
+import { gatewayInferenceRequest, gatewayInferenceAnswer, gatewayInferenceResult, providerTokenUsage } from "../scripts/project-inference.mjs";
 
 const response = () => ({status:"ok",result:{payloads:[{text:'{"requestId":"id","answer":"Reported guard passed, release pending"}'}],meta:{agentMeta:{provider:"fixture",model:"fixture-model",usage:{input:100,output:20,cacheRead:10,cacheWrite:0,total:130,cost:{total:0}},terminalReceipt:{successfulToolNames:[]}},finalPromptText:"prompt",systemPromptReport:{systemPrompt:{chars:0}},executionTrace:{fallbackUsed:false},completion:{stopReason:"stop"}}}});
 
@@ -26,4 +26,47 @@ test("a valid reply with absent or inconsistent provider usage keeps usage unkno
   assert.equal(gatewayInferenceAnswer(r,"prompt").tokenUsage,null);
   r.result.meta.agentMeta.usage={input:100,output:20,cacheRead:10,cacheWrite:0,total:999};
   assert.equal(gatewayInferenceAnswer(r,"prompt").tokenUsage,null);
+});
+
+test("empty failed completions retain reported input/cache usage and never become successful answers", () => {
+  const r=response();r.result.payloads=[];
+  r.result.meta.agentMeta.usage={input:100,output:0,cacheRead:25,cacheWrite:5,total:130,cost:{total:0}};
+  for(const code of [0,1,null]){
+    const result=gatewayInferenceResult(JSON.stringify(r),code,"prompt");
+    assert.deepEqual(result.tokenUsage,{input:100,output:0,cacheRead:25,cacheWrite:5,total:130});
+    assert.ok(result.error);
+    assert.equal(result.answer,undefined);
+  }
+  assert.deepEqual(providerTokenUsage({input:0,output:0,cacheRead:40,cacheWrite:0,total:40}),{input:0,output:0,cacheRead:40,cacheWrite:0,total:40});
+  assert.equal(providerTokenUsage({input:0,output:0,cacheRead:0,cacheWrite:0,total:0}),null);
+});
+
+test("nonzero exits preserve known usage even for a valid reply without accepting success", () => {
+  const raw=JSON.stringify(response());
+  for(const code of [1,42,null]){
+    const result=gatewayInferenceResult(`Host warning\n${raw}`,code,"prompt");
+    assert.equal(result.tokenUsage.total,130);
+    assert.equal(result.answer,undefined);
+    assert.ok(result.error);
+  }
+  const success=gatewayInferenceResult(raw,0,"prompt");
+  assert.equal(success.answer.provider,"fixture");
+  assert.equal(success.error,undefined);
+  const wrongPrompt=gatewayInferenceResult(raw,0,"other");
+  assert.ok(wrongPrompt.error);
+  assert.equal(wrongPrompt.tokenUsage.total,130);
+});
+
+test("truncated, overflowing, missing and inconsistent counters remain unknown without exposing raw output", () => {
+  const r=response();const raw=JSON.stringify(r);
+  for(const [output,overflow] of [[raw.slice(0,-1),false],["PRIVATE_DIAGNOSTIC",false],[raw,true],["x".repeat(512001),false]]){
+    const result=gatewayInferenceResult(output,1,"prompt",overflow);
+    assert.equal(result.tokenUsage,null);
+    assert.ok(result.error);
+    assert.doesNotMatch(result.error.message,/PRIVATE_DIAGNOSTIC|requestId|fixture-model/);
+  }
+  delete r.result.meta.agentMeta.usage;
+  assert.equal(gatewayInferenceResult(JSON.stringify(r),1,"prompt").tokenUsage,null);
+  r.result.meta.agentMeta.usage={input:100,output:0,cacheRead:0,cacheWrite:0,total:101};
+  assert.equal(gatewayInferenceResult(JSON.stringify(r),1,"prompt").tokenUsage,null);
 });

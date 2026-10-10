@@ -1,19 +1,23 @@
 # Mnemora Roadmap
 
-## Current development sequence (2026-10-09)
+## Current development sequence (2026-10-10)
 
-Installed/released baseline: v1.32.9 (`c34b35d`), with exact-commit
-Linux/Windows CI and formal Release verified. The user authorized combining
-project adviser continuation reliability and overhead reduction into v1.32.10.
-Pin the original question across retries, validate request-bound replies, and
-forward admitted memory evidence without unrelated host prompt boilerplate.
-Validate real-host restart recall and preserve scope/budget constraints.
+Installed/released baseline: v1.32.11 (`f88f3b1`), with exact-commit
+Linux/Windows CI and formal Release verified. Installation acceptance confirmed
+the project adviser, historical-state interpretation and public provider usage.
 
-The observed character reduction is not measured task-speed or token savings.
-Continue prospective real-task comparison afterward; v1.33 remains gated by
-the existing preregistered value evidence. Ordinary completed development is
-submitted and published after required checks under the user's standing
-authorization. Deployment to the daily host remains separate.
+Continue with prospective new development tasks. The first new task fixes
+reported input/cache usage being lost when output is zero or the CLI exits
+nonzero. Preserve failed-call status, unknown usage and partial-batch coverage;
+validate with synthetic failures rather than inducing paid provider failures.
+Record source-verified recall, actual work and adviser overhead separately.
+The four historical comparison cases and repeat acceptance questions do not
+count as independent new tasks or prove development efficiency gains.
+
+Ordinary completed development is submitted and published after full checks
+and exact-commit Linux/Windows CI under the user's standing authorization.
+v1.33 remains gated by the existing preregistered value evidence; daily-host
+deployment and live policy changes remain separate.
 
 The following dated plan records the formal evidence milestone and historical
 release sequence; it does not supersede the current installed baseline.

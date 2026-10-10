@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { projectMeasurement } from "../scripts/project-measurement.mjs";
+import { gatewayInferenceResult } from "../scripts/project-inference.mjs";
 
 test("project telemetry preserves failed calls and excludes proxy usage and conversation content", () => {
   const result = projectMeasurement("run-1", "1.32.8", 120.8, false, [
@@ -40,4 +41,19 @@ test("missing, invalid, proxy and overflowing usage is not published as a comple
 test("project telemetry rejects invalid clocks and lengths instead of publishing invented values", () => {
   for (const elapsed of [-1, NaN, Infinity]) assert.throws(() => projectMeasurement("run", "1.32.8", elapsed, true, []));
   assert.throws(() => projectMeasurement("run", "1.32.8", 10, true, [{ elapsedMs: 1, inputChars: -1 }]));
+});
+
+test("failed zero-output CLI calls survive measurement and partial batches remain incomplete", () => {
+  const raw=JSON.stringify({status:"error",result:{payloads:[],meta:{agentMeta:{usage:{input:80,output:0,cacheRead:20,cacheWrite:0,total:100}}}}});
+  const outcome=gatewayInferenceResult(raw,1,"prompt");
+  assert.ok(outcome.error);
+  const call={status:"failed",elapsedMs:2,inputChars:10,responseValidation:"not_validated",usageSource:"public_gateway_agent_meta",tokenUsage:outcome.tokenUsage};
+  const failed=projectMeasurement("failed","1.32.12",4,false,[call]);
+  assert.equal(failed.status,"failed");
+  assert.deepEqual(failed.tokenUsage,{input:80,output:0,cacheRead:20,cacheWrite:0,total:100});
+  assert.equal(failed.inference[0].responseValidation,"not_validated");
+  const partial=projectMeasurement("partial","1.32.12",5,false,[call,{...call,tokenUsage:null}]);
+  assert.equal(partial.tokenUsage,null);
+  assert.equal(partial.inference[0].tokenUsage.total,100);
+  assert.equal(partial.inference[1].tokenUsage,null);
 });
