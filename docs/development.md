@@ -255,3 +255,7 @@ directory. This regression does not measure general efficacy or use real notes.
 ### Temporal retrieval (1.32.13)
 
 Unified current claim/decision collection applies declared validity in SQL before LIMIT. Bounds use the existing inclusive convention. `UnifiedRetrievalService.find({ scope, query, intent: "exact_history", recordedBefore })` provides an inclusive nonnegative safe-integer source-record cutoff. CLI: `INTENT=exact_history RECORDED_BEFORE=1700000000000 mnemora retrieve "TASK_42"`. Invalid cutoffs and non-history/metadata combinations fail closed. This is source chronology, not a full bitemporal lifecycle snapshot; no inferred supersession or source mutation occurs.
+
+### Semantic classifier API (1.32.14)
+
+See [semantic-classifier.md](semantic-classifier.md) for the single configurable systemone contract, public API and database-free operator command. Shadow reports are advisory only, returned to the caller and not persisted as a new belief or quality dataset. Defaults stay off; offline tests use synthetic responses and isolated HTTP.

@@ -189,3 +189,5 @@ only admitted memory attachments. Request-bound JSON replies are checked before
 acceptance; this checks the response contract, not factual correctness.
 
 Current unified recall honors inclusive validity windows on graph claims and active decisions. It keeps expired/future records in storage but excludes them from current context. For a source-history cutoff use `INTENT=exact_history RECORDED_BEFORE=<Unix milliseconds> mnemora retrieve "query"`. The cutoff is applied before collection limits and returns source records only; it does not reconstruct historical belief/decision lifecycle or revive forgotten data. Capture time is not proof of completion, and release, installation and individual checks remain separate evidence.
+
+Optional semantic admission classification uses one configurable systemone-compatible API. Set `cognition.admission.semanticClassifier` with `mode: "shadow"`, an `endpoint`, a `model`, and optional `apiKeyEnv`; switching services needs no code change. It is off by default and returns advisory reports without changing admission or source authority. See [API configuration and operator usage](docs/semantic-classifier.md).

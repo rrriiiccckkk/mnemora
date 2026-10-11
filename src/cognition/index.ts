@@ -27,3 +27,4 @@ export * from "./reflection.js";
 export * from "./recall-usefulness.js";
 export * from "./recall-attachment.js";
 export * from "./graduation.js";
+export * from "./semantic-classifier.js";

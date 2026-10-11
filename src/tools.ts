@@ -1,3 +1,4 @@
+import { SemanticMemoryClassifier, type MemoryClassificationInput, type MemoryClassificationReport } from "./cognition/semantic-classifier.js";
 import { type MnemoraConfig, type EmbeddingConfig, type SearchMode } from "./index.js";
 import { createExtractor, type ExtractOptions, type Extractor } from "./extractor.js";
 import { createEmbedder, embeddingInput, embeddingInputVersion, memoryChunkEmbeddingInput, MEMORY_CHUNK_EMBEDDING_INPUT_VERSION, normalizeEmbeddingVector, type Embedder } from "./embeddings.js";
@@ -114,6 +115,7 @@ export class Mnemora {
   private readonly queryCache = new Map<string, import("./embeddings.js").EmbeddingResult>();
   private readonly runtimeSignal?: AbortSignal;
   private readonly fetcher: typeof fetch;
+  private readonly semanticClassifier: SemanticMemoryClassifier;
   private readonly memoryReranker?: MemoryReranker;
   private readonly urlFetcher: NonNullable<MnemoraOptions["urlFetcher"]>;
   private readonly now: () => number;
@@ -203,6 +205,7 @@ export class Mnemora {
     this.runtimeSignal = options.signal;
     this.urlFetcher = options.urlFetcher ?? ((url, limits) => fetchUrlResource(url, limits));
     this.fetcher = options.fetcher ?? fetch;
+    this.semanticClassifier = new SemanticMemoryClassifier(this.config.cognition?.admission?.semanticClassifier, this.fetcher);
     if (this.config.memory?.retrieval?.reranker?.enabled) this.memoryReranker = new MemoryReranker(this.config.memory.retrieval.reranker, this.fetcher);
     this.now = options.now ?? Date.now;
     this.sourceAnchors = new SourceAnchorRepository(this.store.db);
@@ -505,6 +508,12 @@ export class Mnemora {
     );
   }
 
+  /** Advisory API: it cannot authorize or apply a memory mutation. */
+  async classifyMemoryCandidate(input: MemoryClassificationInput): Promise<MemoryClassificationReport> {
+    const signals = [this.runtimeSignal, input.signal].filter((signal): signal is AbortSignal => signal !== undefined);
+    return this.semanticClassifier.classify({ ...input, signal: signals.length ? AbortSignal.any(signals) : undefined });
+  }
+
   async ingestItem(item: IngestionItem, extraction?: ExtractionResult): Promise<IngestionItemResult> {
     const detailed = await this.ingestItemDetailed(item, extraction);
     const { ingest_result: _private, ...publicResult } = detailed;
@@ -555,6 +564,9 @@ export class Mnemora {
       const disabled = error instanceof Error && error.message === "extraction_disabled";
       return { status: "failed", source, fingerprint, counts: empty, warnings: [], error: { category: disabled ? "extraction_disabled" : "extraction_failed", summary: disabled ? "extraction disabled" : "extraction failed" } };
     }
+    const semanticShadow = this.config.cognition?.admission?.semanticClassifier?.mode === "shadow"
+      ? await this.classifyMemoryCandidate({ scope, candidate: text, sensitive: validItem.metadata?.sensitive === true, evidence: [{ role: effectiveProvenance.authority === "user_self_report" ? "user" : effectiveProvenance.authority === "external_source" ? "external" : "tool", text }] })
+      : undefined;
     try {
       fingerprint = fingerprintExtractedTemporal(inputFingerprint, extracted);
       let formation;
@@ -585,7 +597,7 @@ export class Mnemora {
         const conflicts = this.store.scanConflictCandidates(this.config.quality?.singleValuedEdgeTypes ?? [], result.relations.map(({ edge }) => ({ source_id: edge.source_id, type: edge.type })));
         if (conflicts.created > 0 || conflicts.updated > 0) this.retrospectiveAudits.scheduleContradictions(scope);
       } catch { warnings.push({ category: "conflict_discovery_failed" }); }
-      return { status: "succeeded", source, fingerprint, counts: { entities: result.entities.length, relations: result.relations.length, observations: result.observations.length }, warnings, ingest_result: result };
+      return { status: "succeeded", source, fingerprint, counts: { entities: result.entities.length, relations: result.relations.length, observations: result.observations.length }, warnings, ...(semanticShadow ? { semanticShadow } : {}), ingest_result: result };
     } catch { return { status: "failed", source, fingerprint, counts: empty, warnings: [], error: { category: "persistence_failed", summary: "persistence failed" } }; }
   }
 

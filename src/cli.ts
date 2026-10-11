@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { SemanticMemoryClassifier, type MemoryClassificationInput, type SemanticClassifierConfig } from "./cognition/semantic-classifier.js";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { Mnemora } from "./tools.js";
@@ -75,6 +76,20 @@ async function main(): Promise<void> {
   if (command === "evaluate" && args[0] === "recall-threshold-scan") {
     try { printOperator("evaluate.recall-threshold-scan", await evaluateRecallThresholdScan(args)); }
     catch (error) { fail("evaluate.recall-threshold-scan", error); }
+    return;
+  }
+  if (command === "cognition" && args[0] === "classify") {
+    try {
+      if (args.length !== 4 || args[2] !== "--config") throw new CliError("invalid_arguments");
+      const readBoundedJson = (file: string): unknown => {
+        if (statSync(file).size > 65536) throw new CliError("invalid_arguments");
+        return JSON.parse(readFileSync(file, "utf8"));
+      };
+      const config = readBoundedJson(args[3]) as SemanticClassifierConfig;
+      const request = readBoundedJson(args[1]) as MemoryClassificationInput;
+      if (!config || typeof config !== "object" || Array.isArray(config) || !request || typeof request !== "object" || Array.isArray(request)) throw new CliError("invalid_arguments");
+      printOperator("cognition.classify", await new SemanticMemoryClassifier(config).classify(request));
+    } catch (error) { fail("cognition.classify", error); }
     return;
   }
   if (command === "cognition") {

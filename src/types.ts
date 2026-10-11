@@ -36,6 +36,7 @@ export interface IngestionItem { text: string; source?: string; scope?: string; 
 export type IngestionErrorCategory = "invalid_input" | "unsupported_file" | "file_too_large" | "workspace_boundary" | "extraction_disabled" | "extraction_failed" | "persistence_failed" | import("./url-ingestion.js").SafeUrlErrorCategory;
 export interface IngestionWarning { category: "embedding_failed" | "candidate_discovery_failed" | "conflict_discovery_failed" | "source_anchoring_failed" | "pre_admission_dropped"; count?: number }
 export interface IngestionItemResult {
+  semanticShadow?: import("./cognition/semantic-classifier.js").MemoryClassificationReport;
   status: "succeeded" | "skipped_duplicate" | "failed";
   source: string; fingerprint: string;
   counts: { entities: number; relations: number; observations: number };
