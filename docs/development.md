@@ -251,3 +251,7 @@ it must not establish that the check passed.
 Every conflicting record must be packed; failures stop the run without retries.
 It retains bounded private results under the printed `.dogfood/adviser-state-*`
 directory. This regression does not measure general efficacy or use real notes.
+
+### Temporal retrieval (1.32.13)
+
+Unified current claim/decision collection applies declared validity in SQL before LIMIT. Bounds use the existing inclusive convention. `UnifiedRetrievalService.find({ scope, query, intent: "exact_history", recordedBefore })` provides an inclusive nonnegative safe-integer source-record cutoff. CLI: `INTENT=exact_history RECORDED_BEFORE=1700000000000 mnemora retrieve "TASK_42"`. Invalid cutoffs and non-history/metadata combinations fail closed. This is source chronology, not a full bitemporal lifecycle snapshot; no inferred supersession or source mutation occurs.

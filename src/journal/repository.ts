@@ -297,12 +297,14 @@ export class ConversationEventRepository {
     return { id: String(row.id), scope: String(row.scope), sessionId: String(row.session_id), branchId: String(row.branch_id), ...(row.parent_id ? { parentId: String(row.parent_id) } : {}), sequence: Number(row.sequence), kind: row.kind as JournalEvent["kind"], ...(row.role ? { role: row.role as JournalEvent["role"] } : {}), contextDomain: (typeof row.context_domain === "string" ? row.context_domain : "unknown") as JournalEvent["contextDomain"], parts, contentHash: String(row.content_hash), ...(tombstoned ? { tombstoned: true as const } : row.normalized_text ? { normalizedText: String(row.normalized_text) } : {}), identityOrigin: row.identity_origin as JournalEvent["identityOrigin"], ...(row.host_correlation ? { hostCorrelation: String(row.host_correlation) } : {}), createdAt: Number(row.created_at) };
   }
 
-  search(scope: string, query: string, limit = 20): JournalEvent[] {
+  search(scope: string, query: string, limit = 20, recordedBefore?: number): JournalEvent[] {
+    if (recordedBefore !== undefined && (!Number.isSafeInteger(recordedBefore) || recordedBefore < 0)) throw new Error("invalid_history_cutoff");
     const bounded = query.trim().slice(0, 512), take = Math.min(100, Math.max(1, limit));
     if (!bounded) return [];
     // ASCII technical identifiers must survive lowercased lexical expansion;
     // the exact scope and parameterized literal-substring search stay intact.
-    const rows = this.db.prepare("SELECT id FROM mnemora_conversation_events WHERE scope=? AND deleted_at IS NULL AND instr(lower(COALESCE(normalized_text,'')),lower(?))>0 ORDER BY created_at DESC,id DESC LIMIT ?").all(normalizeScope(scope), bounded, take) as Array<{ id: string }>;
+    const cutoff = recordedBefore === undefined ? "" : " AND created_at<=?";
+    const rows = this.db.prepare(`SELECT id FROM mnemora_conversation_events WHERE scope=? AND deleted_at IS NULL AND instr(lower(COALESCE(normalized_text,'')),lower(?))>0${cutoff} ORDER BY created_at DESC,id DESC LIMIT ?`).all(normalizeScope(scope), bounded, ...(recordedBefore === undefined ? [] : [recordedBefore]), take) as Array<{ id: string }>;
     return rows.flatMap(row => { const event = this.get(row.id, scope); return event ? [event] : []; });
   }
 

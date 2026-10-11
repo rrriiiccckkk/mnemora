@@ -98,7 +98,7 @@ async function main(): Promise<void> {
     else if (command === "retrieve") {
       const query = args.join(" ").trim(); if (!query) throw new CliError("invalid_arguments");
       const result = new UnifiedRetrievalService(graph.store.db, journalPolicy(graph.config))
-        .find({ scope: process.env.SCOPE ?? "default", query, intent: retrievalIntent(process.env.INTENT), limit: Number(process.env.LIMIT ?? 8), tokenBudget: Number(process.env.TOKEN_BUDGET ?? 800) });
+        .find({ scope: process.env.SCOPE ?? "default", query, intent: retrievalIntent(process.env.INTENT), limit: Number(process.env.LIMIT ?? 8), tokenBudget: Number(process.env.TOKEN_BUDGET ?? 800), recordedBefore: process.env.RECORDED_BEFORE === undefined ? undefined : Number(process.env.RECORDED_BEFORE) });
       printOperator("retrieve.find", result);
     }
     else if (command === "evaluate") printOperator(`evaluate.${args[0] ?? "help"}`, await evaluateCommand(graph, args));
