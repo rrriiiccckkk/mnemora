@@ -202,7 +202,7 @@ test("classifier observers receive content-free success/failure usage and cannot
     const count = events.length;
     assert.equal((await graph.classifyMemoryCandidate(request)).status, "disabled");
     assert.equal(events.length, count);
-  } finally { graph.close(); rmSync(dir, { recursive: true, force: true }); }
+  } finally { graph.close(); } // Native fixtures are removed by the parent runner after exit.
 });
 
 test("runtime ordinary and admitted graphs expose classifier observation at info level", async () => {
@@ -224,5 +224,5 @@ test("runtime ordinary and admitted graphs expose classifier observation at info
       assert.equal(log.fields.usageKnown, false);
       assert.deepEqual(Object.keys(log.fields).sort(), ["applied", "elapsedMs", "inputTokens", "outputTokens", "recommendation", "status", "usageKnown"]);
     }
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally { runtime.stop(); } // Native fixtures are removed by the parent runner after exit.
 });
