@@ -1,4 +1,4 @@
-import { SemanticMemoryClassifier, type MemoryClassificationInput, type MemoryClassificationReport } from "./cognition/semantic-classifier.js";
+import { semanticClassificationTelemetry, SemanticMemoryClassifier, type MemoryClassificationInput, type MemoryClassificationReport } from "./cognition/semantic-classifier.js";
 import { type MnemoraConfig, type EmbeddingConfig, type SearchMode } from "./index.js";
 import { createExtractor, type ExtractOptions, type Extractor } from "./extractor.js";
 import { createEmbedder, embeddingInput, embeddingInputVersion, memoryChunkEmbeddingInput, MEMORY_CHUNK_EMBEDDING_INPUT_VERSION, normalizeEmbeddingVector, type Embedder } from "./embeddings.js";
@@ -88,6 +88,8 @@ export interface MnemoraOptions {
   onEmbeddingFailure?: (event: { operation: "ingest" | "backfill" | "memory_backfill"; category: "timeout" | "provider" | "invalid_response" | "persistence" | "unknown"; failed: number }) => void;
   /** Bounded operational signal for optional recall evaluation only. */
   onRecallEvaluationFailure?: (event: { stage: "candidate_widen" | "shadow_record" | "canary_apply"; category: "operation_failed" }) => void;
+  /** Content-free optional classifier telemetry; observers cannot affect ingestion. */
+  onSemanticClassification?: (event: import("./cognition/semantic-classifier.js").SemanticClassificationTelemetry) => void;
   urlFetcher?: (url: string, limits: { maxBytes: number; maxRedirects: number; timeoutMs: number }) => Promise<UrlFetchResult>;
   now?: () => number;
   fetcher?: typeof fetch;
@@ -111,6 +113,7 @@ export class Mnemora {
   private readonly embedder?: Embedder;
   private readonly embeddingConfig: EmbeddingConfig;
   private readonly onEmbeddingFailure?: MnemoraOptions["onEmbeddingFailure"];
+  private readonly onSemanticClassification?: MnemoraOptions["onSemanticClassification"];
   private readonly onRecallEvaluationFailure?: MnemoraOptions["onRecallEvaluationFailure"];
   private readonly queryCache = new Map<string, import("./embeddings.js").EmbeddingResult>();
   private readonly runtimeSignal?: AbortSignal;
@@ -202,6 +205,7 @@ export class Mnemora {
     this.embedder = options.embedder ?? (this.embeddingConfig.enabled ? createEmbedder(this.embeddingConfig) : undefined);
     this.onEmbeddingFailure = options.onEmbeddingFailure;
     this.onRecallEvaluationFailure = options.onRecallEvaluationFailure;
+    this.onSemanticClassification = options.onSemanticClassification;
     this.runtimeSignal = options.signal;
     this.urlFetcher = options.urlFetcher ?? ((url, limits) => fetchUrlResource(url, limits));
     this.fetcher = options.fetcher ?? fetch;
@@ -511,7 +515,11 @@ export class Mnemora {
   /** Advisory API: it cannot authorize or apply a memory mutation. */
   async classifyMemoryCandidate(input: MemoryClassificationInput): Promise<MemoryClassificationReport> {
     const signals = [this.runtimeSignal, input.signal].filter((signal): signal is AbortSignal => signal !== undefined);
-    return this.semanticClassifier.classify({ ...input, signal: signals.length ? AbortSignal.any(signals) : undefined });
+    const report = await this.semanticClassifier.classify({ ...input, signal: signals.length ? AbortSignal.any(signals) : undefined });
+    if (report.mode === "shadow") {
+      try { this.onSemanticClassification?.(semanticClassificationTelemetry(report)); } catch { /* observers must fail open */ }
+    }
+    return report;
   }
 
   async ingestItem(item: IngestionItem, extraction?: ExtractionResult): Promise<IngestionItemResult> {

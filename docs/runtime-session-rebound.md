@@ -1,0 +1,11 @@
+# Session persistence investigation — 2026-10-13
+
+The daily installation is Mnemora 1.32.14 on OpenClaw 2026.10.2 (b8952d4); the development dependency remains 2026.9.2. The inspection used read-only SQLite connections and returned metadata, not transcript bodies. No daily service, configuration, queue, session or transcript was modified.
+
+At inspection, the host's Mnemora outbox contained 9 blocked `session-rebound` rows, 92 blocked `stale` rows, 103 `admitted` rows and 194 `ready` rows. These are a point-in-time snapshot, not lifetime failure rates. All nine rebound rows had different admission/terminal `generation` values, while their session windows still matched their admission session IDs and keys. All had attempt_count=0. Their creation timestamps predate the 1.32.14 release; repeated recovery warnings are not nine new failures on every retry.
+
+The installed host's `readClosedTranscriptTurnInDatabase` checks whether admission and terminal anchors share agent, session, store and generation before reading the accepted range. A generation mismatch returns `session-rebound`. `publishClosedContextEngineTurn` marks nonretryable failures blocked; recovery logs those blocked rows again. This happens before the plugin receives `commitTurn`. The underlying reason for the generation change (for example a transcript rewrite) has not been independently established. The snapshot does not establish whether other ready rows are progressing or obstructed.
+
+Mnemora must not bypass the host fence, fabricate a successful receipt, reconstruct the rejected range from the current session, or delete the host outbox. Resolution of historical blocked rows requires host-owned recovery or upstream behavior; this patch does not repair or replay them. Contemporary daily capture and recall did succeed, so the historical blocks do not establish that all current sessions fail.
+
+Classification observability is independent of host delivery: a turn that never reaches the plugin cannot generate a classifier observation. Starting with 1.32.15, configured shadow calls emit content-free `semantic classification observed` info events from both ordinary and admitted runtime graph handles. No classifier call or event occurs solely because a blocked host row exists.

@@ -60,3 +60,7 @@ Timeout, cancellation, HTTP errors, transport failures, malformed answers, missi
 Regression tests cover protocol switching, actual loopback HTTP and the CLI, authority restrictions, temporary scope, ambiguous/risky results, sensitive filtering, distribution validation, cancellation, timeout, usage and unchanged ingestion. These are contract fixtures, not model-quality measurements. Chinese mixed-context accuracy, thresholds, live service latency/cost and development-efficiency benefits remain unmeasured. Keep 1.33 enforcement gated on the planned independent evaluation.
 
 Protocol reference: https://docs.typesafe.ai/api
+
+## Runtime observation (1.32.15)
+
+Enabled shadow calls through runtime graph handles emit an info event named `semantic classification observed`. Its closed fields are status, recommendation, elapsedMs, usageKnown, inputTokens, outputTokens and applied=false. Missing usage is null, never an invented zero; a reported zero output count remains known when input usage is positive. No candidate/evidence text, source/scope/session identifiers, endpoint, model, API key, raw response, or probabilities are logged. Observer failures cannot affect ingestion. Off mode emits no observation. The standalone classification CLI still returns its report without runtime logging. Events are operational observations, not stored evaluation labels or proof of classifier quality. Calls skipped before classification and turns blocked by the host emit no classifier event.

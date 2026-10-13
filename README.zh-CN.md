@@ -161,3 +161,5 @@ Journal 召回支持 ASCII 技术标识符的大小写匹配；明确匹配任�
 统一检索现在检查图谱事实与活动决策的有效期（包含起止边界）。过期及尚未生效记录仍保存在库中，但不进入当前上下文。历史来源查询可使用 `INTENT=exact_history RECORDED_BEFORE=<Unix 毫秒> mnemora retrieve "查询"`，截止时间在候选数量限制前应用。该查询仅返回原始来源，不重建历史信念或决策生命周期，也不恢复已遗忘数据。记录时间不是完成证明；发布、安装与各项检查仍是独立证据。
 
 可选语义准入分类使用统一、可配置的 systemone 兼容 API。通过 `cognition.admission.semanticClassifier` 设置 `mode: "shadow"`、`endpoint`、`model` 与可选 `apiKeyEnv`；切换服务无需修改代码。默认关闭，只返回影子判断，不改变准入或来源权限。详见 [API 配置与操作命令](docs/semantic-classifier.md)。
+
+shadow 分类调用会输出不含正文的 `semantic classification observed` info 日志，记录状态、建议、耗时及已知/未知 token 用量。参见[运行排查](docs/runtime-session-rebound.md)。

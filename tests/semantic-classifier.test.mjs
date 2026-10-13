@@ -180,3 +180,49 @@ test("real HTTP and operator CLI use the same protocol without opening a memory 
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+
+test("classifier observers receive content-free success/failure usage and cannot change results", async () => {
+  const dir = createTempDir("classifier-telemetry-");
+  const events = [];
+  const graph = new Mnemora({ config: { dbPath: join(dir, "memory.db"), cognition: { admission: { semanticClassifier: config } } }, fetcher: mock(response()), onSemanticClassification: event => events.push(event) });
+  try {
+    const report = await graph.classifyMemoryCandidate({ ...request, scope: "private-scope" });
+    assert.deepEqual(events, [{ status: "succeeded", recommendation: "persistent_candidate", elapsedMs: report.elapsedMs, usageKnown: true, inputTokens: 80, outputTokens: 0, applied: false }]);
+    graph.onSemanticClassification = () => { throw new Error("observer failure with private data"); };
+    assert.equal((await graph.classifyMemoryCandidate(request)).status, "succeeded");
+    graph.onSemanticClassification = event => events.push(event);
+    graph.semanticClassifier.fetcher = mock({});
+    assert.equal((await graph.classifyMemoryCandidate(request)).status, "invalid_response");
+    assert.equal(events.at(-1).usageKnown, false);
+    assert.equal(events.at(-1).inputTokens, null);
+    assert.equal(events.at(-1).recommendation, "defer");
+    assert.doesNotMatch(JSON.stringify(events), /private-scope|aisle|resolved-model|systemone|evidence/);
+    graph.semanticClassifier.config.mode = "off";
+    const count = events.length;
+    assert.equal((await graph.classifyMemoryCandidate(request)).status, "disabled");
+    assert.equal(events.length, count);
+  } finally { graph.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("runtime ordinary and admitted graphs expose classifier observation at info level", async () => {
+  const { PluginRuntime } = await import("../dist/plugin-runtime.js");
+  const dir = createTempDir("classifier-runtime-");
+  const logs = [];
+  const runtime = new PluginRuntime({ dbPath: join(dir, "memory.db"), cognition: { admission: { semanticClassifier: { ...config, endpoint: "" } } } }, { info: (message, fields) => logs.push({ message, fields }) });
+  try {
+    for (const open of [() => runtime.openGraph(), () => runtime.openGraphForAdmitted()]) {
+      const graph = open();
+      try { assert.equal((await graph.classifyMemoryCandidate(request)).status, "configuration_error"); }
+      finally { graph.close(); }
+    }
+    const observed = logs.filter(log => log.message === "semantic classification observed");
+    assert.equal(observed.length, 2);
+    for (const log of observed) {
+      assert.equal(log.message, "semantic classification observed");
+      assert.equal(log.fields.status, "configuration_error");
+      assert.equal(log.fields.usageKnown, false);
+      assert.deepEqual(Object.keys(log.fields).sort(), ["applied", "elapsedMs", "inputTokens", "outputTokens", "recommendation", "status", "usageKnown"]);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

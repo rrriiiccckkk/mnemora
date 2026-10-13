@@ -40,6 +40,24 @@ export interface MemoryClassificationReport {
   applied: false;
 }
 
+/** No input, evidence, source/scope/session identifiers, endpoint, model or key. */
+export interface SemanticClassificationTelemetry {
+  status: MemoryClassificationReport["status"];
+  recommendation: MemoryClassificationReport["recommendation"];
+  elapsedMs: number;
+  usageKnown: boolean;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  applied: false;
+}
+export function semanticClassificationTelemetry(report: MemoryClassificationReport): SemanticClassificationTelemetry {
+  return {
+    status: report.status, recommendation: report.recommendation, elapsedMs: report.elapsedMs,
+    usageKnown: report.usage !== null, inputTokens: report.usage?.inputTokens ?? null,
+    outputTokens: report.usage?.outputTokens ?? null, applied: false
+  };
+}
+
 export const defaultSemanticClassifierConfig = {
   mode: "off", endpoint: "", model: "", apiKeyEnv: "", timeoutMs: 1500,
   maxInputChars: 8000, maxResponseBytes: 32768, minProbability: .9, minConfidence: .8

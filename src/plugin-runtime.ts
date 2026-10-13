@@ -165,12 +165,13 @@ export class PluginRuntime {
       config: this.config,
       signal: this.shutdown.signal,
       onEmbeddingFailure: (event) => this.logger.warn?.("embedding batch failed", event),
-      onRecallEvaluationFailure: (event) => this.logger.warn?.("recall evaluation failed", event)
+      onRecallEvaluationFailure: (event) => this.logger.warn?.("recall evaluation failed", event),
+      onSemanticClassification: (event) => this.logger.info?.("semantic classification observed", { ...event })
     });
   }
 
   private openGraphForAdmitted(): Mnemora {
-    return new Mnemora({ config: this.config, signal: this.shutdown.signal, onEmbeddingFailure: (event) => this.logger.warn?.("embedding batch failed", event) });
+    return new Mnemora({ config: this.config, signal: this.shutdown.signal, onSemanticClassification: (event) => this.logger.info?.("semantic classification observed", { ...event }), onEmbeddingFailure: (event) => this.logger.warn?.("embedding batch failed", event) });
   }
 
   runConsolidation(): void {
