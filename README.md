@@ -193,3 +193,5 @@ Current unified recall honors inclusive validity windows on graph claims and act
 Optional semantic admission classification uses one configurable systemone-compatible API. Set `cognition.admission.semanticClassifier` with `mode: "shadow"`, an `endpoint`, a `model`, and optional `apiKeyEnv`; switching services needs no code change. It is off by default and returns advisory reports without changing admission or source authority. See [API configuration and operator usage](docs/semantic-classifier.md).
 
 Shadow classifier calls emit content-free `semantic classification observed` info logs with status, recommendation, elapsed time and known/unknown token usage. See [runtime investigation](docs/runtime-session-rebound.md).
+
+Optional [recall relevance shadow](docs/recall-relevance-shadow.md) evaluates already-admitted structured candidates, records content-free subtraction advice, and preserves the actual prompt unchanged. It is disabled by default and separate from ingestion classification.

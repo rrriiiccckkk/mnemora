@@ -1,5 +1,6 @@
 /** Schema v71 stores bounded, redacted ContextEngine recall decisions. It
- * deliberately excludes prompts, candidate text, IDs, sources, and refs. */
+ * deliberately excludes prompts, candidate text, IDs, sources, and raw refs.
+ * V85 adds an optional content-free relevance diff with hashed candidate refs. */
 export const unifiedRecallShadowSchemaSql = `
 CREATE TABLE IF NOT EXISTS mnemora_unified_recall_shadow_runs (
  id TEXT PRIMARY KEY,
@@ -12,6 +13,7 @@ CREATE TABLE IF NOT EXISTS mnemora_unified_recall_shadow_runs (
  graph_attached INTEGER NOT NULL CHECK(graph_attached IN (0,1)),
  graph_suppression TEXT CHECK(graph_suppression IN ('no_anchor_terms','no_anchor_match')),
  attached INTEGER NOT NULL CHECK(attached IN (0,1)),
+ relevance_json TEXT,
  created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_mnemora_unified_recall_shadow_scope_created

@@ -35,8 +35,8 @@ test("schema84 upgrades a schema83 database without fabricating evidence and is 
     store.db.exec(`DROP TABLE ${reviews}; DROP TABLE ${receipts}; PRAGMA user_version=83`);
     store.close(); store = undefined;
     store = new GraphologyStore(path);
-    assert.equal(SUPPORTED_SCHEMA_VERSION, 84);
-    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 84);
+    assert.equal(SUPPORTED_SCHEMA_VERSION, 85);
+    assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 85);
     assert.deepEqual(snapshot(store), before);
     assertEmptyAttachments(store);
     const indexes = store.db.prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name=? AND sql IS NOT NULL ORDER BY name`).all(receipts);
@@ -95,7 +95,7 @@ test("backup/restore preserves schema84 attachments and accepts schema83 backups
     target.replaceDatabaseFrom(legacyBackup);
     assert.deepEqual(snapshot(target), before);
     assertEmptyAttachments(target);
-    assert.equal(target.db.prepare("PRAGMA user_version").get().user_version, 84);
+    assert.equal(target.db.prepare("PRAGMA user_version").get().user_version, 85);
     assert.deepEqual(target.db.prepare("PRAGMA foreign_key_check").all(), []);
   } finally { target.close(); source.close(); }
 });

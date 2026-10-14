@@ -163,3 +163,5 @@ Journal 召回支持 ASCII 技术标识符的大小写匹配；明确匹配任�
 可选语义准入分类使用统一、可配置的 systemone 兼容 API。通过 `cognition.admission.semanticClassifier` 设置 `mode: "shadow"`、`endpoint`、`model` 与可选 `apiKeyEnv`；切换服务无需修改代码。默认关闭，只返回影子判断，不改变准入或来源权限。详见 [API 配置与操作命令](docs/semantic-classifier.md)。
 
 shadow 分类调用会输出不含正文的 `semantic classification observed` info 日志，记录状态、建议、耗时及已知/未知 token 用量。参见[运行排查](docs/runtime-session-rebound.md)。
+
+可选的[召回相关性 shadow](docs/recall-relevance-shadow.md)对已准入结构化候选记录不含正文的减法建议，实际注入保持不变；默认关闭，与记忆准入分类独立。

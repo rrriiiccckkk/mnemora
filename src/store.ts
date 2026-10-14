@@ -303,6 +303,7 @@ export class GraphologyStore {
     if (version < 82) this.migrateTaskActionOutcomesV82();
     if (version < 83) this.migrateLegacyCallbackFingerprintsV83();
     if (version < 84) this.migrateRecallAttachmentsV84();
+    if (version < 85 && !(this.db.prepare("PRAGMA table_info(mnemora_unified_recall_shadow_runs)").all() as Array<{ name: string }>).some(column => column.name === "relevance_json")) this.db.exec("ALTER TABLE mnemora_unified_recall_shadow_runs ADD COLUMN relevance_json TEXT");
     this.repairCanonicalCorpusFts();
     this.db.exec(`PRAGMA user_version=${SUPPORTED_SCHEMA_VERSION}`);
   }

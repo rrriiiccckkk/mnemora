@@ -317,6 +317,13 @@ export class MnemoraContextEngine implements ContextEngine {
           exactLocalConstraint: Boolean(plan.tags.length || plan.metadataFilters?.length || plan.mustContain?.length)
         });
         const result = { ...rawResult, candidates: localSelection.candidates, empty: localSelection.candidates.length === 0 };
+        // P0 relevance is advisory, after deterministic authorization/selection,
+        // before final packing. Read-only/stateless sessions never send this optional request.
+        let relevance: Awaited<ReturnType<import("../tools.js").Mnemora["adviseRecallRelevance"]>>;
+        if (recallWritesAllowed && this.config.unifiedRetrieval.relevanceShadow?.enabled && typeof graph.adviseRecallRelevance === "function") {
+          try { relevance = await graph.adviseRecallRelevance(this.scope(), retrievalQuery, result.candidates, (params as AssembleParams & { signal?: AbortSignal }).signal); } catch { /* no advice is baseline */ }
+        }
+
         const attachmentEvidence = new RecallAttachmentEvidenceService(graph.store.db, {
           ...this.config.unifiedRetrieval.attachmentEvidence,
           enabled: this.config.unifiedRetrieval.attachmentEvidence?.enabled === true && recallWritesAllowed
@@ -345,6 +352,25 @@ export class MnemoraContextEngine implements ContextEngine {
           }
         }
         const packed = retrieval.packPrompt(result, this.config.unifiedRetrieval.maxItems, graphSupplement, recallBudget);
+
+        // Compare only actual baseline selections. No replacement candidates and
+        // no graph supplement that the original pack could not attach.
+        if (relevance) try {
+          const actual = new Set(packed.candidates.map(c => createHash("sha256").update(c.contextRef).digest("hex")));
+          relevance.observation.diff = relevance.observation.diff.filter(d => actual.has(d.candidate_hash));
+          relevance.observation.original = relevance.observation.diff.map(d => d.candidate_hash);
+          const remove = new Set(relevance.removeRefs);
+          const suggested = retrieval.packPrompt({ ...result, candidates: packed.candidates.filter(c => !remove.has(c.contextRef)) }, this.config.unifiedRetrieval.maxItems, packed.graphAttached ? graphSupplement : undefined, recallBudget);
+          const suggestedHashes = new Set(suggested.candidates.map(c => createHash("sha256").update(c.contextRef).digest("hex")));
+          relevance.observation.suggested = relevance.observation.original.filter(ref => suggestedHashes.has(ref));
+          relevance.observation.diff = relevance.observation.diff.map(d => d.action === "keep" && !suggestedHashes.has(d.candidate_hash) ? { ...d, action: "remove", reason: "packing" } : d);
+        } catch {
+          // A failed shadow pack keeps baseline and still accounts for a paid verdict.
+          if (relevance) {
+            const original = packed.candidates.map(c => createHash("sha256").update(c.contextRef).digest("hex"));
+            relevance = { removeRefs: [], observation: { ...relevance.observation, status: "comparison_error", original, suggested: [...original], diff: original.map(candidate_hash => ({ candidate_hash, action: "keep", reason: "baseline" })) } };
+          }
+        }
         graphAttached = packed.graphAttached;
         const rendered = packed.prompt;
         let attached = false;
@@ -372,8 +398,8 @@ export class MnemoraContextEngine implements ContextEngine {
             }));
           } catch { /* usage telemetry never changes recall availability */ }
         }
-        if (recallWritesAllowed && this.config.unifiedRetrieval.shadowMode) try {
-          graph.unifiedRecallShadow.record({ scope: this.scope(), query: retrievalQuery, localCandidates: rawResult.candidates.length, localSelected: packed.candidates.length, localSuppressed: localAdmission.excluded + localSelection.suppressed, graphCandidates, graphAttached, graphSuppression, attached });
+        if (recallWritesAllowed && (this.config.unifiedRetrieval.shadowMode || relevance)) try {
+          graph.unifiedRecallShadow.record({ scope: this.scope(), query: retrievalQuery, localCandidates: rawResult.candidates.length, localSelected: packed.candidates.length, localSuppressed: localAdmission.excluded + localSelection.suppressed, graphCandidates, graphAttached, graphSuppression, attached, ...(relevance ? { relevance: relevance.observation } : {}) });
         } catch { /* optional telemetry never changes host context assembly */ }
       } catch { /* recall must remain fail-open: host messages are authoritative */ }
       finally { graph.close(); }

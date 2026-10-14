@@ -1,3 +1,4 @@
+import { RecallRelevanceShadow } from "./retrieval/relevance-shadow.js";
 import { semanticClassificationTelemetry, SemanticMemoryClassifier, type MemoryClassificationInput, type MemoryClassificationReport } from "./cognition/semantic-classifier.js";
 import { type MnemoraConfig, type EmbeddingConfig, type SearchMode } from "./index.js";
 import { createExtractor, type ExtractOptions, type Extractor } from "./extractor.js";
@@ -510,6 +511,12 @@ export class Mnemora {
       this.config.extraction!.timeoutMs!,
       composeSignals(options?.signal, this.runtimeSignal)
     );
+  }
+
+  /** Caller supplies already-admitted structured candidates; this never applies suggestions. */
+  async adviseRecallRelevance(scope: string, query: string, candidates: readonly import("./retrieval/types.js").RetrievalCandidate[], signal?: AbortSignal) {
+    const signals = [this.runtimeSignal, signal].filter((value): value is AbortSignal => value !== undefined);
+    return new RecallRelevanceShadow(this.config.unifiedRetrieval?.relevanceShadow, this.fetcher).evaluate(scope, query, candidates, signals.length ? AbortSignal.any(signals) : undefined);
   }
 
   /** Advisory API: it cannot authorize or apply a memory mutation. */
