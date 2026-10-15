@@ -1,10 +1,11 @@
+import { supportsNodeVersion } from "./node-compat.mjs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { filesUnder, runtimeMetadata, sha256, sourceFingerprint, verifyDistribution } from "./package-artifact.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url));
-if (Number(process.versions.node.split(".")[0]) !== 24) throw new Error("Build requires Node 24");
+if (!supportsNodeVersion(process.versions.node)) throw new Error("Build requires Node 24.15+ on 24.x, or Node 25.9+ (including Node 26)");
 // Only generated output in this checkout is removed; never reuse stale modules.
 rmSync(join(root, "dist"), { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
 for (const args of [["node_modules/typescript/bin/tsc", "-p", "tsconfig.json"], ["node_modules/typescript/bin/tsc", "-p", "tsconfig.inspector.json", "--noEmit"], ["scripts/ensure-cli-executable.mjs"], ["scripts/build-inspector.mjs"]]) {

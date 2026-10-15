@@ -37,7 +37,7 @@
 - `measured-plan.json`：以计划为基础，`status` 改为 `"measured"`，保留 `version: 1`、固定的 `protocol`、`splits` 和三组 `arms`，在 `results` 中为每个案例 × 每组写一条记录。每条必须含 `caseId`、`split`、`arm`、三个必需布尔标签、`tokens`、`latencyMs`；按上述规则填写可选字段。案例 ID 只能用小写字母、数字、`.`、`_`、`:`、`-`，最多 80 字符。若材料不足，**不要**交付伪装完整的 `measured` 文件。
 - `annotation-audit.md`：仅用去标识化案例 ID 与 arm 记录标签所依据的来源引用、分歧和待裁决项；不要复制原始历史或提示。另记实际模型版本、三组运行配置和计量来源，供人工复核同条件性。
 
-完成标准：tuning 与 test 各至少一个案例；`results` 恰好有 `(tuning 数 + test 数) × 3` 行，无重复或跨 split 的 ID；所有数值来自运行日志；所有布尔标签能追溯到证据；无待裁决案例。用 Node 24.19.0 构建后，在一次性内存库中验证 JSON：
+完成标准：tuning 与 test 各至少一个案例；`results` 恰好有 `(tuning 数 + test 数) × 3` 行，无重复或跨 split 的 ID；所有数值来自运行日志；所有布尔标签能追溯到证据；无待裁决案例。用支持的 Node（CI 覆盖 24.19.0 / 26.5.0）构建后，在一次性内存库中验证 JSON：
 
 ```powershell
 npm run build

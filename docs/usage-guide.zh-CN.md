@@ -44,9 +44,7 @@ Mnemora 是独立实现，设计上借鉴了 `lossless-claw` 与
 
 ## 快速开始
 
-Mnemora 需要 OpenClaw `2026.9.2+` 与 Node.js `24.15.0+`，且使用 Node 24
-release line（`>=24.15.0 <25`）。OpenClaw 会拒绝 Node `24.14` 及更低的 Node 24
-补丁版本，因为其内嵌 SQLite 不适合 WAL。请升级 Node 后重启加载插件的 OpenClaw 进程；不要绕过该检查。
+Mnemora 需要 OpenClaw `2026.9.2+`，支持 Node 24.x 的 `24.15.0+` 或 `25.9.0+`，包含 Node 26。本地默认 26.5.0，CI 在 Linux、Windows 覆盖 24.19.0 和 26.5.0。最低补丁版本保留宿主 SQLite 安全要求，不要求把 Node 26 降级。
 
 ```bash
 git clone https://github.com/rrriiiccckkk/mnemora.git
@@ -439,7 +437,7 @@ Mnemora 是本地记忆运行时，不是会自动构建人格画像的系统。
 npm run verify
 ```
 
-该命令在 Node.js 24.19.0 上执行 typecheck、单元测试、构建、smoke、插件校验、兼容性校验和离线质量基准（支持的 Node 24 范围从 24.15.0 开始）。
+CI 在 Node.js 24.19.0 和 26.5.0 上执行 typecheck、单元测试、构建、smoke、插件校验、兼容性校验和离线质量基准（支持 Node 24.x 的 24.15.0+ 或 25.9.0+）。
 
 ## 许可证
 

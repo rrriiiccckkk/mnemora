@@ -276,6 +276,7 @@ try {
   let captured = [];
   for (let attempt = 0; attempt < 40; attempt++) { captured = journalIds(); if (captured.length >= Math.max(2, priorTaskEvents.length + 2)) break; await delay(250); }
   assert.ok(captured.length >= Math.max(2, priorTaskEvents.length + 2), "Real host must capture user and assistant events");
+  assert.match(gatewayLog, /standalone readiness evaluated .*"activation":"[a-z_]+".*"diagnostics":\d+/, "Real SDK logger must preserve scalar metadata in its single message argument");
   await stopGateway();
   assert.deepEqual(journalIds(), captured, "Journal must survive Gateway shutdown");
   await startGateway(port);

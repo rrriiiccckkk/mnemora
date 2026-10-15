@@ -1,0 +1,15 @@
+{
+  "plan": {
+    "version": 1,
+    "evidence": "synthetic",
+    "policy": "recall-relevance-shadow-v1",
+    "tuningCaseIds": ["tuning-seat"],
+    "testCaseIds": ["test-seat", "test-negation"],
+    "limits": { "minTestCases": 2, "maxHarmfulDeletionRate": 0, "maxRecallLoss": 0, "maxTaskCompletionLoss": 0, "minNetSaving": 0 }
+  },
+  "cases": [
+    { "id": "tuning-seat", "relevant": ["preference"], "original": ["preference", "weather"], "suggested": ["preference"], "task": null, "cost": null },
+    { "id": "test-seat", "relevant": ["preference", "exception"], "original": ["preference", "exception", "weather"], "suggested": ["preference", "exception"], "task": null, "cost": null },
+    { "id": "test-negation", "relevant": ["correction", "unretrieved-context"], "original": ["correction", "stale-assertion"], "suggested": ["correction"], "task": null, "cost": null }
+  ]
+}

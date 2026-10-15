@@ -1,0 +1,9 @@
+{
+  "evidence": "synthetic",
+  "query": "What seat does the traveler generally prefer?",
+  "candidates": [
+    { "title": "General seat preference", "excerpt": "The traveler explicitly says: I usually prefer an aisle seat." },
+    { "title": "One flight exception", "excerpt": "For tomorrow's flight only, the traveler requested a window seat. This does not change the general seat preference." },
+    { "title": "Unrelated weather", "excerpt": "The destination is expected to have light rain tomorrow." }
+  ]
+}

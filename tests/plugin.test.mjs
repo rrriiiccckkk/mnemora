@@ -48,6 +48,12 @@ const EXISTING_CONTRACT_HASHES = {
   kg_stats: "2d67c2b9c7e565cc65131b595a7e2b840c5cd1d541ab116e2b27b852845b6c21"
 };
 
+// Model the public SDK's one-argument sink; decode metadata only for assertions.
+function loggedMessage(message) {
+  const start = message.indexOf(" {");
+  return start < 0 ? [message, {}] : [message.slice(0, start), JSON.parse(message.slice(start + 1))];
+}
+
 function harness(pluginConfig = {}, loggerOverride) {
   const tools = [];
   const hooks = [];
@@ -57,7 +63,7 @@ function harness(pluginConfig = {}, loggerOverride) {
   const commands = [];
   const api = {
     pluginConfig,
-    logger: loggerOverride ?? { debug() {}, info(message, fields) { infos.push([message, fields]); }, warn(message, fields) { warnings.push([message, fields]); } },
+    logger: loggerOverride ?? { debug() {}, info(message) { infos.push(loggedMessage(message)); }, warn(message) { warnings.push(loggedMessage(message)); } },
     registerTool(tool) { tools.push(tool); },
     registerCommand(command) { commands.push(command); },
     registerContextEngine(id, factory) { contextEngines.push({ id, factory }); },
@@ -153,7 +159,7 @@ test("ContextEngine is registered only after explicit opt-in", () => {
 
 test("ContextEngine capture failures reach the gateway logger with bounded metadata only", async () => {
   const warnings = [];
-  const runtime = new PluginRuntime({ dbPath: ":memory:", contextEngine: { enabled: true } }, { debug() {}, info() {}, warn(message, fields) { warnings.push([message, fields]); } });
+  const runtime = new PluginRuntime({ dbPath: ":memory:", contextEngine: { enabled: true } }, { debug() {}, info() {}, warn(message) { warnings.push(loggedMessage(message)); } });
   await runtime.contextEngine.ingestBatch({ sessionId: "oversized", messages: Array.from({ length: 513 }, () => ({ role: "user", content: "must-not-be-logged" })) });
   assert.deepEqual(warnings, [["ContextEngine capture skipped", { source: "ingest_batch", category: "invalid_input", messageCount: 512 }]]);
   assert.doesNotMatch(JSON.stringify(warnings), /must-not-be-logged/);
@@ -567,7 +573,7 @@ test("plugin runtime logs only bounded embedding failure metadata and remains fa
   const warnings = [];
   globalThis.fetch = async () => new Response("secret provider body", { status: 503 });
   const runtime = new PluginRuntime({ dbPath: ":memory:", embeddings: { enabled: true } }, {
-    warn(message, fields) { warnings.push([message, fields]); }
+    warn(message) { warnings.push(loggedMessage(message)); }
   });
   const graph = runtime.openGraph();
   try {

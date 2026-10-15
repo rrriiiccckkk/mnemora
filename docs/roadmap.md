@@ -1,26 +1,62 @@
 # Mnemora Roadmap
 
-## Current development sequence (2026-10-10)
+## Current development sequence (2026-10-15)
 
-Installed/released baseline: v1.32.11 (`f88f3b1`), with exact-commit
-Linux/Windows CI and formal Release verified. Installation acceptance confirmed
-the project adviser, historical-state interpretation and public provider usage.
+Verified released and currently installed baseline: **v1.32.17** (`a22d87f`).
+Exact-commit CI `38661328410` passed on Linux/Windows; Release `38674895683`
+published a verified tgz and SHA256SUMS. The downloaded installation archive was
+independently checked: schema85, 492 distribution files, matching source commit
+and checksum. Earlier dated sections below are historical evidence, not the
+current baseline. Daily installation does not itself prove active runtime state.
 
-Continue with prospective new development tasks. The first new task fixes
-reported input/cache usage being lost when output is zero or the CLI exits
-nonzero. Preserve failed-call status, unknown usage and partial-batch coverage;
-validate with synthetic failures rather than inducing paid provider failures.
-Record source-verified recall, actual work and adviser overhead separately.
-The four historical comparison cases and repeat acceptance questions do not
-count as independent new tasks or prove development efficiency gains.
+Completed foundations: temporal/source-history retrieval (1.32.13), configurable
+semantic memory-admission API (1.32.14), classifier observation plumbing
+(1.32.15), subtraction-only recall relevance shadow P0 (1.32.16), and final
+installable-artifact checks/content-keyed project snapshots (1.32.17).
+These establish contracts and safeguards, not classifier quality or task benefit.
 
-Ordinary completed development is submitted and published after full checks
-and exact-commit Linux/Windows CI under the user's standing authorization.
-v1.33 remains gated by the existing preregistered value evidence; daily-host
-deployment and live policy changes remain separate.
+### v1.32.18: usable observation and independent evaluation
 
-The following dated plan records the formal evidence milestone and historical
-release sequence; it does not supersede the current installed baseline.
+This functional milestone bundles Node26 compatibility with repaired SDK logging,
+an offline paired relevance evaluator and a bounded isolated HTTP trial command.
+Local checks and exact-commit release evidence are recorded at delivery; the
+version is not a claim of independent model quality or realized savings.
+
+- The SDK adapter serializes bounded scalar metadata in the single public message
+  argument. The real Gateway test checks metadata survives; classifier tests use
+  a one-argument sink and assert closed content-free observation fields.
+- The isolated trial against the currently configured admission service used
+  synthetic recall inputs and returned `http_error` in 862 ms. Original selection
+  was retained, no retry was made, usage unknown. Daily recall shadow remains off.
+- [Independent evaluation](recall-relevance-evaluation.md) reports harmful
+  deletion, baseline/suggested misses, paired task completion and net costs after
+  adjudication, retries and remediation. Tuning IDs are excluded from held-out
+  metrics; suggestions may only remove original references. Missing independent
+  labels, task outcomes or costs withhold review. The included synthetic example
+  deliberately withholds review and cannot establish quality or savings.
+- Node26 is the local default; Node24/26 Linux/Windows exact-commit CI and final
+  archive checks remain required before publication. This is not a Node-only patch.
+
+Next work is evidence collection, not enabling another policy knob: preregister
+reviewed/deidentified independent cases, provenance, deduplicated tuning/test
+split, service/model/prompt/policy, budgets and numerical limits before held-out
+runs. Cover Chinese, negation/corrections, cross-task ambiguity, temporal validity
+and sensitive cases. Resolve service HTTP compatibility before collecting model
+quality results. Measure paired tasks and complete costs; agreement is sanity
+only. Keep provenance and prior plan freezing in reviewable external records:
+ID disjointness and a plan digest cannot authenticate reviewer independence.
+
+Recall filtering remains unavailable in P0. A future explicit, reversible filter
+requires the independent relevance gate; escalation cancellation requires its own
+evaluation. The v1.33 governed ReasoningMemory milestone still requires the
+existing preregistered real task-resume value evidence. Passing a classifier
+contract or relevance evaluation does not satisfy that separate value gate.
+Do not rename historical v1.33 evidence requirements into a classifier-only gate.
+
+Unresolved operational items are tracked separately: historical host-owned
+session-rebound records were not repaired; project-memory preflight has recently
+reported a source/dist fingerprint mismatch. Neither is established as a Node26
+failure. Reproduce in isolation before claiming causality or changing a live host.
 
 ## Current release plan (2026-10-01)
 
@@ -431,7 +467,7 @@ public surface or data behavior.
 - Move portable database replacement into a dedicated recovery service. It
   retains schema compatibility checks, one transaction, derived-index rebuild,
   and the existing bounded `restore_failed` error contract.
-- Validate the complete release gate on Node 24 for both Ubuntu and Windows.
+- Validate the complete release gate on Node 24 and 26 for both Ubuntu and Windows.
   Browser installation remains platform-specific; no runtime dependency or
   configuration default changes.
 - This is deliberately the first slice, not a claim that Store decomposition

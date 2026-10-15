@@ -1,10 +1,10 @@
 {
   "name": "mnemora",
-  "version": "1.32.17",
+  "version": "1.32.18",
   "description": "Local-first, evidence-first memory runtime for persistent OpenClaw agents.",
   "type": "module",
   "engines": {
-    "node": ">=24.15.0 <25"
+    "node": ">=24.15.0 <25 || >=25.9.0"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -42,7 +42,9 @@
     "dev:memory": "node scripts/project-memory.mjs",
     "prepack": "node scripts/build-package.mjs",
     "release:pack": "node scripts/release-pack.mjs",
-    "package:verify": "node scripts/verify-package.mjs"
+    "package:verify": "node scripts/verify-package.mjs",
+    "evaluate:recall-relevance": "node scripts/evaluate-recall-relevance.mjs",
+    "trial:recall-relevance": "node scripts/trial-recall-relevance.mjs"
   },
   "keywords": [
     "openclaw",
@@ -98,7 +100,10 @@
     "skills/",
     "LICENSE",
     "scripts/package-artifact.mjs",
-    "scripts/verify-package.mjs"
+    "scripts/verify-package.mjs",
+    "scripts/evaluate-recall-relevance.mjs",
+    "scripts/trial-recall-relevance.mjs",
+    "fixtures/recall-relevance/"
   ],
   "openclaw": {
     "extensions": [

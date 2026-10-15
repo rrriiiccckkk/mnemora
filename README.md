@@ -25,9 +25,9 @@ Mnemora is an independent implementation informed by the public ideas behind
 
 ## Quick start
 
-Requires OpenClaw `2026.9.2+` and Node.js `24.15.0+` on Node 24 (`>=24.15.0 <25`).
-Node 24.14 is unsupported; upgrade and restart the host rather than bypassing its check.
-Development and CI use Node 24.19.0. See the
+Requires OpenClaw `2026.9.2+` and Node.js `24.15.0+` on 24.x, or `25.9.0+` (including Node 26).
+Node 26.5.0 is the local default; no downgrade to Node 24 is required.
+CI validates Node 24.19.0 and 26.5.0 on Linux and Windows. See the
 [usage guide](docs/usage-guide.md) for compatibility details.
 
 ### Build
@@ -197,3 +197,8 @@ Optional semantic admission classification uses one configurable systemone-compa
 Shadow classifier calls emit content-free `semantic classification observed` info logs with status, recommendation, elapsed time and known/unknown token usage. See [runtime investigation](docs/runtime-session-rebound.md).
 
 Optional [recall relevance shadow](docs/recall-relevance-shadow.md) evaluates already-admitted structured candidates, records content-free subtraction advice, and preserves the actual prompt unchanged. It is disabled by default and separate from ingestion classification.
+
+Independent [recall relevance evaluation](docs/recall-relevance-evaluation.md)
+reports harmful deletions, baseline/suggested misses, paired task completion and
+net cost after adjudication, retries and remediation. Missing evidence keeps the
+review gate closed; isolated protocol trials do not enable live filtering.

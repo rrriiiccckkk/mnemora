@@ -11,7 +11,7 @@ export function filesUnder(root, directory = root) {
   });
 }
 export function sourceFingerprint(root) {
-  const paths = [...filesUnder(join(root, "src")).map(p => `src/${p}`), "package.json", "package-lock.json", "openclaw.plugin.json", "tsconfig.json", "tsconfig.inspector.json", "scripts/build-package.mjs", "scripts/package-artifact.mjs", "scripts/build-inspector.mjs", "scripts/ensure-cli-executable.mjs"].sort();
+  const paths = [...filesUnder(join(root, "src")).map(p => `src/${p}`), "package.json", "package-lock.json", "openclaw.plugin.json", "tsconfig.json", "tsconfig.inspector.json", "scripts/build-package.mjs", ...(existsSync(join(root, "scripts/node-compat.mjs")) ? ["scripts/node-compat.mjs"] : []), "scripts/package-artifact.mjs", "scripts/build-inspector.mjs", "scripts/ensure-cli-executable.mjs"].sort();
   return sha256(JSON.stringify(paths.map(path => [path, sha256(readFileSync(join(root, path)))])));
 }
 export function runtimeMetadata(root) {

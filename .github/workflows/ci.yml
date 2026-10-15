@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        node: ["24.19.0"]
+        node: ["24.19.0", "26.5.0"]
     steps:
       - uses: actions/checkout@v4
       - if: runner.os == 'Linux'

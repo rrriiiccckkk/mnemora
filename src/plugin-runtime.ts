@@ -22,8 +22,7 @@ import type { CompletedTurn, ContextAssemblyInput } from "./context-engine/lifec
 import { sessionWriteDisposition } from "./journal/session-policy.js";
 import { GraphHygieneService } from "./hygiene/service.js";
 
-type Scalar = string | number | boolean | null | undefined;
-type SdkLogger = { debug?(message: string, fields?: Record<string, unknown>): void; info?(message: string, fields?: Record<string, unknown>): void; warn?(message: string, fields?: Record<string, unknown>): void };
+type SdkLogger = Pick<OpenClawPluginApi["logger"], "debug" | "info" | "warn">;
 type UnknownRecord = Record<string, unknown>;
 type ContextEngineFactoryContext = Parameters<Parameters<OpenClawPluginApi["registerContextEngine"]>[1]>[0];
 
@@ -57,8 +56,14 @@ class RuntimeStoppedError extends Error {
 
 function safeLogger(logger: SdkLogger): SafeLogger {
   const invoke = (level: "debug" | "info" | "warn", message: string, fields: Record<string, unknown> = {}) => {
-    const scalars = Object.fromEntries(Object.entries(fields).filter((entry): entry is [string, Scalar] => entry[1] == null || ["string", "number", "boolean"].includes(typeof entry[1])));
-    try { logger[level]?.(message, scalars); } catch { /* logging is fail-open */ }
+    // The public SDK logger accepts a single string. A second argument is lost.
+    const scalars = Object.fromEntries(Object.entries(fields).slice(0, 32).flatMap<[string, string | number | boolean | null]>(([key, value]) => {
+      if (!/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(key)) return [];
+      if (value === null || typeof value === "boolean" || typeof value === "number" && Number.isFinite(value)) return [[key, value]];
+      if (typeof value === "string") return [[key, value.slice(0, 256)]];
+      return [];
+    }));
+    try { logger[level]?.(message.slice(0, 512) + (Object.keys(scalars).length ? ` ${JSON.stringify(scalars)}` : "")); } catch { /* logging is fail-open */ }
   };
   return { debug: (message, fields) => invoke("debug", message, fields), info: (message, fields) => invoke("info", message, fields), warn: (message, fields) => invoke("warn", message, fields) };
 }

@@ -1,8 +1,9 @@
 # Developing Mnemora
 
 Mnemora is a local-first, evidence-first memory runtime for OpenClaw. Read
-`README.md` for behavior and `docs/roadmap.md` for direction. Use Node 24
-(`.nvmrc`); CI validates Node 24. Global OpenClaw may be newer than the pinned
+`README.md` for behavior and `docs/roadmap.md` for direction. Node 26.5.0 is the local default
+(`.nvmrc`); CI validates Node 24.19.0 and 26.5.0 on Linux and Windows.
+Do not require a downgrade to Node 24; supported patch lines are declared in package.json. Global OpenClaw may be newer than the pinned
 development dependency: report both versions when investigating compatibility.
 
 ## Architecture and invariants
@@ -66,3 +67,6 @@ before publishing; report the final commit and release. Ask only for missing
 information that is necessary, destructive/out-of-scope actions or enforced
 permission requests. Daily-host deployment and live memory policy changes
 remain separate from publishing.
+
+The pending Node compatibility changes must be bundled with the next functional
+milestone; do not publish a separate Node-only patch unless explicitly requested.

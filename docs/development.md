@@ -1,6 +1,6 @@
 # Local development
 
-Use Node 24, matching CI. `.nvmrc` supports `nvm install && nvm use`.
+Use the installed Node 26.5.0 or a supported Node patch line. `.nvmrc` defaults to 26.5.0; CI covers 24.19.0 and 26.5.0 on Linux and Windows. Do not downgrade a working Node 26 host just to build this plugin.
 Then run `npm ci`. Each worktree needs its own dependencies and build output.
 
 ## Verification

@@ -4,6 +4,7 @@ import { SemanticMemoryClassifier, normalizeSemanticClassifierConfig } from "../
 import { Mnemora } from "../dist/tools.js";
 import { normalizeConfig } from "../dist/config.js";
 import plugin from "../dist/plugin.js";
+import { PluginRuntime as PluginRuntimeForLogging } from "../dist/plugin-runtime.js";
 import { Check } from "typebox/value";
 import { readFileSync, writeFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
@@ -209,20 +210,30 @@ test("runtime ordinary and admitted graphs expose classifier observation at info
   const { PluginRuntime } = await import("../dist/plugin-runtime.js");
   const dir = createTempDir("classifier-runtime-");
   const logs = [];
-  const runtime = new PluginRuntime({ dbPath: join(dir, "memory.db"), cognition: { admission: { semanticClassifier: { ...config, endpoint: "" } } } }, { info: (message, fields) => logs.push({ message, fields }) });
+  const runtime = new PluginRuntime({ dbPath: join(dir, "memory.db"), cognition: { admission: { semanticClassifier: { ...config, endpoint: "" } } } }, { info: message => logs.push(message) });
   try {
     for (const open of [() => runtime.openGraph(), () => runtime.openGraphForAdmitted()]) {
       const graph = open();
       try { assert.equal((await graph.classifyMemoryCandidate(request)).status, "configuration_error"); }
       finally { graph.close(); }
     }
-    const observed = logs.filter(log => log.message === "semantic classification observed");
+    const observed = logs.filter(log => log.startsWith("semantic classification observed "));
     assert.equal(observed.length, 2);
     for (const log of observed) {
-      assert.equal(log.message, "semantic classification observed");
-      assert.equal(log.fields.status, "configuration_error");
-      assert.equal(log.fields.usageKnown, false);
-      assert.deepEqual(Object.keys(log.fields).sort(), ["applied", "elapsedMs", "inputTokens", "outputTokens", "recommendation", "status", "usageKnown"]);
+      const fields = JSON.parse(log.slice("semantic classification observed ".length));
+      assert.equal(fields.status, "configuration_error");
+      assert.equal(fields.usageKnown, false);
+      assert.deepEqual(Object.keys(fields).sort(), ["applied", "elapsedMs", "inputTokens", "outputTokens", "recommendation", "status", "usageKnown"]);
     }
   } finally { runtime.stop(); } // Native fixtures are removed by the parent runner after exit.
+});
+
+test("SDK log adapter bounds scalar metadata, omits objects and survives throwing sinks", () => {
+  const messages = [];
+  const runtime = new PluginRuntimeForLogging({ dbPath: ":memory:" }, { info: message => messages.push(message) });
+  runtime.logger.info("bounded", { status: "x".repeat(1000), count: 2, ok: true, error: new Error("private-error"), nested: { excerpt: "private-source" }, invalid: Infinity });
+  const fields = JSON.parse(messages.at(-1).slice("bounded ".length));
+  assert.deepEqual(fields, { status: "x".repeat(256), count: 2, ok: true });
+  assert.doesNotMatch(messages.at(-1), /private|Infinity/);
+  runtime.stop();
 });

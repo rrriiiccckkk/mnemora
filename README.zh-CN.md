@@ -18,9 +18,9 @@ Mnemora 是借鉴 `lossless-claw` 与 `memory-lancedb-pro` 公开思路的独立
 
 ## 快速开始
 
-需要 OpenClaw `2026.9.2+` 与 Node.js `24.15.0+`，使用 Node 24（`>=24.15.0 <25`）。
-Node 24.14 不受支持；请升级并重启宿主，不绕过其检查。
-开发与 CI 使用 Node 24.19.0；兼容性细节见[使用指南](docs/usage-guide.zh-CN.md)。
+需要 OpenClaw `2026.9.2+` 与 Node.js 24.x 的 `24.15.0+`，或 `25.9.0+`（包含 Node 26）。
+本地默认 Node 26.5.0，无需降级到 Node 24。
+CI 在 Linux、Windows 验证 Node 24.19.0 和 26.5.0；兼容性细节见[使用指南](docs/usage-guide.zh-CN.md)。
 
 ### 构建
 
@@ -167,3 +167,5 @@ shadow 分类调用会输出不含正文的 `semantic classification observed` i
 可选的[召回相关性 shadow](docs/recall-relevance-shadow.md)对已准入结构化候选记录不含正文的减法建议，实际注入保持不变；默认关闭，与记忆准入分类独立。
 
 安装请使用 GitHub Release 的 `mnemora-<版本>.tgz` 附件和 `SHA256SUMS`，不要把源码压缩包当成已构建插件。源码更新后需要重新构建；`npm run release:pack` 会清理旧 dist、重建并解包核验最终安装包。仅版本号一致不能证明产物一致。
+
+独立[召回相关性评估](docs/recall-relevance-evaluation.md)报告误删、原选择与建议选择的漏召回、配对任务完成率，以及扣除裁决、重试和补救后的净成本。证据缺失时评估不通过；隔离协议试跑不会开启日常过滤。

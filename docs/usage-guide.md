@@ -65,10 +65,7 @@ public capabilities and explicit provider adapters.
 
 ## Quick start
 
-Mnemora requires OpenClaw `2026.9.2+` and Node.js `24.15.0+` on the Node 24
-release line (`>=24.15.0 <25`). OpenClaw refuses Node `24.14` and older Node 24
-patches because their embedded SQLite is not safe for WAL. Upgrade Node, then
-restart the OpenClaw process that loads the plugin; do not bypass that check.
+Mnemora requires OpenClaw `2026.9.2+` and supports Node 24.x from `24.15.0`, or Node `25.9.0+`, including Node 26. The local default is 26.5.0; CI covers 24.19.0 and 26.5.0 on Linux and Windows. The lower patch boundaries preserve the host SQLite safety requirements; they do not require a downgrade from Node 26.
 
 ```bash
 git clone https://github.com/rrriiiccckkk/mnemora.git
@@ -622,7 +619,7 @@ npm run verify
 
 The verification suite runs typechecking, unit tests, build, smoke tests,
 plugin validation, compatibility checks, and offline quality benchmarks on
-Node.js 24.19.0 (the supported Node 24 range starts at 24.15.0).
+Node.js 24.19.0 and 26.5.0 (the supported patch boundaries are 24.15.0 on 24.x, or 25.9.0+).
 
 ## License
 

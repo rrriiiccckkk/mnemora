@@ -14,7 +14,7 @@ function run(command, args, cwd) {
 }
 function fixture() {
   const dir = createTempDir("package-build-");
-  for (const file of ["package.json", "package-lock.json", "openclaw.plugin.json", "tsconfig.json", "tsconfig.inspector.json", "scripts/build-package.mjs", "scripts/package-artifact.mjs", "scripts/build-inspector.mjs", "scripts/ensure-cli-executable.mjs", "scripts/verify-package.mjs"]) {
+  for (const file of ["package.json", "package-lock.json", "openclaw.plugin.json", "tsconfig.json", "tsconfig.inspector.json", "scripts/build-package.mjs", "scripts/node-compat.mjs", "scripts/package-artifact.mjs", "scripts/build-inspector.mjs", "scripts/ensure-cli-executable.mjs", "scripts/verify-package.mjs"]) {
     mkdirSync(dirname(join(dir, file)), { recursive: true }); cpSync(join(root, file), join(dir, file));
   }
   mkdirSync(join(dir, "src/inspector/client"), { recursive: true });
