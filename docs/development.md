@@ -117,7 +117,7 @@ under the ignored `.dogfood/project-mnemora` directory. It starts its own loopba
 Gateway for each request and stops it afterward. Every invocation uses a fresh
 session, so prior decisions must be retrieved from durable project memory.
 Unlike `dogfood:mnemora`, the database survives later invocations. The installed
-Mnemora package is snapshotted by version; `MNEMORA_PROJECT_PLUGIN` overrides its
+Mnemora package is snapshotted by version plus a distribution-content fingerprint; `MNEMORA_PROJECT_PLUGIN` overrides its
 path. The command needs built repository output and the installed host on PATH.
 
 It uses `project:mnemora`, normal bounded unified recall with shadow telemetry,
@@ -259,3 +259,11 @@ Unified current claim/decision collection applies declared validity in SQL befor
 ### Semantic classifier API (1.32.14)
 
 See [semantic-classifier.md](semantic-classifier.md) for the single configurable systemone contract, public API and database-free operator command. Shadow reports are advisory only, returned to the caller and not persisted as a new belief or quality dataset. Defaults stay off; offline tests use synthetic responses and isolated HTTP.
+
+## Verified distribution packages
+
+`npm run build` and npm's `prepack` both clean the generated dist directory before compiling. A build manifest records source-input fingerprints, runtime/package version, schema and SHA-256 hashes of every distribution file. `npm run package:verify` verifies the current package; `node scripts/verify-package.mjs /path/to/installed/mnemora` can check an extracted release without loading the plugin or opening a database. When source is available it must match the manifest too.
+
+`npm run release:pack` invokes npm pack with prepack enabled, unpacks the actual tarball, verifies its runtime/schema/file hashes against the built distribution and writes `.tmp/release/SHA256SUMS`. Both CI platforms execute this gate; Release builds and verifies the exact tagged commit and uploads the tgz and checksum. Source-code archives contain no dist and must be built. Direct filesystem copying or `--ignore-scripts` can bypass npm lifecycle checks; use the verified tgz and validate it rather than relying on file timestamps or package.version.
+
+The 1.32.16 investigation found the currently installed source and dist both at schema85, with dist rebuilt later than package metadata. That snapshot cannot prove the earlier schema84 state or its origin. The prior release gate checked source metadata and tests but did not publish/verify a final installable archive; 1.32.17 closes that gap. Independent project snapshots now use content fingerprints, so rebuilding under an unchanged version cannot silently reuse an older snapshot. No daily host service, configuration or database is changed by these checks.

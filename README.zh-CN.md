@@ -165,3 +165,5 @@ Journal 召回支持 ASCII 技术标识符的大小写匹配；明确匹配任�
 shadow 分类调用会输出不含正文的 `semantic classification observed` info 日志，记录状态、建议、耗时及已知/未知 token 用量。参见[运行排查](docs/runtime-session-rebound.md)。
 
 可选的[召回相关性 shadow](docs/recall-relevance-shadow.md)对已准入结构化候选记录不含正文的减法建议，实际注入保持不变；默认关闭，与记忆准入分类独立。
+
+安装请使用 GitHub Release 的 `mnemora-<版本>.tgz` 附件和 `SHA256SUMS`，不要把源码压缩包当成已构建插件。源码更新后需要重新构建；`npm run release:pack` 会清理旧 dist、重建并解包核验最终安装包。仅版本号一致不能证明产物一致。

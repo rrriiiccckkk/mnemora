@@ -1,3 +1,4 @@
+import { distributionFingerprint, runtimeMetadata, verifyDistribution } from "./package-artifact.mjs";
 import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
 import { projectMeasurement } from "./project-measurement.mjs";
@@ -82,7 +83,14 @@ const configPath = join(state, "openclaw.json"), dbPath = join(directory, "memor
 const pluginSource = project ? (process.env.MNEMORA_PROJECT_PLUGIN || join(homedir(), ".openclaw", "extensions", "mnemora")) : root;
 const pluginVersion = JSON.parse(readFileSync(join(pluginSource, "package.json"), "utf8")).version;
 if (!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(pluginVersion)) throw new Error("Invalid project plugin version");
-const pluginRoot = join(directory, `plugin-${pluginVersion}`);
+runtimeMetadata(pluginSource);
+if (existsSync(join(pluginSource, "dist/build-manifest.json"))) verifyDistribution(pluginSource);
+else if (existsSync(join(pluginSource, "src/schema.ts"))) {
+  const sourceSchema = Number(readFileSync(join(pluginSource, "src/schema.ts"), "utf8").match(/SUPPORTED_SCHEMA_VERSION\s*=\s*(\d+)/)?.[1]);
+  if (runtimeMetadata(pluginSource).schema !== sourceSchema) throw new Error("Installed source and dist schema mismatch; rebuild or install the verified release archive");
+}
+const pluginFingerprint = distributionFingerprint(pluginSource);
+const pluginRoot = join(directory, `plugin-${pluginVersion}-${pluginFingerprint.slice(0, 16)}`);
 if (!existsSync(pluginRoot)) {
   const staging = `${pluginRoot}.install-${randomUUID()}`;
   mkdirSync(staging);
@@ -90,6 +98,7 @@ if (!existsSync(pluginRoot)) {
   symlinkSync(join(pluginSource, "node_modules"), join(staging, "node_modules"), process.platform === "win32" ? "junction" : "dir");
   renameSync(staging, pluginRoot);
 }
+if (distributionFingerprint(pluginRoot) !== pluginFingerprint) throw new Error("Plugin snapshot fingerprint mismatch");
 // Explicit allowlist: never inherit provider keys, channel tokens, host profiles,
 // shell-env import settings, or credentials from the developer's environment.
 const env = Object.fromEntries(["PATH", "SystemRoot", "WINDIR"].filter(key => process.env[key]).map(key => [key, process.env[key]]));

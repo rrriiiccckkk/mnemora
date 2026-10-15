@@ -39,6 +39,8 @@ npm ci
 npm run build
 ```
 
+Prefer the `mnemora-<version>.tgz` asset from GitHub Releases (not the source-code archive). Each asset is cleanly rebuilt, unpacked and verified before upload; `SHA256SUMS` is provided. For a source checkout, build after every update and use `npm run release:pack` to create a verified installable archive. A version string alone does not verify `dist/`.
+
 Install the built plugin through your OpenClaw plugin workflow, then merge
 this into the host configuration:
 

@@ -58,6 +58,9 @@ jobs:
               }
               await sleep(15_000);
             }
+      - run: npm ci
+      - name: Build and verify installable archive
+        run: npm run release:pack
       - name: Create or update GitHub Release
         uses: actions/github-script@v7
         env:
@@ -90,3 +93,8 @@ jobs:
               if (error?.status !== 404) throw error;
               await github.rest.repos.createRelease(release);
             }
+      - name: Upload verified installation archive and checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release upload "$RELEASE_TAG" .tmp/release/mnemora-*.tgz .tmp/release/SHA256SUMS --clobber

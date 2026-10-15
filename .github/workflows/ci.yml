@@ -35,3 +35,4 @@ jobs:
       - if: runner.os == 'Windows'
         run: npx playwright install chromium
       - run: npm run verify
+      - run: npm run release:pack

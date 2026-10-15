@@ -1,6 +1,6 @@
 {
   "name": "mnemora",
-  "version": "1.32.16",
+  "version": "1.32.17",
   "description": "Local-first, evidence-first memory runtime for persistent OpenClaw agents.",
   "type": "module",
   "engines": {
@@ -9,7 +9,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json && node scripts/ensure-cli-executable.mjs && npm run build:inspector",
+    "build": "node scripts/build-package.mjs",
     "build:inspector": "node scripts/build-inspector.mjs",
     "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.inspector.json --noEmit",
     "plugin:build": "npm run build",
@@ -39,7 +39,10 @@
     "verify:fast": "node scripts/verify.mjs fast",
     "test:host": "npm run build && node scripts/test-openclaw-host.mjs",
     "dogfood:mnemora": "npm run build && node scripts/test-openclaw-host.mjs --dogfood",
-    "dev:memory": "node scripts/project-memory.mjs"
+    "dev:memory": "node scripts/project-memory.mjs",
+    "prepack": "node scripts/build-package.mjs",
+    "release:pack": "node scripts/release-pack.mjs",
+    "package:verify": "node scripts/verify-package.mjs"
   },
   "keywords": [
     "openclaw",
@@ -93,7 +96,9 @@
     "scripts/task-resume-experiment.mjs",
     "fixtures/task-resume-experiment-bundle-v1.json",
     "skills/",
-    "LICENSE"
+    "LICENSE",
+    "scripts/package-artifact.mjs",
+    "scripts/verify-package.mjs"
   ],
   "openclaw": {
     "extensions": [
