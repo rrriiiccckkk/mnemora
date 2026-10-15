@@ -43,7 +43,8 @@ with `{evidence:"synthetic", query, candidates:[{title,excerpt}]}` and environme
 variables `MNEMORA_RELEVANCE_ENDPOINT`, `MNEMORA_RELEVANCE_MODEL`, optionally
 `MNEMORA_RELEVANCE_API_KEY`. Endpoint/model configuration uses the same single API
 contract for local and remote services. One batch, up to eight short candidates,
-three-second deadline, no retries. It opens no database, reads no host config,
+three-second default deadline (configurable with `MNEMORA_RELEVANCE_TIMEOUT_MS`,
+100–10000 ms), no retries. It opens no database, reads no host config,
 and emits only content-free shadow observations. A failed trial exits 2 and
 preserves baseline advice. This tests protocol compatibility only; it provides
 no independent quality, savings or deployment evidence. Never put production

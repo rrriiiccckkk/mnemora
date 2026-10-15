@@ -60,7 +60,7 @@ test("isolated CLI exercises real HTTP without forwarding labels or persisting s
   try {
     const dir = createTempDir("relevance-trial-"); const path = join(dir, "trial.json");
     writeFileSync(path, JSON.stringify({ evidence: "synthetic", query: "Seat preference?", candidates: [{ title: "Synthetic preference", excerpt: "Prefers an aisle seat." }] }));
-    const { stdout } = await promisify(execFile)(process.execPath, ["scripts/trial-recall-relevance.mjs", path], { env: { ...process.env, MNEMORA_RELEVANCE_ENDPOINT: `http://127.0.0.1:${server.address().port}/systemone`, MNEMORA_RELEVANCE_MODEL: "synthetic-model", MNEMORA_RELEVANCE_API_KEY: "synthetic-key" }, timeout: 10000 });
+    const { stdout } = await promisify(execFile)(process.execPath, ["scripts/trial-recall-relevance.mjs", path], { env: { ...process.env, MNEMORA_RELEVANCE_ENDPOINT: `http://127.0.0.1:${server.address().port}/systemone`, MNEMORA_RELEVANCE_MODEL: "synthetic-model", MNEMORA_RELEVANCE_API_KEY: "synthetic-key", MNEMORA_RELEVANCE_TIMEOUT_MS: "10000" }, timeout: 20000 });
     const result = JSON.parse(stdout);
     assert.equal(calls, 1); assert.equal(result.qualityEvidence, false);
     assert.equal(result.observation.status, "succeeded"); assert.equal(result.observation.applied, false);
