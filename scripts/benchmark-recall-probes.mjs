@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import { join } from "node:path";
-import { createTempDir } from "../tests/helpers/temp.mjs";
 import { MnemoraContextEngine } from "../dist/context-engine/engine.js";
 import { normalizeConfig } from "../dist/config.js";
 import { Mnemora } from "../dist/tools.js";
@@ -12,7 +10,7 @@ import { Mnemora } from "../dist/tools.js";
 // Output is metrics-only: no fixture text is printed.
 const graphs = [];
 function engine(extra = {}) {
-  const config = normalizeConfig({ dbPath: join(createTempDir("recall-probes-"), "m.db"), mode: "standalone", conversationJournal: { enabled: true }, contextEngine: { enabled: true }, episodicMemory: { enabled: true }, unifiedRetrieval: { enabled: true, shadowMode: false, tokenBudget: 800, maxItems: 8, ...extra } });
+  const config = normalizeConfig({ dbPath: ":memory:", mode: "standalone", conversationJournal: { enabled: true }, contextEngine: { enabled: true }, episodicMemory: { enabled: true }, unifiedRetrieval: { enabled: true, shadowMode: false, tokenBudget: 800, maxItems: 8, ...extra } });
   const graph = new Mnemora({ config });
   graphs.push(graph);
   const shared = new Proxy(graph, { get: (target, property) => property === "close" ? () => undefined : Reflect.get(target, property, target) });

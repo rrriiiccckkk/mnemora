@@ -9,6 +9,19 @@ Real daily logs show scalar metadata and ContextEngine activation ready. No new
 classifier event was observed during that installation check, so classifier
 outcomes were not inferred from lifecycle logs.
 
+### v1.34.0: semantic journal recall, relevance gating, knowledge-update links
+
+Opt-in semantic journal recall (schema v87 chunk vectors, local Ollama) fused
+with bm25. A lexical hit must be semantically close, and a 0.15 relevance floor
+applies with embeddings. On a 60-question LongMemEval_S subset with `all-minilm`,
+preference session hit is 53.3%→73.3% and foreign-question attachment
+85.0%→66.7%, with other question types unchanged. Without embeddings, recall
+matches 1.33 (93.6% / 82.6% on 500 questions): a lexical floor alone was
+measured to cost more than it saves. Earlier related records carry
+`newer_related`, Chinese compound prompts match, and fixed recall probes run in
+CI. Next: report swallowed errors, end-to-end answer accuracy with a reading
+model, a multilingual model calibration, and abstention.
+
 ### v1.33.0: relevance-ranked recall, agent isolation, slimming
 
 Automatic recall ranks journal evidence with a chunked bm25 index (schema v86);
