@@ -68,5 +68,15 @@ information that is necessary, destructive/out-of-scope actions or enforced
 permission requests. Daily-host deployment and live memory policy changes
 remain separate from publishing.
 
-The pending Node compatibility changes must be bundled with the next functional
+Node compatibility changes must be bundled with the next functional
 milestone; do not publish a separate Node-only patch unless explicitly requested.
+
+## Real Jev trials on this Mac
+
+The user confirmed Jev API access requires the configured proxy. For isolated
+real-service tests, inspect system proxy settings and explicitly enable Node's
+environment proxy support (`NODE_USE_ENV_PROXY=1`, `HTTPS_PROXY`/`HTTP_PROXY`,
+loopback `NO_PROXY`). The observed system proxy is 127.0.0.1:7897; verify it
+before use rather than hardcoding it in runtime defaults. Direct HTTP451 did not
+establish a Jev model failure; the proxied synthetic trial succeeded. Do not
+change daily host configuration or enable daily paid calls to perform a trial.

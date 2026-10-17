@@ -23,5 +23,5 @@ try {
   if (clean && /^[a-f0-9]{40}$/.test(head)) sourceCommit = head;
 } catch { /* source exports have no Git checkout */ }
 const files = Object.fromEntries(filesUnder(join(root, "dist")).map(path => [path, sha256(readFileSync(join(root, "dist", path)))]));
-writeFileSync(join(root, "dist/build-manifest.json"), JSON.stringify({ format: "mnemora-build-v1", ...metadata, sourceCommit, packageHash: sha256(readFileSync(join(root, "package.json"))), pluginManifestHash: sha256(readFileSync(join(root, "openclaw.plugin.json"))), sourceFingerprint: sourceFingerprint(root), files }, null, 2) + "\n");
+writeFileSync(join(root, "dist/build-manifest.json"), JSON.stringify({ format: "mnemora-build-v1", ...metadata, sourceCommit, packageHash: sha256(readFileSync(join(root, "package.json"))), pluginManifestHash: sha256(readFileSync(join(root, "openclaw.plugin.json"))), sourceFingerprint: sourceFingerprint(root), sourceFingerprintFormat: "canonical-json-lock-v1", files }, null, 2) + "\n");
 console.log(JSON.stringify({ build: verifyDistribution(root) }));

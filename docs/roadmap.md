@@ -1,13 +1,28 @@
 # Mnemora Roadmap
 
-## Current development sequence (2026-10-15)
+## Current development sequence (2026-10-16)
 
-Verified released and currently installed baseline: **v1.32.17** (`a22d87f`).
-Exact-commit CI `38661328410` passed on Linux/Windows; Release `38674895683`
-published a verified tgz and SHA256SUMS. The downloaded installation archive was
-independently checked: schema85, 492 distribution files, matching source commit
-and checksum. Earlier dated sections below are historical evidence, not the
-current baseline. Daily installation does not itself prove active runtime state.
+Verified installed baseline: **v1.32.18** (`0c4e04e`), schema85,494 output files
+with matching hashes. Exact-commit CI38742892304 passed all four Node24/26
+Linux/Windows jobs; Release38747009167 and downloaded archive verification passed.
+Real daily logs show scalar metadata and ContextEngine activation ready. No new
+classifier event was observed during that installation check, so classifier
+outcomes were not inferred from lifecycle logs.
+
+### v1.32.19: validation, install verification and proxy diagnosis
+
+Fix operation-specific memory validation and expose all operation fields to
+root-property tool routers. Canonicalize only lockfile JSON formatting in new
+source fingerprints; retain source, dependency and artifact integrity checks.
+Include safe numeric HTTP status observation. The user confirmed real Jev tests
+require this Mac's proxy: direct451 was followed by a successful bounded proxied
+synthetic trial (1181ms,665input/55output). The service is reachable through that
+path; this does not establish independent relevance quality or net savings.
+Local and exact-commit cross-platform checks remain release prerequisites.
+
+Next evidence work remains independent blinded gold with frozen split/protocol,
+paired task outcomes and complete costs. Synthetic trials do not open filtering.
+The daily host/configuration/policy remain separate from development releases.
 
 Completed foundations: temporal/source-history retrieval (1.32.13), configurable
 semantic memory-admission API (1.32.14), classifier observation plumbing
@@ -41,7 +56,7 @@ Next work is evidence collection, not enabling another policy knob: preregister
 reviewed/deidentified independent cases, provenance, deduplicated tuning/test
 split, service/model/prompt/policy, budgets and numerical limits before held-out
 runs. Cover Chinese, negation/corrections, cross-task ambiguity, temporal validity
-and sensitive cases. Resolve service HTTP compatibility before collecting model
+and sensitive cases. Use the verified proxy path for service compatibility trials before collecting model
 quality results. Measure paired tasks and complete costs; agreement is sanity
 only. Keep provenance and prior plan freezing in reviewable external records:
 ID disjointness and a plan digest cannot authenticate reviewer independence.

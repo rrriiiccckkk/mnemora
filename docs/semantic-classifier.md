@@ -74,3 +74,10 @@ matches the public OpenClaw logger; the SDK does not preserve a second fields
 argument. Input/evidence text, scope, model response bodies and credentials are
 absent. Unknown usage remains `usageKnown:false`, never an inferred token count.
 Event titles from older versions may lack metadata and cannot prove success.
+
+HTTP errors now include a numeric `httpStatus` (400–599) in the operator report
+and content-free runtime observation. Provider response bodies are never logged;
+there are no automatic retries. An HTTP code describes the request path and
+cannot by itself identify a model failure. Real-service trials that require a
+proxy must launch Node with explicit environment proxy support; see the
+[isolated trial guide](recall-relevance-evaluation.md#network-proxy-for-isolated-trials).

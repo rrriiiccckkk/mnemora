@@ -267,3 +267,11 @@ See [semantic-classifier.md](semantic-classifier.md) for the single configurable
 `npm run release:pack` invokes npm pack with prepack enabled, unpacks the actual tarball, verifies its runtime/schema/file hashes against the built distribution and writes `.tmp/release/SHA256SUMS`. Both CI platforms execute this gate; Release builds and verifies the exact tagged commit and uploads the tgz and checksum. Source-code archives contain no dist and must be built. Direct filesystem copying or `--ignore-scripts` can bypass npm lifecycle checks; use the verified tgz and validate it rather than relying on file timestamps or package.version.
 
 The 1.32.16 investigation found the currently installed source and dist both at schema85, with dist rebuilt later than package metadata. That snapshot cannot prove the earlier schema84 state or its origin. The prior release gate checked source metadata and tests but did not publish/verify a final installable archive; 1.32.17 closes that gap. Independent project snapshots now use content fingerprints, so rebuilding under an unchanged version cannot silently reuse an older snapshot. No daily host service, configuration or database is changed by these checks.
+
+Build manifests from 1.32.19 use `sourceFingerprintFormat:canonical-json-lock-v1`.
+Only lockfile JSON whitespace/object-key order is canonicalized; dependency,
+version and array changes still invalidate the source fingerprint. Source files,
+output hashes and package/plugin metadata stay byte-checked. Legacy manifests
+retain their original raw-byte fingerprint rules. Rewriting lockfile formatting
+alone after installation therefore no longer makes a new-format build appear
+stale. This is not permission to ignore actual lockfile dependency changes.

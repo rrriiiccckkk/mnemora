@@ -55,3 +55,7 @@ Compare baseline and advisory-subset prompt payloads by hashes and candidate ide
 Independent paired evaluation and bounded isolated transport trials are described
 in [recall relevance evaluation](recall-relevance-evaluation.md). Synthetic
 protocol success does not open the filtering gate.
+
+HTTP failures may include `http_status` (400–599), preserved in the sanitized
+shadow record. No remote response body is stored and original selection remains
+unchanged. Codes from other statuses or outside this range are omitted.

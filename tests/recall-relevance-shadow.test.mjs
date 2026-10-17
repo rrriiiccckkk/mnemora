@@ -196,3 +196,26 @@ test("runtime cancellation propagates and stateless/excluded assembly never send
   await engine.assemble({ sessionId: "ordinary", prompt: "Mnemora", messages: [{ role: "user", agentId: "worker", content: "Mnemora" }], tokenBudget: 1000 });
   assert.equal(assemblyCalls, 0);
 });
+
+test("HTTP rejection exposes status without provider body, retries or removals", async () => {
+  let calls = 0;
+  const service = new RecallRelevanceShadow({ enabled: true, endpoint: "http://127.0.0.1:8765/systemone", model: "synthetic" }, async () => { calls++; return new Response("private remote body", { status: 403 }); });
+  const candidate = { contextRef: "test:ref", scope: "test", kind: "memory-document", title: "Synthetic", excerpt: "Synthetic evidence", estimatedTokens: 1, bytes: 1, score: 1, sourceIds: [], sourceRefs: [], authority: "unknown", confidence: 1, freshness: 1, selectionReason: "lexical_match" };
+  const result = await service.evaluate("test", "synthetic query", [candidate]);
+  assert.equal(result.observation.http_status, 403); assert.equal(calls, 1);
+  assert.deepEqual(result.removeRefs, []);
+  assert.doesNotMatch(JSON.stringify(result), /private remote body/);
+});
+
+test("stored HTTP status is closed to error observations and valid status range", async () => {
+  const graph = new GraphologyStore(":memory:");
+  try {
+    const repository = new UnifiedRecallShadowRepository(graph.db);
+    const observation = (await new RecallRelevanceShadow(config, async () => new Response("private body", { status: 451 })).evaluate("default", "Mnemora", [candidate("a")])).observation;
+    const record = relevance => repository.record({ scope: "default", query: "synthetic", localCandidates: 1, localSelected: 1, localSuppressed: 0, graphCandidates: 0, graphAttached: false, attached: true, relevance });
+    record(observation); record({ ...observation, http_status: 900 }); record({ ...observation, status: "succeeded" });
+    const values = repository.list("default").items.map(x => x.relevance.http_status);
+    assert.equal(values.filter(x => x === 451).length, 1);
+    assert.equal(values.filter(x => x === undefined).length, 2);
+  } finally { graph.close(); }
+});

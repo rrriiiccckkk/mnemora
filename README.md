@@ -202,3 +202,7 @@ Independent [recall relevance evaluation](docs/recall-relevance-evaluation.md)
 reports harmful deletions, baseline/suggested misses, paired task completion and
 net cost after adjudication, retries and remediation. Missing evidence keeps the
 review gate closed; isolated protocol trials do not enable live filtering.
+
+Memory tool calls validate operation-specific arguments before opening storage;
+`search` requires `query`, while `store` requires `content`. New build fingerprints
+ignore lockfile formatting changes while detecting dependency and output changes.

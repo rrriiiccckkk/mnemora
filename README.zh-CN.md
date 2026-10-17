@@ -169,3 +169,5 @@ shadow 分类调用会输出不含正文的 `semantic classification observed` i
 安装请使用 GitHub Release 的 `mnemora-<版本>.tgz` 附件和 `SHA256SUMS`，不要把源码压缩包当成已构建插件。源码更新后需要重新构建；`npm run release:pack` 会清理旧 dist、重建并解包核验最终安装包。仅版本号一致不能证明产物一致。
 
 独立[召回相关性评估](docs/recall-relevance-evaluation.md)报告误删、原选择与建议选择的漏召回、配对任务完成率，以及扣除裁决、重试和补救后的净成本。证据缺失时评估不通过；隔离协议试跑不会开启日常过滤。
+
+记忆工具在打开存储前校验各操作的参数：`search` 必须提供 `query`，`store` 必须提供 `content`。新版构建指纹忽略 lockfile 的格式变化，仍检查依赖内容与构建文件是否改变。

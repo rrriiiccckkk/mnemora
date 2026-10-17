@@ -1,4 +1,5 @@
 import { Type, type TSchema } from "typebox";
+import { Check } from "typebox/value";
 import { relationshipDefinitions, type Direction, type RelationshipType } from "./relationships.js";
 import { toResearchError } from "./query/errors.js";
 import type { ToolSurface } from "./index.js";
@@ -9,7 +10,7 @@ export interface OpenClawToolDefinition {
   label: string;
   description: string;
   parameters: TSchema;
-  execute(toolCallId: string, params: Record<string, unknown>): Promise<{ content: Array<{ type: "text"; text: string }> }>;
+  execute(toolCallId: string, params: Record<string, unknown>): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }>;
 }
 
 type Operation = (graph: Mnemora, params: Record<string, unknown>) => unknown | Promise<unknown>;
@@ -63,6 +64,11 @@ export function createOpenClawToolDefinitions(openGraph: () => Mnemora, surface:
   const descriptor = (name: string, label: string, description: string, parameters: TSchema, operation: Operation, sanitizeErrors = false): OpenClawToolDefinition => ({
     name, label, description, parameters,
     async execute(_toolCallId, params) {
+      // Tool routers may flatten unions or call execute without validating them.
+      if (name === "kg_memory" && (!Check(parameters, params) || (["search", "corpus_search"].includes(String(params?.operation)) && typeof params?.query === "string" && !params.query.trim()))) return {
+        isError: true,
+        content: [{ type: "text", text: JSON.stringify({ status: "invalid_input", operation: "kg_memory", message: "Use the declared operation schema. search and corpus_search require query (not content); store requires content. Unknown fields are rejected." }) }]
+      };
       if (!sanitizeErrors) {
         const graph = openGraph();
         try {
@@ -119,7 +125,7 @@ export function createOpenClawToolDefinitions(openGraph: () => Mnemora, surface:
     descriptor("kg_sources", "KG Sources", scoped("List scope-filtered evidence sources with observation counts and confidence summaries."), Type.Object({ scope: Type.Optional(scopeSchema), limit: Type.Optional(Type.Number({ description: "Maximum source count." })) }, { additionalProperties: false }), (graph, p) => graph.kg_sources(optionalNumber(p.limit) ?? 20, optionalString(p.scope))),
     descriptor("kg_memory", "KG Memory", scoped(surface === "full"
       ? "Store, retrieve, or locally embed memory documents; lifecycle changes are preview-first and scope-isolated."
-      : "Store or retrieve scope-isolated memory documents."), surface === "full" ? memorySchema : coreMemorySchema, (graph, p) => graph.kg_memory(p as never)),
+      : "Store or retrieve scope-isolated memory documents."), memoryToolSchema(surface === "full" ? memorySchema : coreMemorySchema), (graph, p) => graph.kg_memory(p as never)),
     descriptor("kg_forget", "KG Forget", "Soft-delete an entity and its relationship edges by canonical entity_id; hard delete requires confirm=true.", Type.Object({ entity_id: Type.String({ description: "Canonical entity id to forget." }), hard: Type.Optional(Type.Boolean({ description: "Physically delete instead of soft-deleting." })), confirm: Type.Optional(Type.Boolean({ description: "Required true for hard delete." })) }, { additionalProperties: false }),
       (graph, p) => graph.kg_forget(String(p.entity_id ?? ""), p.hard === true, p.confirm === true)),
     descriptor("kg_review", "KG Review", scoped("Review duplicate candidates, relationship anomalies, schema-drift audits, semantic-pattern and vocabulary proposals, evidence-backed related-edge proposals, a bounded read-only remediation worklist, or graph hygiene. Schema-drift repair or rejection remains preview then explicit confirm; neither path automatically retypes an entity."), Type.Object({ kind: Type.Optional(Type.Union([Type.Literal("duplicates"), Type.Literal("anomalies"), Type.Literal("identity"), Type.Literal("schema_drift"), Type.Literal("semantic_patterns"), Type.Literal("semantic_vocabulary"), Type.Literal("related_edge_refinements"), Type.Literal("related_edge_semantics"), Type.Literal("hygiene"), Type.Literal("worklist")])), status: Type.Optional(Type.Union([Type.Literal("pending"), Type.Literal("accepted"), Type.Literal("ignored"), Type.Literal("rejected"), Type.Literal("merged"), Type.Literal("invalidated")])), scan: Type.Optional(Type.Boolean()), limit: Type.Optional(Type.Number({ minimum: 1, maximum: 100 })), after_id: Type.Optional(Type.String()), candidate_id: Type.Optional(Type.String()), decision: Type.Optional(Type.Union([Type.Literal("ignored"), Type.Literal("rejected"), Type.Literal("accepted")])), repair_type: Type.Optional(Type.Union([Type.Literal("depends_on"), Type.Literal("part_of"), Type.Literal("instance_of"), Type.Literal("related_to")])), preview_hash: Type.Optional(Type.String({ minLength: 64, maxLength: 64 })), confirm: Type.Optional(Type.Boolean()), scope: Type.Optional(scopeSchema), approval_id: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })) }, { additionalProperties: false }),
@@ -160,6 +166,20 @@ function researchFailure(name: string, error: unknown): { content: Array<{ type:
 const enumOf = <T extends readonly string[]>(values: T) => Type.Union(values.map(value => Type.Literal(value)));
 const scopeSchema = Type.String({ minLength: 1, maxLength: 80, pattern: "^[a-z0-9][a-z0-9._:-]{0,79}$", description: "Optional isolated scope. When omitted, the configured scope.default is used; it never means all scopes." });
 const memoryMetadataSchema = Type.Object({}, { additionalProperties: Type.Union([Type.String({ maxLength: 1000 }), Type.Number(), Type.Boolean(), Type.Null()]) });
+/** Keep operation fields visible to routers that project only root properties. */
+function memoryToolSchema(schema: TSchema): TSchema {
+  const branches = (schema as unknown as { anyOf: Array<{ properties: Record<string, TSchema> }> }).anyOf;
+  const byName = new Map<string, TSchema[]>();
+  for (const branch of branches) for (const [name, field] of Object.entries(branch.properties)) {
+    const fields = byName.get(name) ?? [];
+    if (!fields.some(existing => JSON.stringify(existing) === JSON.stringify(field))) fields.push(field);
+    byName.set(name, fields);
+  }
+  const properties = Object.fromEntries([...byName].map(([name, fields]) => [name, fields.length === 1 ? fields[0] : Type.Union(fields)]));
+  properties.operation = { ...properties.operation, description: "search/corpus_search require query; store requires content. Follow the selected operation schema." };
+  return { ...schema, type: "object", properties, required: ["operation"], additionalProperties: false };
+}
+
 const memorySchema = Type.Union([
   Type.Object({ operation: Type.Literal("store"), content: Type.String({ minLength: 1, maxLength: 100000 }), title: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })), source: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })), scope: Type.Optional(scopeSchema), metadata: Type.Optional(memoryMetadataSchema) }, { additionalProperties: false }),
   Type.Object({ operation: Type.Literal("search"), query: Type.String({ minLength: 1, maxLength: 4000 }), scope: Type.Optional(scopeSchema), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 10 })), mode: Type.Optional(Type.Union([Type.Literal("lexical"), Type.Literal("semantic"), Type.Literal("hybrid")])) }, { additionalProperties: false }),

@@ -56,3 +56,17 @@ selections are illustrative fixtures, not independently reviewed service outputs
 The evaluation example intentionally withholds review with unknown task and cost
 measurements. Replace these only with separately collected, reviewed evidence;
 do not relabel a synthetic fixture as independent.
+
+### Network proxy for isolated trials
+
+Node fetch does not automatically inherit macOS system proxy settings. If the
+service requires a proxy, launch the trial process with `NODE_USE_ENV_PROXY=1`
+and explicit `HTTPS_PROXY` / `HTTP_PROXY` URLs; set `NO_PROXY` for localhost and
+loopback fixtures. Use your actual proxy address, not a plugin default. This
+changes only the trial process. Do not disable TLS verification. A direct-path
+HTTP rejection and a proxied success are transport evidence, not quality labels.
+
+On the development Mac, a bounded synthetic Jev trial using the configured
+loopback proxy succeeded (1181 ms, 665 input / 55 output tokens). Direct access
+returned 451. The network origin of that rejection was not established. Neither
+trial changes the daily host or grants approval to filter recall.

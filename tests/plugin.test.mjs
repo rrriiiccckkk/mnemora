@@ -276,6 +276,10 @@ test("tool surfaces register only their documented schemas and core materially r
   assert.deepEqual(research.map(tool => tool.name).sort(), [...RESEARCH_TOOL_NAMES].sort());
   assert.equal(full.length, EXPECTED_32_TOOLS.length);
   const coreMemory = core.find(tool => tool.name === "kg_memory");
+  assert.equal(coreMemory.parameters.type, "object");
+  assert.ok(coreMemory.parameters.properties.query);
+  assert.ok(coreMemory.parameters.properties.content);
+  assert.deepEqual(coreMemory.parameters.required, ["operation"]);
   assert.equal(Check(coreMemory.parameters, { operation: "store", content: "fact" }), true);
   assert.equal(Check(coreMemory.parameters, { operation: "search", query: "fact" }), true);
   assert.equal(Check(coreMemory.parameters, { operation: "lifecycle", action: "delete", document_id: "memory:x" }), false);
@@ -587,4 +591,30 @@ test("plugin runtime logs only bounded embedding failure metadata and remains fa
     runtime.stop();
     globalThis.fetch = previousFetch;
   }
+});
+
+test("memory tool rejects malformed routed arguments before opening a graph on every surface", async () => {
+  for (const surface of ["full", "core", "research"]) {
+    let opens = 0;
+    const tool = createOpenClawToolDefinitions(() => { opens++; throw new Error("must not open"); }, surface).find(t => t.name === "kg_memory");
+    for (const params of [null, {}, { operation: "search", content: "synthetic-private-text" }, { operation: "search", query: 3 }, { operation: "search", query: "  " }, { operation: "search", query: "ok", scope: 4 }, { operation: "search", query: "ok", mode: "invalid" }, { operation: "search", query: "ok", unexpected: true }, { operation: "store" }, { operation: "delete" }]) {
+      const result = await tool.execute("invalid", params);
+      assert.equal(result.isError, true);
+      assert.equal(JSON.parse(result.content[0].text).status, "invalid_input");
+      assert.doesNotMatch(result.content[0].text, /synthetic-private-text|trim|TypeError/);
+    }
+    assert.equal(opens, 0);
+  }
+});
+
+test("direct memory search rejects missing, non-string and blank queries without storage changes", () => {
+  const graph = new Mnemora({ config: { dbPath: ":memory:" } });
+  try {
+    for (const operation of ["search", "corpus_search"]) {
+      for (const query of [undefined, null, 7, "", "  ", "x".repeat(4001)]) assert.throws(() => graph.kg_memory({ operation, query }), /requires a non-empty query/);
+    }
+    assert.throws(() => graph.kg_memory({ operation: "unsupported" }), /supported operation/);
+    assert.throws(() => graph.kg_memory(null), /supported operation/);
+    assert.deepEqual(graph.kg_memory({ operation: "search", query: "synthetic" }), []);
+  } finally { graph.close(); }
 });

@@ -4,7 +4,7 @@ import { cpSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync
 import { join, dirname, delimiter } from "node:path";
 import { spawnSync, execFileSync } from "node:child_process";
 import { createTempDir } from "./helpers/temp.mjs";
-import { distributionFingerprint, verifyDistribution } from "../scripts/package-artifact.mjs";
+import { distributionFingerprint, verifyDistribution, sourceFingerprint } from "../scripts/package-artifact.mjs";
 const root = process.cwd();
 const nodeEnv = { ...process.env, PATH: `${dirname(process.execPath)}${delimiter}${process.env.PATH}` };
 function run(command, args, cwd) {
@@ -63,4 +63,25 @@ test("package verifier rejects changed source, modified output and missing files
   writeFileSync(packagePath, metadata);
   unlinkSync(join(dir, "dist/plugin.js"));
   assert.throws(() => verifyDistribution(dir), /artifact_file_set_mismatch/);
+});
+
+test("lockfile whitespace and key order do not invalidate source, but dependency changes still do", () => {
+  const dir = fixture();
+  run(process.execPath, [join(dir, "scripts/build-package.mjs")], dir);
+  const path = join(dir, "package-lock.json"), original = readFileSync(path, "utf8");
+  const parsed = JSON.parse(original);
+  const reverse = value => Array.isArray(value) ? value.map(reverse) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).reverse().map(k => [k, reverse(value[k])])) : value;
+  writeFileSync(path, JSON.stringify(reverse(parsed)) + "\r\n");
+  assert.doesNotThrow(() => verifyDistribution(dir));
+  parsed.packages[""].dependencies.graphology = "0.0.0-synthetic";
+  writeFileSync(path, JSON.stringify(parsed));
+  assert.throws(() => verifyDistribution(dir), /source_and_dist_mismatch/);
+  writeFileSync(path, original);
+  const manifestPath = join(dir, "dist/build-manifest.json"), manifest = JSON.parse(readFileSync(manifestPath));
+  delete manifest.sourceFingerprintFormat;
+  manifest.sourceFingerprint = sourceFingerprint(dir, "raw-v1");
+  writeFileSync(manifestPath, JSON.stringify(manifest));
+  assert.doesNotThrow(() => verifyDistribution(dir));
+  writeFileSync(path, JSON.stringify(reverse(JSON.parse(original))));
+  assert.throws(() => verifyDistribution(dir), /source_and_dist_mismatch/);
 });

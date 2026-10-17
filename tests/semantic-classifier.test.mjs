@@ -237,3 +237,13 @@ test("SDK log adapter bounds scalar metadata, omits objects and survives throwin
   assert.doesNotMatch(messages.at(-1), /private|Infinity/);
   runtime.stop();
 });
+
+test("HTTP failures expose only a bounded numeric code in classifier report and telemetry", async () => {
+  const { semanticClassificationTelemetry } = await import("../dist/cognition/semantic-classifier.js");
+  const report = await new SemanticMemoryClassifier(config, async () => new Response("private provider credentials body", { status: 401 })).classify(request);
+  assert.equal(report.httpStatus, 401);
+  const telemetry = semanticClassificationTelemetry(report);
+  assert.equal(telemetry.httpStatus, 401);
+  assert.doesNotMatch(JSON.stringify(telemetry), /private|credentials|body/);
+  assert.equal(semanticClassificationTelemetry({ ...report, httpStatus: 999 }).httpStatus, undefined);
+});

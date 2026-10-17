@@ -30,6 +30,7 @@ type RetentionScope = "account" | "task" | "session" | "reject" | "unknown";
 export interface MemoryClassificationReport {
   mode: "off" | "shadow";
   status: "disabled" | "succeeded" | "sensitive_blocked" | "invalid_input" | "configuration_error" | "timeout" | "aborted" | "transport_error" | "http_error" | "invalid_response";
+  httpStatus?: number;
   scope: string;
   recommendation: "persistent_candidate" | "task_only" | "session_only" | "reject" | "defer";
   labels?: { explicitUserStatement: number; beyondTask: number; reuseRisk: number; retentionScope: RetentionScope; probability: number; confidence: number; probabilities: Record<RetentionScope, number> };
@@ -42,6 +43,7 @@ export interface MemoryClassificationReport {
 
 /** No input, evidence, source/scope/session identifiers, endpoint, model or key. */
 export interface SemanticClassificationTelemetry {
+  httpStatus?: number;
   status: MemoryClassificationReport["status"];
   recommendation: MemoryClassificationReport["recommendation"];
   elapsedMs: number;
@@ -52,7 +54,7 @@ export interface SemanticClassificationTelemetry {
 }
 export function semanticClassificationTelemetry(report: MemoryClassificationReport): SemanticClassificationTelemetry {
   return {
-    status: report.status, recommendation: report.recommendation, elapsedMs: report.elapsedMs,
+    status: report.status, ...(report.status === "http_error" && Number.isInteger(report.httpStatus) && report.httpStatus! >= 400 && report.httpStatus! <= 599 ? { httpStatus: report.httpStatus } : {}), recommendation: report.recommendation, elapsedMs: report.elapsedMs,
     usageKnown: report.usage !== null, inputTokens: report.usage?.inputTokens ?? null,
     outputTokens: report.usage?.outputTokens ?? null, applied: false
   };
@@ -158,7 +160,7 @@ export class SemanticMemoryClassifier {
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     try {
       const response = await cancellable(this.fetcher(endpoint.href, { method: "POST", headers, body, signal: controller.signal, redirect: "error" }), controller.signal);
-      if (!response.ok) { void response.body?.cancel().catch(() => {}); return report("http_error"); }
+      if (!response.ok) { void response.body?.cancel().catch(() => {}); return report("http_error", response.status >= 400 && response.status <= 599 ? { httpStatus: response.status } : {}); }
       reader = response.body?.getReader();
       if (!reader) return report("invalid_response");
       let size = 0;
