@@ -1,8 +1,9 @@
 import type { KgContextResult } from "../types.js";
 import type { RetrievalCandidate } from "./types.js";
 import { safeIdentifierMatchers } from "./query-routing.js";
+import { joinHanSingles } from "./lexical.js";
 
-export type InjectionSuppressionReason = "no_anchor_terms" | "no_anchor_match";
+export type InjectionSuppressionReason = "no_anchor_terms" | "no_anchor_match" | "below_relevance_floor";
 
 export interface InjectionCandidateSelection {
   candidates: RetrievalCandidate[];
@@ -30,6 +31,10 @@ export function selectInjectionCandidates(input: {
   diversityLambda: number;
   /** An exact local metadata or content constraint already limited candidates. */
   exactLocalConstraint?: boolean;
+  /** Relevance floor on `queryMatch`; 0 or absent disables it. */
+  minQueryMatch?: number;
+  /** A record whose semantic similarity reaches this floor needs no shared word. */
+  minSemanticSimilarity?: number;
 }): InjectionCandidateSelection {
   const anchors = queryAnchors([input.query, ...(input.alternates ?? [])]);
   // A tag-only or other exact local constraint deliberately has no free-text
@@ -37,14 +42,27 @@ export function selectInjectionCandidates(input: {
   // rechecked in-process, so withholding it here would make valid constrained
   // recall impossible while adding no precision protection.
   if (!anchors.length && input.exactLocalConstraint) return { candidates: diversify(input.candidates, input.maxItems, input.diversityLambda), suppressed: 0 };
-  if (!anchors.length) return { candidates: [], suppressed: input.candidates.length, reason: "no_anchor_terms" };
-  const matched = input.candidates.filter(candidate => containsAnchor(`${candidate.title}\n${candidate.excerpt}`, anchors));
-  if (!matched.length) return { candidates: [], suppressed: input.candidates.length, reason: "no_anchor_match" };
+  const semanticFloor = input.minSemanticSimilarity;
+  const semantic = (candidate: RetrievalCandidate) => semanticFloor !== undefined && candidate.semanticSimilarity !== undefined && candidate.semanticSimilarity >= semanticFloor;
+  if (!anchors.length) {
+    const close = input.candidates.filter(semantic);
+    return close.length ? { candidates: diversify(close, input.maxItems, input.diversityLambda), suppressed: input.candidates.length - close.length } : { candidates: [], suppressed: input.candidates.length, reason: "no_anchor_terms" };
+  }
   const identifiers = safeIdentifierMatchers(input.query);
-  const exact = identifiers.length ? matched.filter(candidate => {
+  const floor = Number.isFinite(input.minQueryMatch) ? Math.max(0, Math.min(1, input.minQueryMatch!)) : 0;
+  const hasIdentifier = (candidate: RetrievalCandidate) => {
     const content = `${candidate.title}\n${candidate.excerpt}`.toLocaleUpperCase();
     return identifiers.some(identifier => identifier.test(content));
-  }) : [];
+  };
+  // The floor drops records that share only common words with the prompt
+  // (a long history matches almost any word somewhere). An exact technical
+  // identifier is specific evidence on its own and is never floored.
+  const relevant = (candidate: RetrievalCandidate) => semantic(candidate) || (identifiers.length > 0 && hasIdentifier(candidate)) || !candidate.semanticallyDistant && (!floor || candidate.queryMatch === undefined || candidate.queryMatch >= floor || identifiers.length > 0 && hasIdentifier(candidate));
+  const anchored = input.candidates.filter(candidate => semantic(candidate) || containsAnchor(`${candidate.title}\n${candidate.excerpt}`, anchors));
+  if (!anchored.length) return { candidates: [], suppressed: input.candidates.length, reason: "no_anchor_match" };
+  const matched = anchored.filter(relevant);
+  if (!matched.length) return { candidates: [], suppressed: input.candidates.length, reason: "below_relevance_floor" };
+  const exact = identifiers.length ? matched.filter(hasIdentifier) : [];
   // Diversify within exact task matches before considering generic history.
   // Otherwise final prompt packing can drop the only task completion after
   // MMR moves it behind less-overlapping, but unrelated, generic records.
@@ -83,7 +101,7 @@ const genericTerms = new Set([
 
 function queryAnchors(queries: readonly string[]): string[] {
   const values = new Set<string>();
-  for (const query of queries) for (const term of words(query)) {
+  for (const query of queries) for (const term of joinHanSingles(words(query).map(word => word.toLocaleLowerCase()))) {
     const value = term.toLocaleLowerCase();
     // A single Han character is commonly a pronoun, particle, or broad noun
     // (for example “我” or “茶”).  It is useful for manual candidate recall

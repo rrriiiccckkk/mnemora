@@ -1,3 +1,4 @@
+import { journalScopeHasEmbeddings } from "../journal/search-index.js";
 import { recordAssemblyDiagnostic, type DiagnosticSegment } from "./assembly-diagnostics.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
@@ -219,6 +220,7 @@ export class MnemoraContextEngine implements ContextEngine {
     try {
       graph = this.openGraph();
       const receipt = this.capture(graph.store.db, params.sessionId, params.messages, { isHeartbeat: params.isHeartbeat, baseIndex: 0, source: "ingest_batch" });
+      if (receipt?.inserted) await this.embedJournalBacklog(graph);
       return { ingestedCount: receipt?.inserted ? receipt.events.length : 0 };
     } catch (error) {
       this.reportCaptureFailure("ingest_batch", Array.isArray(params.messages) ? params.messages.length : 0, error);
@@ -266,7 +268,36 @@ export class MnemoraContextEngine implements ContextEngine {
     // local lifecycle callback later fails.
     if (turn && receipt) try { await this.lifecycle.onCompletedTurn?.(turn, receipt); } catch { /* fail open */ }
     if (receipt && !params.isHeartbeat) await this.proactiveCompact(params);
+    if (receipt?.inserted && this.semanticJournalEnabled()) {
+      let embedGraph: ReturnType<MnemoraContextEngine["openGraph"]> | undefined;
+      try { embedGraph = this.openGraph(); await this.embedJournalBacklog(embedGraph); }
+      catch { /* semantic indexing is optional and retried after the next turn */ }
+      finally { try { embedGraph?.close(); } catch { /* fail open */ } }
+    }
     });
+  }
+
+  private semanticJournalEnabled(): boolean {
+    return this.config.embeddings?.enabled === true && this.config.unifiedRetrieval?.semantic?.enabled !== false;
+  }
+
+  /** Embed a bounded slice of newly captured journal chunks; never throws. */
+  private async embedJournalBacklog(graph: ReturnType<MnemoraContextEngine["openGraph"]>): Promise<void> {
+    if (!this.semanticJournalEnabled()) return;
+    const limit = this.config.unifiedRetrieval?.semantic?.embedPerTurn ?? 128;
+    if (!limit) return;
+    try { await graph.embedJournalChunks({ scope: this.scope(), limit }); } catch { /* fail open */ }
+  }
+
+  private async semanticRecallInput(graph: ReturnType<MnemoraContextEngine["openGraph"]>, query: string, intent: string): Promise<import("../retrieval/service.js").SemanticRecallInput | undefined> {
+    if (!this.semanticJournalEnabled() || intent === "artifact" || intent === "prior_episode" || !query.trim()) return undefined;
+    const semantic = this.config.unifiedRetrieval!.semantic!;
+    // Without any vector in this scope there is no semantic evidence to use;
+    // skip the provider call and keep lexical-only behaviour (and floor).
+    const embeddingConfig = this.config.embeddings!;
+    if (!journalScopeHasEmbeddings(graph.store.db, this.scope(), { provider: embeddingConfig.provider ?? "ollama", model: embeddingConfig.model ?? "" })) return undefined;
+    const result = await graph.journalQueryVector(query);
+    return result ? { identity: result.identity, vector: result.vector, minSimilarity: Math.min(semantic.gateSimilarity ?? .2, semantic.minSimilarity ?? .45), maxScan: semantic.maxScanChunks ?? 50000 } : undefined;
   }
 
   /** Commit exactly the host-admitted message range. This is deliberately not
@@ -346,7 +377,8 @@ export class MnemoraContextEngine implements ContextEngine {
         const recallBudget = Math.min(available, this.config.unifiedRetrieval.tokenBudget!);
         const graphBudget = recallBudget >= 128 ? Math.max(64, Math.floor(recallBudget * .4)) : 0;
         const plan = planRecallQuery(params.prompt, this.config.recall?.queryRouting), retrievalQuery = plan.query;
-        const rawResult = retrieval.find({ scope: this.scope(), query: retrievalQuery, alternates: plan.alternates, tags: plan.tags, metadataFilters: plan.metadataFilters, mustContain: plan.mustContain, lexicalOnly: plan.lexicalOnly, scopeConstraint: plan.scopeConstraint, intent: plan.intent, intentCategory: plan.category, tokenBudget: recallBudget, limit: Math.min(20, this.config.unifiedRetrieval.maxItems! * 3), minConfidence: this.config.unifiedRetrieval.minConfidence, maxStalenessDays: this.config.unifiedRetrieval.maxStalenessDays });
+        const semantic = await this.semanticRecallInput(graph, retrievalQuery, plan.intent);
+        const rawResult = retrieval.find({ semantic, scope: this.scope(), query: retrievalQuery, alternates: plan.alternates, tags: plan.tags, metadataFilters: plan.metadataFilters, mustContain: plan.mustContain, lexicalOnly: plan.lexicalOnly, scopeConstraint: plan.scopeConstraint, intent: plan.intent, intentCategory: plan.category, tokenBudget: recallBudget, limit: Math.min(20, this.config.unifiedRetrieval.maxItems! * 3), minConfidence: this.config.unifiedRetrieval.minConfidence, maxStalenessDays: this.config.unifiedRetrieval.maxStalenessDays });
         // Search is deliberately broader than automatic context. This single
         // admission boundary excludes terminal graph evidence and ensures
         // ReasoningMemory reaches a prompt only through governed delivery.
@@ -355,7 +387,11 @@ export class MnemoraContextEngine implements ContextEngine {
         const localSelection = selectInjectionCandidates({
           query: retrievalQuery, alternates: plan.alternates, candidates: admittedResult.candidates,
           maxItems: this.config.unifiedRetrieval.maxItems!, diversityLambda: this.config.unifiedRetrieval.diversityLambda!,
-          exactLocalConstraint: Boolean(plan.tags.length || plan.metadataFilters?.length || plan.mustContain?.length)
+          exactLocalConstraint: Boolean(plan.tags.length || plan.metadataFilters?.length || plan.mustContain?.length),
+          // The lexical floor pays off only alongside semantic evidence; on its
+          // own it costs more recall than it saves (docs/recall-quality.md).
+          minQueryMatch: this.config.unifiedRetrieval.minQueryMatch ?? (semantic ? .15 : 0),
+          ...(semantic ? { minSemanticSimilarity: this.config.unifiedRetrieval.semantic?.minSimilarity ?? .45 } : {})
         });
         const result = { ...rawResult, candidates: localSelection.candidates, empty: localSelection.candidates.length === 0 };
         // P0 relevance is advisory, after deterministic authorization/selection,

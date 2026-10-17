@@ -2,6 +2,7 @@ import { RecallRelevanceShadow } from "./retrieval/relevance-shadow.js";
 import { semanticClassificationTelemetry, SemanticMemoryClassifier, type MemoryClassificationInput, type MemoryClassificationReport } from "./cognition/semantic-classifier.js";
 import { type MnemoraConfig, type EmbeddingConfig, type SearchMode } from "./index.js";
 import { createExtractor, type ExtractOptions, type Extractor } from "./extractor.js";
+import { pendingJournalChunks, putJournalChunkEmbedding } from "./journal/search-index.js";
 import { createEmbedder, embeddingInput, embeddingInputVersion, memoryChunkEmbeddingInput, MEMORY_CHUNK_EMBEDDING_INPUT_VERSION, normalizeEmbeddingVector, type Embedder } from "./embeddings.js";
 import { GraphologyStore, type IngestResult } from "./store.js";
 import type { Direction, RelationshipType } from "./relationships.js";
@@ -86,7 +87,7 @@ export interface MnemoraOptions {
   extractor?: Extractor;
   embedder?: Embedder;
   signal?: AbortSignal;
-  onEmbeddingFailure?: (event: { operation: "ingest" | "backfill" | "memory_backfill"; category: "timeout" | "provider" | "invalid_response" | "persistence" | "unknown"; failed: number }) => void;
+  onEmbeddingFailure?: (event: { operation: "ingest" | "backfill" | "memory_backfill" | "journal_embed"; category: "timeout" | "provider" | "invalid_response" | "persistence" | "unknown"; failed: number }) => void;
   /** Bounded operational signal for optional recall evaluation only. */
   onRecallEvaluationFailure?: (event: { stage: "candidate_widen" | "shadow_record" | "canary_apply"; category: "operation_failed" }) => void;
   /** Content-free optional classifier telemetry; observers cannot affect ingestion. */
@@ -722,6 +723,50 @@ export class Mnemora {
       }
     }
     return { embedded, failed, lastSuccessfulId };
+  }
+
+  /**
+   * Embed journal chunks that have no vector for the configured model, newest
+   * first. Bounded and fail-open: an unavailable embedder leaves lexical recall
+   * unchanged and the backlog is retried after the next turn or by backfill.
+   */
+  async embedJournalChunks(options: { limit?: number; scope?: string; signal?: AbortSignal } = {}): Promise<{ embedded: number; failed: number; pending: number }> {
+    if (!this.embedder) return { embedded: 0, failed: 0, pending: 0 };
+    const limit = Math.max(0, Math.min(1000, Math.trunc(options.limit ?? 128)));
+    if (!limit) return { embedded: 0, failed: 0, pending: 0 };
+    const chunks = pendingJournalChunks(this.store.db, { provider: this.embeddingConfig.provider!, model: this.embeddingConfig.model! }, limit, options.scope);
+    let embedded = 0, failed = 0;
+    const size = Math.max(1, this.embeddingConfig.batchSize ?? 16);
+    for (let offset = 0; offset < chunks.length; offset += size) {
+      const batch = chunks.slice(offset, offset + size);
+      try {
+        const inputs = batch.map(chunk => truncateInput(chunk.text, this.embeddingConfig.maxInputChars));
+        const result = await requestWithTimeout(signal => this.embedder!.embed(inputs, signal), this.embeddingConfig.timeoutMs, composeSignals(options.signal, this.runtimeSignal));
+        if (result.vectors.length !== batch.length) throw new Error("embedding vectors: count mismatch");
+        const identity = { provider: result.identity.provider, model: result.identity.model, dimensions: result.identity.dimensions };
+        this.store.db.exec("BEGIN IMMEDIATE");
+        try { result.vectors.forEach((vector, index) => putJournalChunkEmbedding(this.store.db, batch[index], identity, vector)); this.store.db.exec("COMMIT"); }
+        catch (error) { try { this.store.db.exec("ROLLBACK"); } catch { /* original error wins */ } throw error; }
+        this.embeddingHealth.recordSuccess(this.embeddingConfig);
+        embedded += batch.length;
+      } catch (error) {
+        failed += batch.length;
+        const category = classifyEmbeddingFailure(error);
+        this.embeddingHealth.recordFailure(this.embeddingConfig, category);
+        try { this.onEmbeddingFailure?.({ operation: "journal_embed", category, failed: batch.length }); } catch { /* Local observability must remain fail-open. */ }
+        break;
+      }
+    }
+    return { embedded, failed, pending: Math.max(0, chunks.length - embedded) };
+  }
+
+  /** Unit query vector for semantic journal recall, or undefined when unavailable. */
+  async journalQueryVector(query: string, signal?: AbortSignal): Promise<{ identity: { provider: string; model: string; dimensions: number }; vector: number[] } | undefined> {
+    if (!this.embedder || !query.trim()) return undefined;
+    try {
+      const result = await this.queryEmbedding(query, signal);
+      return { identity: { provider: result.identity.provider, model: result.identity.model, dimensions: result.identity.dimensions }, vector: result.vectors[0] };
+    } catch { return undefined; }
   }
 
   private async embedMemoryChunks(chunks: import("./types.js").KgMemoryChunk[]): Promise<{ embedded: number; failed: number; lastSuccessfulId?: string }> {

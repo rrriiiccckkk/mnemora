@@ -378,6 +378,50 @@ pre-1.33 behaviour where every agent shares `scope.default`.
 `toolSurface` defaults to `core` (ten everyday memory tools). Use `research`
 for analysis and saved-query tools, or `full` for every operational tool.
 
+### Semantic journal recall
+
+With `embeddings.enabled: true`, captured conversation turns are embedded by the
+local Ollama model after each turn (`unifiedRetrieval.semantic.embedPerTurn`
+chunks, default 128) and automatic recall fuses bm25 with cosine similarity:
+
+- a record that shares no word with the prompt is attached when its similarity
+  reaches `semantic.minSimilarity` (default 0.45);
+- a lexical hit is attached only if it is also among the prompt's nearest
+  embedded records above `semantic.gateSimilarity` (default 0.2), and the
+  lexical floor `minQueryMatch` defaults to 0.15. Records without a vector yet
+  are never judged by the gate.
+
+Both thresholds are model-specific and were calibrated on `all-minilm`; for
+another model, rerun `npm run eval:longmemeval` with
+`MNEMORA_EVAL_EMBED_MODEL=<model>` and adjust. For Chinese or mixed-language
+history use a multilingual model (for example `bge-m3`). An unavailable
+provider never blocks capture or recall; recall falls back to lexical.
+
+After enabling embeddings on an existing database, embed the backlog once:
+
+```bash
+MNEMORA_DB=~/.openclaw/mnemora.db node dist/cli.js journal embed --model all-minilm --limit 50000
+```
+
+`--scope`, `--base-url` (default `http://127.0.0.1:11434`) and `--limit` are
+optional; the command is resumable and changes nothing but the vector table.
+Vectors are removed with their records on forget, tombstone, redaction and
+restore.
+
+### Relevance floor and knowledge updates
+
+`unifiedRetrieval.minQueryMatch` is the minimum rarity-weighted share of prompt
+terms a record must match to be attached automatically. It defaults to 0.15
+while semantic recall is active and 0 otherwise: on lexical evidence alone the
+floor costs more recall than it saves (see [recall quality](recall-quality.md)).
+Manual search is never floored, and an exact identifier such as `TASK_4821`
+always passes.
+
+When an earlier and a later record on the same topic are both attached, the
+earlier one carries `newer_related=<n>` and the envelope states that the most
+recent statement is current. Both stay visible as evidence; Mnemora does not
+guess at contradictions.
+
 ### ReasoningMemory (removed)
 
 The experimental ReasoningMemory runtime, curation, intake, delivery and

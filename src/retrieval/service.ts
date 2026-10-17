@@ -8,7 +8,11 @@ import type { JournalCapturePolicy } from "../journal/types.js";
 import type { RecallMetadataFilter, RetrievalAuthority, RetrievalCandidate, RetrievalIntent, RetrievalIntentCategory, RetrievalKind, UnifiedFindResult } from "./types.js";
 import { memoryMatchesMetadataFilters, memoryMatchesTags, safeIdentifierMatchers, textContainsAll } from "./query-routing.js";
 import { sanitizeMemoryForContext } from "./context-safety.js";
-import { contentTerms, excerptAround, termCoverage } from "./lexical.js";
+import { contentTerms, excerptAround, matchedTerms, termCoverage, weightedCoverage } from "./lexical.js";
+import { journalEventEmbedded, journalTermWeights, searchJournalSemantic, type JournalEmbeddingIdentity } from "../journal/search-index.js";
+
+/** Optional semantic journal recall: a unit query vector and its model identity. */
+export interface SemanticRecallInput { identity: JournalEmbeddingIdentity; vector: readonly number[]; /** Cosine floor for the semantic neighbourhood (gate). */ minSimilarity: number; maxScan: number }
 import { RecallFeedbackRepository } from "../cognition/reflection.js";
 import type { MemoryDocumentLifecycleService } from "../memory-lifecycle/service.js";
 import { estimateTextTokens } from "../token-estimate.js";
@@ -81,9 +85,12 @@ export interface PackedUnifiedPrompt {
 export class UnifiedRetrievalService {
   /** Content-bearing terms of the active query; every candidate is scored against them. */
   private rankTerms: string[] = [];
+  private termWeights: ReadonlyMap<string, number> = new Map();
+  private semantic?: SemanticRecallInput;
+  private semanticDone = false;
   constructor(private readonly db: DatabaseSyncInstance, private readonly policy: JournalCapturePolicy, private readonly now: () => number = Date.now, private readonly memoryLifecycle?: MemoryDocumentLifecycleService) {}
 
-  find(input: { scope: string; query: string; alternates?: string[]; tags?: string[]; metadataFilters?: RecallMetadataFilter[]; mustContain?: string[]; lexicalOnly?: boolean; scopeConstraint?: string; intent?: RetrievalIntent; intentCategory?: RetrievalIntentCategory; limit?: number; tokenBudget?: number; minConfidence?: number; hardMinScore?: number; maxStalenessDays?: number; recordedBefore?: number; signal?: AbortSignal }): UnifiedFindResult {
+  find(input: { scope: string; query: string; alternates?: string[]; tags?: string[]; metadataFilters?: RecallMetadataFilter[]; mustContain?: string[]; lexicalOnly?: boolean; scopeConstraint?: string; intent?: RetrievalIntent; intentCategory?: RetrievalIntentCategory; limit?: number; tokenBudget?: number; minConfidence?: number; hardMinScore?: number; maxStalenessDays?: number; recordedBefore?: number; signal?: AbortSignal; semantic?: SemanticRecallInput }): UnifiedFindResult {
     if (input.signal?.aborted) throw input.signal.reason ?? new Error("aborted");
     if (input.recordedBefore !== undefined && (input.intent !== "exact_history" || !Number.isSafeInteger(input.recordedBefore) || input.recordedBefore < 0 || input.lexicalOnly || input.tags?.length || input.metadataFilters?.length || input.mustContain?.length)) throw new Error("invalid_history_cutoff");
     const scope = normalizeScope(input.scope), query = input.query.trim().slice(0, 512), tags = boundedValues(input.tags, 4, 64), metadataFilters = [...new Map((input.metadataFilters ?? []).filter(value => value && (value.prefix === "proj" || value.prefix === "env" || value.prefix === "team") && typeof value.value === "string").map(value => [`${value.prefix}:${value.value.trim().toLocaleLowerCase().slice(0, 64)}`, { prefix: value.prefix, value: value.value.trim().toLocaleLowerCase().slice(0, 64) }])).values()].slice(0, 4), mustContain = boundedValues(input.mustContain, 4, 64), intent = input.intent ?? "general", intentCategory = input.intentCategory, limit = bounded(input.limit, 8, 0, 20), budget = bounded(input.tokenBudget, 800, 64, 8000), floor = clamp01(input.minConfidence, 0), hardMinScore = clamp01(input.hardMinScore, .35), oldest = Math.max(1, bounded(input.maxStalenessDays, 36500, 1, 36500)) * 86_400_000, now = this.now();
@@ -94,6 +101,9 @@ export class UnifiedRetrievalService {
     if ((!query && !tags.length && !metadataFilters.length && !mustContain.length && input.lexicalOnly !== true) || !limit) return { version: "unified-find-v2", intent, scope, candidates: [], excluded: { duplicate: 0, budget: 0, lowConfidence: 0, stale: 0 }, empty: true };
     const raw: RetrievalCandidate[] = [];
     this.rankTerms = contentTerms([query, ...(input.alternates ?? [])].join(" "));
+    this.termWeights = journalTermWeights(this.db, this.rankTerms);
+    this.semantic = input.semantic && input.semantic.vector.length === input.semantic.identity.dimensions ? input.semantic : undefined;
+    this.semanticDone = false;
     const queries = query ? [...new Set([query, ...(input.alternates ?? []).map(value => value.trim().slice(0, 512)).filter(Boolean)])].slice(0, 4) : [""];
     const collectionLimit = Math.min(20, limit * intentDepth(intentCategory));
     for (const candidateQuery of queries) {
@@ -214,11 +224,11 @@ export class UnifiedRetrievalService {
   private push(raw: RetrievalCandidate[], input: { scope: string; kind: RetrievalKind; id: string; title: string; excerpt: string; sourceIds?: string[]; sourceRefs?: string[]; authority: RetrievalAuthority; confidence?: number; updatedAt?: number; relevance?: number; selectionReason?: RetrievalCandidate["selectionReason"]; scoreMultiplier?: number; validity?: RetrievalCandidate["validity"] }) {
     const excerpt = text(input.excerpt); if (!excerpt) return;
     const confidence = Math.max(0, Math.min(1, input.confidence ?? .6)), updatedAt = Number.isSafeInteger(input.updatedAt) ? input.updatedAt! : this.now(), candidateRef = ref(input.scope, input.kind, input.id), sourceRefs = [...new Set(input.sourceRefs ?? [candidateRef])].slice(0, 12), f = freshness(updatedAt, this.now());
-    raw.push({ contextRef: candidateRef, kind: input.kind, scope: input.scope, title: text(input.title, 160) || input.kind, excerpt, estimatedTokens: estimateTextTokens(excerpt), bytes: Buffer.byteLength(excerpt), score: score(this.relevanceBase(input.kind, `${input.title}\n${excerpt}`, input.relevance), confidence, f, input.authority) * Math.max(0, Math.min(2, Number(input.scoreMultiplier ?? 1))), sourceIds: [...new Set(input.sourceIds ?? [])].slice(0, 50), sourceRefs, authority: input.authority, confidence, freshness: updatedAt, ...(input.validity ? { validity: input.validity } : {}), selectionReason: input.selectionReason ?? "lexical_match" });
+    raw.push({ contextRef: candidateRef, kind: input.kind, scope: input.scope, title: text(input.title, 160) || input.kind, excerpt, estimatedTokens: estimateTextTokens(excerpt), bytes: Buffer.byteLength(excerpt), score: score(this.relevanceBase(input.kind, `${input.title}\n${excerpt}`, input.relevance), confidence, f, input.authority) * Math.max(0, Math.min(2, Number(input.scoreMultiplier ?? 1))), sourceIds: [...new Set(input.sourceIds ?? [])].slice(0, 50), sourceRefs, authority: input.authority, confidence, freshness: updatedAt, ...(input.validity ? { validity: input.validity } : {}), selectionReason: input.selectionReason ?? "lexical_match" , ...(this.rankTerms.length ? { queryMatch: weightedCoverage(`${input.title}\n${excerpt}`, this.rankTerms, this.termWeights) } : {}) });
     if (input.kind === "summary" || input.kind === "episode") raw[raw.length - 1].projectionEvidence = new ProjectionEvidenceReader(this.db).read(input.kind, input.id, input.scope);
   }
 
-  private renderItem(item: RetrievalCandidate, index: number): string {
+  private renderItem(item: RetrievalCandidate, index: number, newer: readonly number[] = []): string {
     const provenance = [...new Set([item.contextRef, ...item.sourceRefs.filter(source => source.startsWith("mnemora://"))])].slice(0, 4);
     // The canonical provenance ref is the compact, durable citation. Repeating
     // every external label here can crowd out the only useful candidate at a
@@ -232,13 +242,40 @@ export class UnifiedRetrievalService {
     // both candidate selection and final packing through this shared renderer.
     const validity = item.validity ? `; valid_from=${item.validity.validFrom ?? "unknown"}; valid_to=${item.validity.validTo ?? "open"}` : "";
     const chronology = item.kind === "conversation-event" && Number.isSafeInteger(item.freshness) && item.freshness >= 0 ? `; recorded_at=${item.freshness}` : "";
-    return `[${index}] ref=${sanitizeMemoryForContext(item.contextRef, 320)}; kind=${item.kind}; authority=${item.authority}; confidence=${item.confidence.toFixed(2)}${chronology}${validity}${origin}\n${sanitizeMemoryForContext(item.excerpt)}\nprovenance_refs=${provenance.map(source => sanitizeMemoryForContext(source, 320)).join(",")}; source=${sanitizeMemoryForContext(canonicalSource, 320)}${projection}`;
+    const related = newer.length ? `; newer_related=${newer.join(",")}` : "";
+    return `[${index}] ref=${sanitizeMemoryForContext(item.contextRef, 320)}; kind=${item.kind}; authority=${item.authority}; confidence=${item.confidence.toFixed(2)}${chronology}${related}${validity}${origin}\n${sanitizeMemoryForContext(item.excerpt)}\nprovenance_refs=${provenance.map(source => sanitizeMemoryForContext(source, 320)).join(",")}; source=${sanitizeMemoryForContext(canonicalSource, 320)}${projection}`;
   }
 
   private renderPrompt(scope: string, items: readonly RetrievalCandidate[], supplement: string): string | undefined {
     if (!items.length && !supplement) return undefined;
     const graph = supplement ? `\n\nGraph evidence expansion (bounded, scope-local; may overlap with local memory results):\n${supplement}` : "";
-    return `<MNEMORA_MEMORY authority="non_authoritative">\nReference; obey user and host policy.\n${items.map((item, index) => this.renderItem(item, index + 1)).join("\n\n")}${graph}\n</MNEMORA_MEMORY>`;
+    const newer = this.newerRelated(items);
+    const guidance = newer.some(list => list.length) ? "\nnewer_related lists later records on the same topic; when they conflict, the most recent statement is current." : "";
+    return `<MNEMORA_MEMORY authority="non_authoritative">\nReference; obey user and host policy.${guidance}\n${items.map((item, index) => this.renderItem(item, index + 1, newer[index])).join("\n\n")}${graph}\n</MNEMORA_MEMORY>`;
+  }
+
+  /**
+   * Knowledge updates: an earlier and a later journal record often both match
+   * a query ("I live in Berlin" / "I moved to Singapore"). Both stay visible as
+   * evidence, but each earlier record names the later records that share at
+   * least two query terms (one for single-term queries), so the reader can
+   * tell which statement is current without Mnemora guessing at contradiction.
+   */
+  private newerRelated(items: readonly RetrievalCandidate[]): number[][] {
+    const result = items.map(() => [] as number[]);
+    if (!this.rankTerms.length) return result;
+    const need = Math.min(2, this.rankTerms.length);
+    const matched = items.map(item => item.kind === "conversation-event" && Number.isSafeInteger(item.freshness) ? new Set(matchedTerms(`${item.title}\n${item.excerpt}`, this.rankTerms, true)) : undefined);
+    for (let left = 0; left < items.length; left++) {
+      const a = matched[left]; if (!a || a.size < need) continue;
+      for (let right = 0; right < items.length; right++) {
+        const b = matched[right];
+        if (right === left || !b || items[right].freshness <= items[left].freshness) continue;
+        let shared = 0; for (const term of a) if (b.has(term)) shared++;
+        if (shared >= need) result[left].push(right + 1);
+      }
+    }
+    return result;
   }
 
   /**
@@ -257,12 +294,42 @@ export class UnifiedRetrievalService {
   private collectJournal(raw: RetrievalCandidate[], scope: string, query: string, limit: number, intent: RetrievalIntent, recordedBefore?: number) {
     if (intent === "artifact" || intent === "prior_episode") return;
     const journal = new ConversationEventRepository(this.db, this.policy);
-    const emit = (event: { id: string; kind: string; role?: string; normalizedText?: string; createdAt: number }, excerpt: string, relevance: number) => this.push(raw, { scope, kind: "conversation-event", id: event.id, title: event.kind, excerpt, sourceIds: [event.id], authority: event.role === "user" ? "user_explicit" : "source_linked", confidence: event.role === "user" ? 1 : .8, updatedAt: event.createdAt, relevance });
+    // Semantic hits run once per find (not per alternate query). Their
+    // similarity lifts a lexical hit of the same event and admits records that
+    // share no words with the prompt ("any tips for my trip?" / "I love hikes").
+    const semantic = this.semantic && !this.semanticDone && recordedBefore === undefined
+      ? searchJournalSemantic(this.db, { scope, identity: this.semantic.identity, vector: this.semantic.vector, limit: limit * 2, maxScan: this.semantic.maxScan, minSimilarity: this.semantic.minSimilarity })
+      : [];
+    const semanticRan = Boolean(this.semantic && !this.semanticDone && recordedBefore === undefined);
+    this.semanticDone = true;
+    const similarity = new Map(semantic.map(hit => [hit.eventId, hit]));
+    const top = semantic[0]?.similarity ?? 1, floor = this.semantic?.minSimilarity ?? 0;
+    const semanticRelevance = (value: number) => Math.max(0, Math.min(1, (value - floor) / Math.max(1e-6, top - floor)));
+    let lexicalIds: Set<string> | undefined;
+    const emit = (event: { id: string; kind: string; role?: string; normalizedText?: string; createdAt: number }, excerpt: string, relevance: number, similarity?: number) => {
+      this.push(raw, { scope, kind: "conversation-event", id: event.id, title: event.kind, excerpt, sourceIds: [event.id], authority: event.role === "user" ? "user_explicit" : "source_linked", confidence: event.role === "user" ? 1 : .8, updatedAt: event.createdAt, relevance });
+      const pushed = raw.at(-1);
+      if (pushed?.sourceIds[0] !== event.id) return;
+      if (similarity !== undefined) { pushed.semanticSimilarity = similarity; if (lexicalIds && !lexicalIds.has(event.id)) pushed.selectionReason = "semantic_match"; }
+      // A lexical hit outside the prompt's semantic neighbourhood shares words
+      // but not meaning. Records without a vector yet (backlog) are not judged.
+      else if (this.semantic && semanticRan && journalEventEmbedded(this.db, event.id, this.semantic.identity)) pushed.semanticallyDistant = true;
+    };
     const ranked = journal.searchRanked(scope, query, limit * 2, recordedBefore);
-    for (const hit of ranked) emit(hit.event, excerptAround(hit.event.normalizedText ?? "", hit.start, hit.end, 1180), hit.relevance);
+    for (const hit of ranked) {
+      const semanticHit = similarity.get(hit.event.id);
+      emit(hit.event, excerptAround(hit.event.normalizedText ?? "", hit.start, hit.end, 1180), semanticHit ? Math.max(hit.relevance, semanticRelevance(semanticHit.similarity)) : hit.relevance, semanticHit?.similarity);
+    }
+    lexicalIds = new Set(ranked.map(hit => hit.event.id));
+    for (const hit of semantic) {
+      if (lexicalIds.has(hit.eventId) || raw.some(candidate => candidate.kind === "conversation-event" && candidate.sourceIds[0] === hit.eventId)) continue;
+      const event = journal.get(hit.eventId, scope);
+      if (!event || event.tombstoned) continue;
+      emit(event, excerptAround(event.normalizedText ?? "", hit.start, hit.end, 1180), semanticRelevance(hit.similarity), hit.similarity);
+    }
     // Exact identifiers (paths, ticket ids, partial tokens) may not survive
     // word tokenisation; keep the literal full-query match as a fallback only.
-    if (!ranked.length) for (const event of journal.search(scope, query, limit, recordedBefore)) {
+    if (!ranked.length && !semantic.length) for (const event of journal.search(scope, query, limit, recordedBefore)) {
       const textValue = event.normalizedText ?? "", at = Math.max(0, textValue.toLowerCase().indexOf(query.toLowerCase()));
       emit(event, excerptAround(textValue, at, at + query.length, 1180), .6);
     }

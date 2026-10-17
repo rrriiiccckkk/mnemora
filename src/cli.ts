@@ -19,7 +19,7 @@ import { ConsolidationService } from "./consolidation/service.js";
 import { FormationService } from "./cognition/service.js";
 import { DecisionMemoryService, type DecisionMaker } from "./cognition/decisions.js";
 import { TaskOutcomeService, type OutcomeImpact, type OutcomeVerdict, type TaskActionState } from "./cognition/outcomes.js";
-import { createEmbedder } from "./embeddings.js";
+import { journalEmbeddingCoverage } from "./journal/search-index.js";
 import { RecallFeedbackRepository, ReflectionService, type RecallFeedbackKind } from "./cognition/reflection.js";
 import { CognitionGraduationService } from "./cognition/graduation.js";
 import { TaskResumeService } from "./task-resume/service.js";
@@ -96,6 +96,7 @@ async function main(): Promise<void> {
     else if (command === "stats") print(graph.kg_stats());
     else if (command === "forget") print(await graph.kg_forget(args[0], process.env.HARD === "true", process.env.CONFIRM === "true"));
     else if (command === "ingest") { const text = args[0] ? readFileSync(args[0], "utf8") : readFileSync(0, "utf8"); print(await graph.kg_ingest(text, process.env.SOURCE ?? "manual")); }
+    else if (command === "journal" && args[0] === "embed") printOperator("journal.embed", await journalEmbedCommand(dbPath, args.slice(1)));
     else if (command === "journal") printOperator(`journal.${args[0] ?? "help"}`, journalCommand(graph, args));
     else if (command === "retrieve") {
       const query = args.join(" ").trim(); if (!query) throw new CliError("invalid_arguments");
@@ -208,6 +209,32 @@ function journalCommand(graph: Mnemora, raw: string[]): unknown {
     return runs.reconcilePrepared({ scope, id, outcome }) ?? { status: "not_found_or_not_prepared" };
   }
   throw new CliError("invalid_arguments");
+}
+
+/**
+ * Embed the journal backlog for semantic recall (after enabling embeddings on
+ * an existing database). Bounded, resumable and local: only the configured
+ * Ollama endpoint is called, and nothing else in the database changes.
+ */
+async function journalEmbedCommand(dbPath: string, raw: string[]): Promise<unknown> {
+  const { positional, options } = parseOptions(raw);
+  requireNone(positional);
+  const model = option(options, "model") ?? process.env.MNEMORA_EMBED_MODEL;
+  if (!model) throw new CliError("invalid_arguments");
+  const baseURL = option(options, "base-url") ?? process.env.MNEMORA_EMBED_URL ?? "http://127.0.0.1:11434";
+  const scope = option(options, "scope");
+  const limit = boundedRange(option(options, "limit"), 1, 1_000_000) ?? 10_000;
+  const graph = new Mnemora({ config: { dbPath, embeddings: { enabled: true, provider: "ollama", baseURL, model } } });
+  try {
+    let embedded = 0, failed = 0;
+    while (embedded < limit) {
+      const step = await graph.embedJournalChunks({ limit: Math.min(500, limit - embedded), ...(scope ? { scope } : {}) });
+      embedded += step.embedded; failed += step.failed;
+      if (!step.embedded || step.failed) break;
+    }
+    const identity = await graph.journalQueryVector("coverage probe");
+    return { model, scope: scope ?? "all", embedded, failed, ...(identity ? { coverage: journalEmbeddingCoverage(graph.store.db, identity.identity, scope) } : {}) };
+  } finally { graph.close(); }
 }
 
 /** Read-only operational review for memory that has not been attached since
@@ -538,7 +565,7 @@ function recallCommand(graph: Mnemora, command: string | undefined, args: string
 
 function parseOptions(args: string[]): { positional: string[]; options: Record<string, string | true> } {
   const positional: string[] = [], options: Record<string, string | true> = {};
-  const values = new Set(["scope", "limit", "task-ref", "format", "preview-hash", "issued-by", "token-budget", "max-items", "historical-at", "stale-after-days", "min-age-days", "adapter", "status", "after-id"]);
+  const values = new Set(["scope", "limit", "task-ref", "format", "preview-hash", "issued-by", "token-budget", "max-items", "historical-at", "stale-after-days", "min-age-days", "adapter", "status", "after-id", "model", "base-url"]);
   for (let index = 0; index < args.length; index++) {
     const item = args[index];
     if (!item.startsWith("--")) { positional.push(item); continue; }

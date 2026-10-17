@@ -13,7 +13,7 @@ run(["scripts/build-package.mjs"]);
 const selected = process.argv.slice(3);
 if (mode === "full" && selected.length) throw new Error("Full verification does not accept a test filter");
 run(["scripts/run-unit-tests.mjs", ...(mode === "fast" ? (selected.length ? selected : ["plugin.test.mjs", "context-engine.test.mjs", "official-plugin-gate.test.mjs"]) : [])]);
-const benchmarks = ["hybrid-recall", "quality-ranking", "insights", "query", "inspector", "memory-lifecycle", "ingestion", "personal-memory-harness", "recall-quality", "cognition-graduation", "single-memory-harness-graduation"];
+const benchmarks = ["hybrid-recall", "quality-ranking", "insights", "query", "inspector", "memory-lifecycle", "ingestion", "personal-memory-harness", "recall-quality", "recall-probes", "cognition-graduation", "single-memory-harness-graduation"];
 if (mode === "full") {
   for (const name of benchmarks) run([`scripts/benchmark-${name}.mjs`]);
   run(["scripts/run-unit-tests.mjs", "tests/task-resume-evaluation.test.mjs", "tests/task-resume-comparison.test.mjs", "tests/task-resume-preregistration.test.mjs"]);

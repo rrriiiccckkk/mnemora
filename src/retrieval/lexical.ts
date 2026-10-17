@@ -35,10 +35,32 @@ export function indexText(value: string): string {
   return segmentWords(value).join(" ");
 }
 
+/**
+ * ICU's dictionary misses many compounds ("订餐" segments as 订|餐). Adjacent
+ * single Han characters that are not stopwords are joined into overlapping
+ * bigrams so the compound stays a searchable unit; a lone character is kept.
+ */
+export function joinHanSingles(words: readonly string[]): string[] {
+  const out: string[] = [];
+  let run: string[] = [];
+  const flush = () => {
+    if (run.length === 1) out.push(run[0]);
+    else for (let index = 0; index + 1 < run.length; index++) out.push(run[index] + run[index + 1]);
+    run = [];
+  };
+  for (const word of words) {
+    if (word.length === 1 && HAN.test(word) && !STOPWORDS.has(word)) { run.push(word); continue; }
+    flush();
+    out.push(word);
+  }
+  flush();
+  return out;
+}
+
 /** Content-bearing query terms used for ranking and anchor checks. */
 export function contentTerms(query: string, limit = 16): string[] {
   const terms: string[] = [];
-  for (const word of segmentWords(query)) {
+  for (const word of joinHanSingles(segmentWords(query))) {
     if (STOPWORDS.has(word)) continue;
     if (!HAN.test(word) && word.length < 2) continue;
     if (!terms.includes(word)) terms.push(word);
@@ -49,18 +71,56 @@ export function contentTerms(query: string, limit = 16): string[] {
 
 /** FTS5 MATCH expression: OR over quoted terms so bm25 ranks by coverage and rarity. */
 export function ftsMatchExpression(terms: readonly string[]): string | undefined {
-  const quoted = terms.map(term => term.replace(/"/gu, "")).filter(Boolean).map(term => `"${term}"`);
+  // Each term is segmented exactly as indexed text is, so a joined Han bigram
+  // ("订餐") becomes the adjacent-token phrase "订 餐".
+  const quoted = terms.map(term => indexText(term.replace(/"/gu, ""))).filter(Boolean).map(term => `"${term}"`);
   return quoted.length ? quoted.join(" OR ") : undefined;
 }
 
-/** Fraction of query terms that appear in the text (0..1). */
-export function termCoverage(value: string, terms: readonly string[]): number {
-  if (!terms.length) return 0;
-  const words = new Set(segmentWords(value));
+const SUFFIXES = ["ingly", "edly", "ing", "ed", "es", "s", "ly", "er", "est"];
+/**
+ * Light suffix stripping so "graduated" matches "graduate". The FTS index uses
+ * the porter stemmer; match checks must not be stricter than the index or a
+ * record found by an inflected form would look unrelated to the query.
+ */
+export function lightStem(word: string): string {
+  if (!/^[a-z]+$/u.test(word)) return word;
+  let stem = word;
+  for (const suffix of SUFFIXES) if (stem.length > suffix.length + 2 && stem.endsWith(suffix)) { stem = stem.slice(0, -suffix.length); break; }
+  // "graduate"/"graduated" and "live"/"lives" share a stem once a final e goes.
+  return stem.length > 3 && stem.endsWith("e") ? stem.slice(0, -1) : stem;
+}
+
+/**
+ * Query terms that appear in the text, in query order. `stem` also accepts
+ * inflected forms; ranking uses exact words (measured: stemming the ranking
+ * signal lowered LongMemEval recall), the relevance floor uses stems so a
+ * record found by the porter index is not judged unrelated.
+ */
+export function matchedTerms(value: string, terms: readonly string[], stem = false): string[] {
+  if (!terms.length) return [];
+  const normalize = stem ? lightStem : (word: string) => word;
+  const words = new Set(segmentWords(value).map(normalize));
   const haystack = value.normalize("NFKC").toLowerCase();
-  let matched = 0;
-  for (const term of terms) if (words.has(term) || (HAN.test(term) && haystack.includes(term))) matched++;
-  return matched / terms.length;
+  return terms.filter(term => words.has(normalize(term)) || (HAN.test(term) && haystack.includes(term)));
+}
+
+/** Fraction of query terms that appear in the text (0..1), exact words. */
+export function termCoverage(value: string, terms: readonly string[]): number {
+  return terms.length ? matchedTerms(value, terms).length / terms.length : 0;
+}
+
+/**
+ * Rarity-weighted share of query terms matched (0..1). A record that shares
+ * only a common word ("time", "work") with the query scores low; one that
+ * shares the query's rare, specific terms scores high. Unknown weights count 1.
+ */
+export function weightedCoverage(value: string, terms: readonly string[], weights: ReadonlyMap<string, number>): number {
+  if (!terms.length) return 0;
+  const weight = (term: string) => weights.get(term) ?? 1;
+  const total = terms.reduce((sum, term) => sum + weight(term), 0);
+  if (!(total > 0)) return 0;
+  return matchedTerms(value, terms, true).reduce((sum, term) => sum + weight(term), 0) / total;
 }
 
 export interface TextChunk { ordinal: number; start: number; end: number; text: string }

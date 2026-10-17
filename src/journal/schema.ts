@@ -165,3 +165,25 @@ CREATE TRIGGER IF NOT EXISTS mnemora_events_purge_chunks_on_delete AFTER DELETE 
   DELETE FROM mnemora_conversation_event_chunks WHERE event_id=OLD.id;
 END;
 `;
+
+/**
+ * Schema v87: optional semantic journal recall. One vector per chunk, keyed
+ * by the derived chunk id, so every path that removes or rebuilds chunks
+ * (forget, tombstone, redaction, restore) removes the vector with it.
+ */
+export const journalEmbeddingSchemaSql = `
+CREATE TABLE IF NOT EXISTS mnemora_conversation_event_chunks_embeddings (
+  chunk_id INTEGER PRIMARY KEY REFERENCES mnemora_conversation_event_chunks(id) ON DELETE CASCADE,
+  scope TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  dimensions INTEGER NOT NULL CHECK(dimensions BETWEEN 1 AND 8192),
+  input_version TEXT NOT NULL,
+  embedding BLOB NOT NULL,
+  embedded_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mnemora_event_chunk_embeddings_identity ON mnemora_conversation_event_chunks_embeddings(scope, provider, model, dimensions, input_version);
+CREATE TRIGGER IF NOT EXISTS mnemora_event_chunks_embedding_purge AFTER DELETE ON mnemora_conversation_event_chunks BEGIN
+  DELETE FROM mnemora_conversation_event_chunks_embeddings WHERE chunk_id=OLD.id;
+END;
+`;

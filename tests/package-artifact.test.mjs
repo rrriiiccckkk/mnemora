@@ -19,7 +19,7 @@ function fixture() {
   }
   mkdirSync(join(dir, "src/inspector/client"), { recursive: true });
   const version = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).version;
-  for (const [file, text] of Object.entries({ "schema.ts": "export const SUPPORTED_SCHEMA_VERSION = 86;", "version.ts": `export const mnemoraVersion = "${version}";`, "plugin.ts": "export default {};", "index.ts": "export * from './schema.js';", "cli.ts": "#!/usr/bin/env node\nconsole.log('fixture');", "inspector/client/app.ts": "console.log('inspector');", "inspector/client/styles.css": "body { color: black; }", "inspector/client/index.html": '<script src="__APP__"></script><link href="__STYLES__">' })) writeFileSync(join(dir, "src", file), text);
+  for (const [file, text] of Object.entries({ "schema.ts": "export const SUPPORTED_SCHEMA_VERSION = 87;", "version.ts": `export const mnemoraVersion = "${version}";`, "plugin.ts": "export default {};", "index.ts": "export * from './schema.js';", "cli.ts": "#!/usr/bin/env node\nconsole.log('fixture');", "inspector/client/app.ts": "console.log('inspector');", "inspector/client/styles.css": "body { color: black; }", "inspector/client/index.html": '<script src="__APP__"></script><link href="__STYLES__">' })) writeFileSync(join(dir, "src", file), text);
   // Use the actual TypeScript/esbuild toolchain. npm pack excludes node_modules.
   symlinkSync(join(root, "node_modules"), join(dir, "node_modules"), process.platform === "win32" ? "junction" : "dir");
   return dir;
@@ -36,7 +36,7 @@ test("npm pack rebuilds stale dist and the packed runtime/schema match current s
   run(process.execPath, [npm, "pack", "--ignore-scripts", "--pack-destination", out], dir);
   assert.match(run("tar", ["-xOf", archive, "package/dist/schema.js"], dir), /VERSION = 84/);
   run(process.execPath, [npm, "pack", "--pack-destination", out], dir);
-  assert.match(run("tar", ["-xOf", archive, "package/dist/schema.js"], dir), /VERSION = 86/);
+  assert.match(run("tar", ["-xOf", archive, "package/dist/schema.js"], dir), /VERSION = 87/);
   assert.doesNotMatch(run("tar", ["-tzf", archive], dir), /orphan\.js/);
   const unpacked = createTempDir("package-unpack-");
   run("tar", ["-xzf", archive, "-C", unpacked], dir);

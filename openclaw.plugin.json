@@ -392,6 +392,18 @@
           "maxItems": { "type": "integer", "default": 8, "minimum": 1, "maximum": 20 },
           "diversityLambda": { "type": "number", "default": 0.75, "minimum": 0, "maximum": 1, "description": "Deterministic MMR diversity weight for automatic context candidates; 1 preserves score-only ordering." },
           "minConfidence": { "type": "number", "default": 0.6, "minimum": 0, "maximum": 1 },
+          "minQueryMatch": { "type": "number", "minimum": 0, "maximum": 1, "description": "Relevance floor for automatic context: the minimum rarity-weighted share of query terms a record must match. Defaults to 0.15 while semantic recall is active and 0 otherwise; manual search is unaffected." },
+          "semantic": {
+            "type": "object", "additionalProperties": false,
+            "description": "Semantic journal recall. Active only when embeddings.enabled is true; captured turns are embedded locally and fused with lexical recall.",
+            "properties": {
+              "enabled": { "type": "boolean", "default": true },
+              "minSimilarity": { "type": "number", "default": 0.45, "minimum": -1, "maximum": 1, "description": "Cosine floor for attaching a record that shares no word with the prompt. Model-specific (calibrated on all-minilm); see docs/recall-quality.md." },
+              "gateSimilarity": { "type": "number", "default": 0.2, "minimum": -1, "maximum": 1, "description": "A lexical hit is attached only if it is among the prompt's nearest embedded records above this cosine. Model-specific." },
+              "maxScanChunks": { "type": "integer", "default": 50000, "minimum": 100, "maximum": 500000 },
+              "embedPerTurn": { "type": "integer", "default": 128, "minimum": 0, "maximum": 1000 }
+            }
+          },
           "maxStalenessDays": { "type": "integer", "default": 36500, "minimum": 1, "maximum": 36500 }
         }
       },

@@ -10,7 +10,7 @@ import { profileOptionalRestoreTables, profileSchemaSql } from "./profiles/schem
 import { trustOptionalRestoreTables } from "./trust/schema.js";
 import { integrationOptionalRestoreTables } from "./integrations/schema.js";
 import { governanceOptionalRestoreTables } from "./governance/schema.js";
-import { journalSchemaSql, journalSearchSchemaSql } from "./journal/schema.js";
+import { journalEmbeddingSchemaSql, journalSchemaSql, journalSearchSchemaSql } from "./journal/schema.js";
 import { rebuildJournalSearchIndex } from "./journal/search-index.js";
 import { contextEngineSchemaSql } from "./context-engine/schema.js";
 import { artifactSchemaSql } from "./artifacts/schema.js";
@@ -309,6 +309,7 @@ export class GraphologyStore {
     if (version < 84) this.migrateRecallAttachmentsV84();
     if (version < 85 && !(this.db.prepare("PRAGMA table_info(mnemora_unified_recall_shadow_runs)").all() as Array<{ name: string }>).some(column => column.name === "relevance_json")) this.db.exec("ALTER TABLE mnemora_unified_recall_shadow_runs ADD COLUMN relevance_json TEXT");
     if (version < 86) this.migrateJournalSearchV86();
+    if (version < 87) this.db.exec(journalEmbeddingSchemaSql);
     this.repairCanonicalCorpusFts();
     this.db.exec(`PRAGMA user_version=${SUPPORTED_SCHEMA_VERSION}`);
     const location = this.databaseLocation();
