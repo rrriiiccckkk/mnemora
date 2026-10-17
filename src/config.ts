@@ -82,7 +82,7 @@ export function normalizeConfig(input: Partial<MnemoraConfig> = {}): MnemoraConf
     // Mnemora has one ContextEngine lifecycle. Preserve the legacy spelling so
     // old configuration files still validate, but never revive hook behavior.
     mode: "standalone",
-    toolSurface: input.toolSurface === "core" || input.toolSurface === "research" ? input.toolSurface : "full",
+    toolSurface: input.toolSurface === "full" || input.toolSurface === "research" ? input.toolSurface : "core",
     llm: { ...defaultConfig.llm, ...input.llm },
     extraction: {
       ...defaultConfig.extraction,

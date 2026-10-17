@@ -6,8 +6,6 @@ import { join } from "node:path";
 
 import test from "node:test";
 import { GraphologyStore } from "../dist/store.js";
-import { ReasoningRuntimeGovernanceRepository } from "../dist/cognition/reasoning-runtime-governance.js";
-import { ReasoningRuntimeTelemetryRepository } from "../dist/cognition/reasoning-runtime-telemetry.js";
 
 const executeAt = (database, ...args) => {
   const result = spawnSync(process.execPath, ["dist/cli.js", ...args], { cwd: process.cwd(), encoding: "utf8", env: { ...process.env, MNEMORA_DB: database } });
@@ -237,56 +235,6 @@ test("operator CLI keeps Outcome Ledger operator-only and confirmation-gated", (
   assert.deepEqual(summary.json, { ok: true, command: "cognition.outcome", result: { scope: "project:alpha", outcomes: {} } });
   const definitions = readFileSync("src/openclaw.ts", "utf8");
   assert.doesNotMatch(definitions, /descriptor\("kg_outcome"/);
-});
-
-test("operator CLI keeps ReasoningMemory local, read-gated, and outside the agent tool surface", () => {
-  const summary = execute("cognition", "reasoning", "summary", "--scope", "project:alpha");
-  assert.deepEqual(summary.json, { ok: true, command: "cognition.reasoning", result: { scope: "project:alpha", memories: {} } });
-  const conflicts = execute("cognition", "reasoning", "conflicts", "--scope", "project:alpha");
-  assert.deepEqual(conflicts.json, { ok: true, command: "cognition.reasoning", result: [] });
-  const retrieve = execute("cognition", "reasoning", "retrieve", "rollback", "--scope", "project:alpha");
-  assert.deepEqual({ ok: retrieve.json.ok, command: retrieve.json.command, version: retrieve.json.result.version, empty: retrieve.json.result.empty }, { ok: true, command: "cognition.reasoning", version: "reasoning-retrieval-v1", empty: true });
-  const reflection = execute("cognition", "reasoning", "reflection", "preview", "--scope", "project:alpha");
-  assert.deepEqual({ ok: reflection.json.ok, command: reflection.json.command, proposals: reflection.json.result.proposals }, { ok: true, command: "cognition.reasoning", proposals: [] });
-  const curation = execute("cognition", "reasoning", "curation", "formations", "--scope", "project:alpha");
-  assert.deepEqual({ ok: curation.json.ok, command: curation.json.command, proposals: curation.json.result }, { ok: true, command: "cognition.reasoning", proposals: [] });
-  const compiled = execute("cognition", "reasoning", "compile", "rollback", "--scope", "project:alpha", "--adapter", "codex");
-  assert.deepEqual({ ok: compiled.json.ok, command: compiled.json.command, adapter: compiled.json.result.adapterId, channel: compiled.json.result.channel }, { ok: true, command: "cognition.reasoning", adapter: "codex", channel: "sidecar" });
-  const runtime = execute("cognition", "reasoning", "runtime", "deploy production migration", "--scope", "project:alpha");
-  assert.deepEqual({ ok: runtime.json.ok, command: runtime.json.command, mode: runtime.json.result.decision.mode, retrieve: runtime.json.result.decision.shouldRetrieve }, { ok: true, command: "cognition.reasoning", mode: "shadow", retrieve: true });
-  const metrics = execute("cognition", "reasoning", "runtime-metrics", "--scope", "project:alpha");
-  assert.deepEqual({ version: metrics.json.result.version, runs: metrics.json.result.runs }, { version: "reasoning-shadow-metrics-v1", runs: 0 });
-  const readiness = execute("cognition", "reasoning", "runtime-readiness", "--scope", "project:alpha");
-  assert.deepEqual({ version: readiness.json.result.version, ready: readiness.json.result.ready, delivery: readiness.json.result.deliveryEnabled }, { version: "reasoning-runtime-readiness-v1", ready: false, delivery: false });
-  const diagnostics = execute("cognition", "reasoning", "runtime-diagnostics", "--scope", "project:alpha");
-  assert.deepEqual({ version: diagnostics.json.result.version, policy: diagnostics.json.result.policy.status, efficacy: diagnostics.json.result.efficacy.status }, { version: "reasoning-runtime-diagnostics-v1", policy: "not_observed", efficacy: "not_measured" });
-  const verification = execute("cognition", "reasoning", "runtime-verification-summary", "--scope", "project:alpha");
-  assert.deepEqual(verification.json.result, { version: "reasoning-verification-summary-v2", scope: "project:alpha", pending: 0, processed: 0, expired: 0, matched: 0, mismatched: 0 });
-  const verificationEvents = execute("cognition", "reasoning", "runtime-verification-events", "--scope", "project:alpha"); assert.deepEqual(verificationEvents.json.result, []);
-  const verificationGuarded = execute("cognition", "reasoning", "runtime-verification-run", "--scope", "project:alpha"); assert.deepEqual(verificationGuarded.json.result, { status: "confirm_required", operation: "cognition.reasoning.runtime-verification-run" });
-  const toolResultGuarded = execute("cognition", "reasoning", "runtime-verification-tool-result", "mnemora://v1/scope/project%3Aalpha/reasoning-delivery-item/item", "migration-runner", "failure", "tool-run:42", "--scope", "project:alpha"); assert.deepEqual(toolResultGuarded.json.result, { status: "confirm_required", operation: "cognition.reasoning.runtime-verification-tool-result" });
-  const calibration = execute("cognition", "reasoning", "runtime-calibrate", "--scope", "project:alpha");
-  assert.deepEqual(calibration.json.result, { status: "policy_not_observed" });
-  const canary = execute("cognition", "reasoning", "runtime-canary-status", "--scope", "project:alpha");
-  assert.deepEqual({ version: canary.json.result.version, configured: canary.json.result.configured, active: canary.json.result.active, reason: canary.json.result.reason }, { version: "reasoning-runtime-canary-v1", configured: false, active: false, reason: "policy_not_observed" });
-  const deliveries = execute("cognition", "reasoning", "runtime-deliveries", "--scope", "project:alpha"); assert.deepEqual(deliveries.json.result, []);
-  const rollback = execute("cognition", "reasoning", "runtime-rollback", "--scope", "project:alpha"); assert.equal(rollback.json.result.status, "confirm_required");
-  const definitions = readFileSync("src/openclaw.ts", "utf8");
-  assert.doesNotMatch(definitions, /descriptor\("kg_reasoning"/);
-});
-
-test("operator CLI calibrates only the exact policy observed by a live runtime scope", () => {
-  const directory = createTempDir("mnemora-cli-policy-"), database = join(directory, "memory.db"); let store;
-  try {
-    store = new GraphologyStore(database);
-    const scope = "project:alpha", config = { tokenBudget: 800, maxItems: 6, minConfidence: .6, highRiskMinConfidence: .8, minEvidenceQuality: .5, highRiskMinEvidenceQuality: .75, maxStalenessDays: 365, excludeConflicted: true, retentionDays: 30, readiness: { minimumRuns: 1, maxErrorRate: .05, maxEmptyRate: .8, maxP95Ms: 1000 }, delivery: { enabled: true, scopes: [scope], adapter: "openclaw", calibrationMaxAgeHours: 24, maxConsecutiveDeliveries: 2, itemRetentionDays: 30 }, semantic: { enabled: true, timeoutMs: 1500, minScore: .35, maxCandidates: 50 } };
-    new ReasoningRuntimeTelemetryRepository(store.db).record({ scope, status: "succeeded", triggered: true, highRisk: false, candidateCount: 1, selectedCount: 1, qualityExcluded: 0, empty: false, estimatedTokens: 1, durationMs: 1 });
-    new ReasoningRuntimeGovernanceRepository(store.db).observePolicy(scope, config);
-    store.close(); store = undefined;
-    const diagnostics = executeAt(database, "cognition", "reasoning", "runtime-diagnostics", "--scope", scope), calibration = executeAt(database, "cognition", "reasoning", "runtime-calibrate", "--scope", scope);
-    assert.deepEqual({ policy: diagnostics.json.result.policy.status, configured: diagnostics.json.result.delivery.configured, ready: diagnostics.json.result.readiness.ready }, { policy: "observed", configured: true, ready: true });
-    assert.deepEqual({ version: calibration.json.result.version, status: calibration.json.result.status }, { version: "reasoning-runtime-calibration-preview-v1", status: "ready" });
-  } finally { try { store?.close(); } catch {} try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
 
 test("operator CLI exposes the Personal Context Compiler as a bounded read-only command", () => {

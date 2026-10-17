@@ -96,8 +96,8 @@ v1.32 为明确选择的任务增加有界的 `source_evidence` 可读摘录，�
 - **来源不等于确认**：用户请求不是完成证据，助手自述不是独立验证。
 - **作用域与生命周期有效性重要**：失效或被遗忘的来源不能让已接受工作复活；不确定证据保持明确标记。
 - **本地优先不等于完全离线**：配置的模型、embedding 或 Provider 集成可能发起外部调用。
-- **ReasoningMemory 投递仍属实验，默认关闭**：需要显式治理，参考内容不能成为 prompt 指令。
-- **测试通过不等于效果已证明**：v1.32 尚未证明续接正确率优于简单检索；真实对照评估与 v1.33 试点门槛仍待完成。
+- **记忆默认按 agent 隔离**：每个 agent 使用自己的 scope，默认 agent 继续使用 `scope.default`；设置 `scope.isolation: "shared"` 可让所有 agent 共用一个 scope。
+- **检索质量已测量，答题准确率尚未测量**：在 LongMemEval_S（500 题、800 token 预算）上，自动召回对 93.8% 的可答题注入了答案所在会话，对 83.2% 注入了答案原句，与同预算 bm25 基线（94.9% / 81.5%）相当，详见[召回质量](docs/recall-quality.md)。端到端答题准确率与续接对照评估仍待完成。
 
 攻击面与防护边界见[威胁模型](docs/threat-model.md)。
 
@@ -113,8 +113,7 @@ v1.32 为明确选择的任务增加有界的 `source_evidence` 可读摘录，�
 - **召回与证据**：[阈值评估](docs/recall-threshold-evaluation.md)、
   [装配凭据](docs/recall-attachment-evidence.zh-CN.md)、
   [用途证据边界](docs/recall-usefulness-review.zh-CN.md)。
-- **ReasoningMemory**：[审查与治理](docs/reasoning-curation.md)、
-  [验证说明](docs/reasoning-verification.md)。
+- **召回质量**：[LongMemEval 检索评测](docs/recall-quality.md)。
 - **开发规划**：[roadmap](docs/roadmap.md)、
   [实验预注册](docs/task-resume-preregistration.zh-CN.md)、
   [v1.32 发布说明](docs/releases/v1.32.0.md)。

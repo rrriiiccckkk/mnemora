@@ -118,11 +118,15 @@ See [source evidence and reruns](docs/task-resume-source-evidence.zh-CN.md).
   revive accepted work; uncertain evidence stays visibly uncertain.
 - **Local-first is not offline-only.** Configured model, embedding or provider
   integrations may make external calls.
-- **ReasoningMemory delivery is experimental and off by default.** It requires
-  explicit governance; reference content must not become prompt instructions.
-- **Tests are not efficacy evidence.** v1.32 does not establish improved
-  continuation accuracy over simple retrieval. The real comparison and
-  v1.33 pilot gate remain pending.
+- **Memory is isolated per agent by default.** Each agent uses its own scope;
+  the default agent keeps `scope.default`. Set `scope.isolation: "shared"` to
+  share one scope across agents.
+- **Retrieval quality is measured, answer accuracy is not yet.** On
+  LongMemEval_S (500 questions, 800-token budget) automatic recall injects the
+  answer session for 93.8% of answerable questions and an answer turn for
+  83.2%, on par with a same-budget bm25 baseline (94.9% / 81.5%). See
+  [recall quality](docs/recall-quality.md). End-to-end answer accuracy and the
+  continuation comparison remain pending.
 
 For attack surfaces and safeguards, read the [threat model](docs/threat-model.md).
 
@@ -139,8 +143,7 @@ first-use checks, correction workflows and operating commands.
 - **Recall and evidence:** [threshold evaluation](docs/recall-threshold-evaluation.md),
   [attachment receipts](docs/recall-attachment-evidence.zh-CN.md),
   [usefulness boundaries](docs/recall-usefulness-review.zh-CN.md).
-- **ReasoningMemory:** [curation](docs/reasoning-curation.md),
-  [verification](docs/reasoning-verification.md).
+- **Recall quality:** [LongMemEval retrieval evaluation](docs/recall-quality.md).
 - **Planning:** [roadmap](docs/roadmap.md),
   [preregistration](docs/task-resume-preregistration.zh-CN.md),
   [v1.32 release notes](docs/releases/v1.32.0.md).

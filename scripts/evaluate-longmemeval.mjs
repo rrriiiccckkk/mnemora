@@ -12,8 +12,8 @@
 //   node --expose-gc scripts/evaluate-longmemeval.mjs /tmp/longmemeval_s_cleaned.json [limit] [out.jsonl]
 //
 // The process prints one JSON summary. No model calls are made.
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { appendFileSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createTempDir } from "../tests/helpers/temp.mjs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { MnemoraContextEngine } from "../dist/context-engine/engine.js";
@@ -47,7 +47,7 @@ function bm25Baseline(question) {
 
 const totals = { questions: 0, answerable: 0, abstention: 0, mnemora: { sessionHit: 0, turnHit: 0, empty: 0, abstentionInjected: 0, tokens: 0 }, bm25: { sessionHit: 0, turnHit: 0 } };
 for (const question of data) {
-  const directory = mkdtempSync(join(tmpdir(), "mnemora-lme-"));
+  const directory = createTempDir("mnemora-lme-");
   const config = normalizeConfig({ dbPath: join(directory, "m.db"), mode: "standalone", conversationJournal: { enabled: true }, contextEngine: { enabled: true }, episodicMemory: { enabled: true }, unifiedRetrieval: { enabled: true, shadowMode: false, tokenBudget: BUDGET, maxItems: MAX_ITEMS, diversityLambda: .75 } });
   const graph = new Mnemora({ config });
   const shared = new Proxy(graph, { get: (target, property) => property === "close" ? () => undefined : Reflect.get(target, property, target) });

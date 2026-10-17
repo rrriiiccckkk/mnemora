@@ -40,12 +40,13 @@ export function validateAdvancedPlugin({ manifest, pkg, plugin: entry, readme })
   assert.deepEqual(pkg.openclaw.extensions, ["./dist/plugin.js"], "package entry metadata mismatch");
 
   const cases = [
-    [{}, ["gateway_stop"], expectedTools],
+    [{}, ["gateway_stop"], expectedCoreTools],
+    [{ toolSurface: "full" }, ["gateway_stop"], expectedTools],
     [{ toolSurface: "core" }, ["gateway_stop"], expectedCoreTools],
     [{ toolSurface: "research" }, ["gateway_stop"], expectedResearchTools],
-    [{ recall: { autoRecall: true } }, ["gateway_stop"], expectedTools],
-    [{ llm: { apiKey: "x" }, extraction: { enabled: true, autoExtract: true } }, ["gateway_stop"], expectedTools],
-    [{ llm: { apiKey: "x" }, extraction: { enabled: true, autoExtract: true }, recall: { autoRecall: true } }, ["gateway_stop"], expectedTools]
+    [{ recall: { autoRecall: true } }, ["gateway_stop"], expectedCoreTools],
+    [{ toolSurface: "full", llm: { apiKey: "x" }, extraction: { enabled: true, autoExtract: true } }, ["gateway_stop"], expectedTools],
+    [{ toolSurface: "full", llm: { apiKey: "x" }, extraction: { enabled: true, autoExtract: true }, recall: { autoRecall: true } }, ["gateway_stop"], expectedTools]
   ];
   for (const [config, expectedHooks, expectedRegisteredTools] of cases) {
     const activated = activate(entry, config);

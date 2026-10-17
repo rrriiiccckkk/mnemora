@@ -40,7 +40,7 @@
           "reasoningCuration": {
             "type": "object",
             "additionalProperties": false,
-            "description": "Opt-in host-runtime curation. Intake, formation, and review produce non-authoritative proposals only; a human controls every durable decision, outcome, or strategy transition.",
+            "description": "Removed in 1.33 (ReasoningMemory curation and intake). Accepted for configuration compatibility and ignored.",
             "properties": {
               "intake": {
                 "type": "object",
@@ -60,7 +60,7 @@
           },
           "reasoningRuntime": {
             "type": "object", "additionalProperties": false,
-            "description": "Opt-in, per-scope ReasoningMemory. Shadow telemetry is aggregate-only; delivery stays disabled until an exact-scope canary is explicitly calibrated and enabled.",
+            "description": "Removed in 1.33 (ReasoningMemory runtime). Accepted for configuration compatibility and ignored.",
             "properties": {
               "shadowMode": { "type": "boolean", "default": false },
               "scopes": { "type": "array", "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 80 }, "default": [] },
@@ -83,7 +83,7 @@
       },
       "toolSurface": {
         "anyOf": [{ "const": "core", "type": "string" }, { "const": "research", "type": "string" }, { "const": "full", "type": "string" }],
-        "description": "OpenClaw tool surface: core for everyday work, research for analysis, or full for every supported tool."
+        "description": "OpenClaw tool surface: core (default) for everyday memory work, research adds analysis and saved queries, full exposes every operational tool."
       },
       "llm": {
         "type": "object",

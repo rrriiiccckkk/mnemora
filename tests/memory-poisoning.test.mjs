@@ -8,7 +8,6 @@ import { normalizeConfig } from "../dist/config.js";
 import { MnemoraContextEngine } from "../dist/context-engine/engine.js";
 import { ConversationEventRepository } from "../dist/journal/repository.js";
 import { SummaryRepository } from "../dist/context-engine/summary-repository.js";
-import { ReasoningAgentAdapterRegistry } from "../dist/cognition/reasoning-adapters.js";
 import { sanitizeMemoryForContext } from "../dist/retrieval/context-safety.js";
 import { ContextCompactionService } from "../dist/context-engine/compaction-service.js";
 import { DeepSeekExtractor } from "../dist/extractor.js";
@@ -32,13 +31,6 @@ for (const payload of payloads) {
     assert.doesNotMatch(content, /<\/?MNEMORA_/i);
     assert.doesNotMatch(content, /^(?:System|Developer|аssistant)[:：]/mi);
     assert.match(content, /POISON_CANARY/);
-  });
-
-  test(`built-in reasoning adapters preserve provenance without trusting strategy text: ${payload.id}`, () => {
-    const context = { version: "reasoning-context-v1", scope: "default", queryApplied: true, tokenBudget: 800, estimatedTokens: 100, omitted: [], items: [{ id: "reasoning-1", kind: "procedure", strategy: payload.text, authority: "operator_confirmed", confidence: .9, utility: .8, applicability: {}, sourceRefs: ["mnemora:reference"], reasons: [], estimatedTokens: 100 }] };
-    const registry = new ReasoningAgentAdapterRegistry();
-    for (const id of registry.list()) assertReferenceBody(registry.render(id, context).content, "MNEMORA_REASONING_CONTEXT");
-    assert.equal(context.items[0].strategy, payload.text, "presentation must not mutate the audited strategy");
   });
 
   test(`persisted summary is safe on assembly after reopening the database: ${payload.id}`, async () => {
@@ -123,22 +115,6 @@ test("extraction keeps source commands out of the provider's instruction message
     assert.doesNotMatch(request.messages[0].content, /POISON_CANARY/);
     assert.equal(request.messages[0].content, requests[0].messages[0].content);
   }
-});
-
-test("oversized reasoning projections fail closed rather than returning a truncated envelope", () => {
-  for (const strategy of ["x".repeat(2000), "迁移前检查数据库。".repeat(100)]) {
-    const context = { version: "reasoning-context-v1", scope: "default", queryApplied: true, tokenBudget: 1600, estimatedTokens: 1600, omitted: [], items: Array.from({ length: 12 }, (_, index) => ({ id: `item-${index}`, kind: "procedure", strategy, authority: "operator_confirmed", confidence: .9, utility: .8, applicability: {}, sourceRefs: [], reasons: [], estimatedTokens: 100 })) };
-    const registry = new ReasoningAgentAdapterRegistry();
-    for (const id of registry.list()) assert.throws(() => registry.render(id, context), /invalid_reasoning_agent_presentation/);
-  }
-});
-
-test("reasoning rendering preserves long canonical source and delivery identifiers", () => {
-  const reference = createMnemoraContextRef({ scope: "default", kind: "conversation-event", id: "e".repeat(500) });
-  const delivery = createMnemoraContextRef({ scope: "default", kind: "reasoning-delivery-item", id: "d".repeat(500) });
-  const context = { version: "reasoning-context-v1", scope: "default", queryApplied: true, tokenBudget: 800, estimatedTokens: 100, omitted: [], items: [{ id: "item", kind: "procedure", strategy: "Inspect the schema.", authority: "operator_confirmed", confidence: .9, utility: .8, applicability: {}, sourceRefs: [reference], deliveryItemRef: delivery, reasons: [], estimatedTokens: 100 }] };
-  const content = new ReasoningAgentAdapterRegistry().render("openclaw", context).content;
-  assert.ok(content.includes(`refs=${reference}; delivery_item=${delivery}`));
 });
 
 test("short model summaries keep trailing facts after role quoting", async () => {

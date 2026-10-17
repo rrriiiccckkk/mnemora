@@ -347,7 +347,7 @@ export const defaultConfig: MnemoraConfig = {
   dbPath: "~/.openclaw/mnemora.db",
   mode: "standalone",
   // Keep the historical registration behavior until users explicitly choose a smaller surface.
-  toolSurface: "full",
+  toolSurface: "core",
   llm: {
     baseURL: "https://api.deepseek.com/v1",
     model: "deepseek-chat"

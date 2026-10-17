@@ -127,10 +127,11 @@ test("governed reasoning delivery requires explicit exact scopes and clamps cana
 });
 
 test("tool surfaces preserve the full historical default and normalize to documented values", () => {
-  assert.equal(normalizeConfig({}).toolSurface, "full");
+  assert.equal(normalizeConfig({}).toolSurface, "core");
+  assert.equal(normalizeConfig({ toolSurface: "full" }).toolSurface, "full");
   assert.equal(normalizeConfig({ toolSurface: "core" }).toolSurface, "core");
   assert.equal(normalizeConfig({ toolSurface: "research" }).toolSurface, "research");
-  assert.equal(normalizeConfig({ toolSurface: "unknown" }).toolSurface, "full");
+  assert.equal(normalizeConfig({ toolSurface: "unknown" }).toolSurface, "core");
 });
 
 test("memory retrieval quality expands a bounded local pool by default and bounds optional MMR and reranker controls", () => {

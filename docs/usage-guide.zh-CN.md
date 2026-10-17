@@ -250,134 +250,27 @@ MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review anomalies confirm edge:ex
 - `extraction.enabled`：有边界的 OpenAI-compatible 关系抽取，默认关闭。
 - `contextEngine.compaction.enabled`：带来源的模型压缩，默认关闭。
 - `cognition.admission.mode: "enforce"`：确定性候选策略；Belief 和 enforcement 仍需各自显式开启。
-- `cognition.reasoningRuntime.shadowMode`：只记录安全的策略检索聚合遥测；ReasoningMemory 投递仍默认关闭，必须由 operator 校准并为精确 scope 显式开启 canary。
-- `cognition.reasoningRuntime.semantic.enabled`：只有同时开启 `embeddings.enabled` 时，才启用独立的本地 ReasoningMemory 语义索引。默认关闭；Provider 失败时自动退回确定性词法检索。
-- `cognition.reasoningRuntime.verification.enabled`：在 durable completed turn 后运行有界、本地、确定性的策略验证。默认关闭；不会开启投递，也不会让策略成为权威事实。
-- `cognition.reasoningCuration`：可选地在 durable turn 后使用 host 公开提供的 runtime LLM，生成来源关联的决策/结果候选、策略候选并定期审查已有策略。全部默认关闭；不会自动创建用户事实、准入策略或改变投递状态。
 
 所有模型或网络调用都有输入/输出上限、超时和取消处理。默认安装不会开启额外自动写入、严格验证、模型压缩或外部 Provider。
 
-### 受治理的推理 intake、积累与审查
+### 按 agent 隔离
 
-人工编写、相对静态的指令文件适合保存这类内容。Mnemora 的可选 curation
-路径则用于有来源、会演化的操作策略：它把已确认 outcome、有界的模型候选、
-审查状态与后续每一次人工决定一起保存在本地数据库中。
+自动记忆默认按 agent 隔离（`scope.isolation: "agent"`）。每个 agent 读写自己的 scope `agent:<id>`，
+agent id 取自宿主会话键 `agent:<id>:...`。默认 agent（`scope.defaultAgentId`，未配置时为 `main`）
+继续使用 `scope.default`，因此单 agent 安装看到的已有记忆不变。手动工具遵循同样规则：
+非默认 agent 的所有 `scope` 参数都会被固定为它自己的 scope，跨 scope 的管理工具
+（`kg_stats`、`kg_scopes`、`kg_forget`、`kg_merge`、`kg_merge_undo`、`kg_export`、`kg_import`、`kg_embed_backfill`）
+不会提供给它。设置 `scope.isolation: "shared"` 可恢复 1.33 之前所有 agent 共用 `scope.default` 的行为。
 
-只有在配置好 ContextEngine 后才建议显式开启。Curation 只会在一次
-*durable completed turn* 之后、且 OpenClaw 公开提供了 runtime LLM 时机会性运行；
-它不会读取 host 私有模型状态或凭据。
+### 工具面
 
-```json5
-cognition: {
-  reasoningCuration: {
-    intake: { enabled: true }, // 每个 turn 最多两个决策/结果候选
-    formation: { enabled: true }, // 每个 turn 最多一个有 outcome 支撑的候选
-    review: { enabled: true, intervalHours: 168 } // 每周一次咨询性审查
-  }
-}
-```
+`toolSurface` 默认为 `core`（10 个日常记忆工具）。需要分析和保存查询时用 `research`，需要全部运维工具时用 `full`。
 
-Intake 会先创建有来源的 `pending_review` 候选，不会自行创建 decision、outcome、
-belief、事实、profile 或策略。operator 审阅后只能确认或丢弃；确认产生的 decision
-仍是 `operator_confirmed`，不会被自动断言为用户事实。确认的 outcome 才会在后续
-durable turn 中成为 formation 的输入。
+### ReasoningMemory（已移除）
 
-Formation 只从置信度足够的、人工确认过的 TaskOutcome 开始。模型输出会以
-`pending_review` 保存，不会直接成为 ReasoningMemory。operator 必须先提升候选，
-再执行既有的独立准入步骤，它才可能进入检索。定期审查只能建议 `retain`、`retire`
-或 `needs_review`；最终仍由人处理。`retire` 是可追溯的生命周期状态，不会破坏性删除。
-
-```bash
-mnemora cognition reasoning intake candidates --scope project:alpha
-mnemora cognition reasoning intake confirm <candidate-id> --scope project:alpha
-# 使用返回的 preview hash，再加 --preview-hash <hash> --confirm 执行。
-mnemora cognition reasoning intake discard <candidate-id> --scope project:alpha
-
-mnemora cognition reasoning curation formations --scope project:alpha
-mnemora cognition reasoning curation promote <formation-proposal-id> --scope project:alpha
-# 使用返回的 preview hash，再加 --preview-hash <hash> --confirm 执行。
-mnemora cognition reasoning admit <reasoning-memory-id> --scope project:alpha
-
-mnemora cognition reasoning curation reviews --scope project:alpha
-mnemora cognition reasoning curation resolve-review <review-proposal-id> retire --scope project:alpha
-# 使用返回的 preview hash，再加 --preview-hash <hash> --confirm 执行。
-```
-
-如果审核者确认某个候选属于现有任务，可在 `intake confirm` 的预览和最终确认**两次调用中使用相同的** `--task-ref <mnemora-task-episode-ref>`。预览会显示选中任务对 Decision/TaskOutcome 的关联效果；确认哈希绑定这一选择。省略时仍锚定原始消息，不会仅凭同一轮出现的任务 Episode 自动归属，也不会进入该任务的 `resume` 投影。
-
-关于失败、重试、scope 与审查语义，见[受治理的 Reasoning curation](reasoning-curation.md)。
-
-### 实验性 ReasoningMemory 投递
-
-ReasoningMemory 把可复用的操作策略与个人事实分开保存。即使策略已经准入，运行时投递仍默认关闭。先开启 shadow 收集并检查 readiness，再只对一个精确 scope 显式校准、开启 canary：
-
-```json5
-cognition: {
-  reasoningRuntime: {
-    shadowMode: true,
-    scopes: ["project:alpha"],
-    delivery: {
-      enabled: true,
-      scopes: ["project:alpha"],
-      itemRetentionDays: 30
-    }
-  }
-}
-```
-
-每次投递的策略都会被包裹为 `non_authoritative_reference`，并获得一条短期回执。operator 可以把回执标为 helpful/neutral/harmful；或由 operator 确认的任务 outcome 显式引用回执，形成确定性反馈。harmful 信号只会抑制该 scope 下的这一条策略。`effectiveStatus` 只表示最新回执信号，不代表可以重新投递；memory circuit 必须由 operator 显式 reset 才会关闭，处于关闭前状态的 item 会标出 `requiresOperatorReset`。reset 会新增一条仅追加的 item correction，保留原有 harmful 历史。它不会把策略变成 belief、事实或图谱边，也不会自动关闭整个 canary。
-
-配置过的 scope 已在 shadow 模式运行后，应先查看一份 readiness 报告再创建 calibration。报告会使用最新的 live runtime policy snapshot，因此 operator 无需在 CLI 中重建插件配置。snapshot 只保存有界的策略控制项和聚合计数，绝不保存 prompt、策略正文、memory ID、证据、来源或 Provider 凭据。
-
-```bash
-mnemora cognition reasoning runtime-diagnostics --scope project:alpha
-mnemora cognition reasoning runtime-calibrate --scope project:alpha
-# 使用返回的 preview hash 加 --confirm 再执行一次，然后才可开启精确 scope 的 canary。
-```
-
-在 scope 尚未进入 live runtime 前，diagnostics 会返回 `policy_not_observed`，不能让该 scope 变为 ready。只有 operator 确认 calibration 且精确 scope 的 canary 都存在时，delivery 才可能开启。
-
-```bash
-mnemora cognition reasoning runtime-delivery-items --scope project:alpha
-mnemora cognition reasoning runtime-feedback-summary --scope project:alpha
-mnemora cognition reasoning runtime-memory-circuit <reasoning-memory-id> --scope project:alpha
-```
-
-`mnemora cognition reasoning find` 是供 operator 审计/查看目录的命令，因此可能展示已被抑制的策略文本；需要经过 circuit 过滤的选择请使用 `retrieve`、`compile` 或 runtime delivery。
-
-若要衡量投递是否真的改善任务结果，使用 `mnemora cognition reasoning runtime-effectiveness <file>` 运行去标识化 A/B 数据集。只有 operator 声明的随机对照且每一组至少有 20 条已判定 outcome 时，才会给出非因果的点估计和保守的 95% 区间；shadow 遥测、采用率、合成 benchmark 与旧版 v1 数据集都不能当作效果结论。
-
-operator 还可以为待准入策略附上[有界、确定性的验证说明](reasoning-verification.md)。它只会在本地 append-only ledger 中比对明确 receipt 引用与规范化工具结果；不匹配仅打开对应策略的 delivery circuit，直到 operator 显式 reset。它不会调用模型、网络或工具，也不会把策略升级为 belief 或事实。自动处理仍默认关闭：
-
-```json5
-cognition: { reasoningRuntime: { verification: { enabled: true, maxJobsPerRun: 5 } } }
-```
-
-### 可选的多语言 ReasoningMemory 检索
-
-策略文本与运行时任务可以使用不同语言。要让中文策略能够被英文 `debug` 任务命中（反之亦然），需要同时显式开启现有本地 Ollama embedding Provider 与独立的 ReasoningMemory 语义路径：
-
-```json5
-embeddings: { enabled: true, provider: "ollama", model: "qwen3-embedding:4b" },
-cognition: {
-  reasoningRuntime: {
-    shadowMode: true,
-    scopes: ["project:alpha"],
-    semantic: { enabled: true, timeoutMs: 1500, minScore: 0.35, maxCandidates: 50 }
-  }
-}
-```
-
-建索引是显式的本地操作：不会在策略准入或普通 prompt 组装时自动执行。`semantic-backfill` 必须确认，只保存向量字节、模型身份、输入哈希和 scope，不保存策略正文或证据。独立 CLI 也要求明确启用本地 embedding：
-
-```bash
-MNEMORA_REASONING_SEMANTIC_EMBEDDINGS=1 mnemora cognition reasoning semantic-status --scope project:alpha
-MNEMORA_REASONING_SEMANTIC_EMBEDDINGS=1 mnemora cognition reasoning semantic-backfill --scope project:alpha --confirm
-```
-
-如果修改了 embedding 模型配置，请再次执行已确认的 backfill；它会识别模型身份变化并刷新本地策略索引。
-
-shadow 报告提供聚合的 `semanticCandidates`、`unmatched` 和 `taskTypeExcluded` 计数，不会持久化 prompt、策略、memory ID 或来源内容。
+实验性的 ReasoningMemory 运行时、整理、intake、投递与验证流水线已在 1.33 移除。
+`cognition.reasoningRuntime` 与 `cognition.reasoningCuration` 仍可被接受，现有配置能正常加载，但会被忽略。
+已有的 ReasoningMemory 数据表原样保留，以兼容备份。
 
 ## 安全模型
 

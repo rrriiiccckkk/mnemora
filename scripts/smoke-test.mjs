@@ -34,7 +34,7 @@ export async function runSmokeScenario({ registerPlugin = api => plugin.register
       await new Promise((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
       const address = server.address();
       registerPlugin({
-        pluginConfig: { dbPath, conversationJournal: { enabled: true }, contextEngine: { enabled: true }, episodicMemory: { enabled: true }, unifiedRetrieval: { enabled: true }, llm: { apiKey: "smoke", baseURL: `http://127.0.0.1:${address.port}/v1`, model: "smoke" }, extraction: { enabled: true, autoExtract: true } },
+        pluginConfig: { dbPath, toolSurface: "full", conversationJournal: { enabled: true }, contextEngine: { enabled: true }, episodicMemory: { enabled: true }, unifiedRetrieval: { enabled: true }, llm: { apiKey: "smoke", baseURL: `http://127.0.0.1:${address.port}/v1`, model: "smoke" }, extraction: { enabled: true, autoExtract: true } },
         logger: { debug() { }, warn() { } }, registerTool(value) { tools.push(value); }, registerCommand() { }, registerContextEngine(id, factory) { contextEngines.push({ id, factory }); }, on(name, handler) { hooks.push({ name, handler }); }
       });
       const tool = (name) => tools.find((value) => value.name === name);

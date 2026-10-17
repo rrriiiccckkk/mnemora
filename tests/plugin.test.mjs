@@ -144,11 +144,16 @@ test("missing or throwing info loggers do not affect lifecycle registration", ()
   assert.deepEqual(throwing.hooks.map(hook => hook.name).sort(), ["gateway_stop"]);
 });
 
-for (const [name, config, expectedHooks] of configs) test(`${name} registers thirty-two tools and only expected hooks`, () => {
+const EXPECTED_CORE_TOOLS = ["kg_context", "kg_ingest", "kg_memory", "kg_profile", "kg_recall_explain", "kg_related", "kg_scopes", "kg_search", "kg_sources", "kg_stats"];
+for (const [name, config, expectedHooks] of configs) test(`${name} registers the core tool surface by default and only expected hooks`, () => {
   const result = harness(config);
   assert.deepEqual(result.hooks.map((hook) => hook.name).sort(), expectedHooks);
-  assert.deepEqual(result.tools.map((tool) => tool.name).sort(), EXPECTED_32_TOOLS);
+  assert.deepEqual(result.tools.map((tool) => tool.name).sort(), EXPECTED_CORE_TOOLS);
   assert.deepEqual(result.contextEngines, []);
+});
+
+test("toolSurface full still registers all thirty-two tools", () => {
+  assert.deepEqual(harness({ toolSurface: "full" }).tools.map((tool) => tool.name).sort(), EXPECTED_32_TOOLS);
 });
 
 test("ContextEngine is registered only after explicit opt-in", () => {
@@ -217,26 +222,6 @@ test("an occupied extraction lease does not skip consolidation or reflection", a
     await runtime.processCompletedTurn({ sessionId: "s", userText: "user", assistantText: "assistant" }, { receiptId: "receipt", commitId: "commit", scope: "default", sessionId: "s", branchId: "main", events: [], tasks: [], inserted: true });
     assert.deepEqual({ extracted, consolidated, reflected }, { extracted: 0, consolidated: 1, reflected: 1 });
   } finally { runtime.stop(); }
-});
-
-test("ContextEngine evaluates governed reasoning from assemble without registering a prompt hook", async () => {
-  const directory = createTempDir("mnemora-reasoning-assembly-"), dbPath = join(directory, "memory.db");
-  const runtime = new PluginRuntime({
-    dbPath,
-    scope: { default: "project:ops" },
-    conversationJournal: { enabled: true },
-    contextEngine: { enabled: true },
-    episodicMemory: { enabled: true },
-    cognition: { reasoningRuntime: { shadowMode: true, scopes: ["project:ops"] } }
-  }, { debug() {}, info() {}, warn() {} });
-  try {
-    const engine = runtime.activateContextEngine({ config: { plugins: { slots: { contextEngine: "mnemora" } } } });
-    const assembled = await engine.assemble({ sessionId: "reasoning", prompt: "Deploy the production migration safely.", messages: [{ role: "user", content: "Deploy the production migration safely." }], tokenBudget: 800 });
-    assert.equal("systemPromptAddition" in assembled, false);
-    const graph = runtime.openGraph();
-    try { assert.equal(graph.store.db.prepare("SELECT COUNT(*) AS n FROM mnemora_reasoning_runtime_shadow_runs WHERE scope=?").get("project:ops").n, 1); }
-    finally { graph.close(); }
-  } finally { runtime.stop(); try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
 
 test("kg_insights publishes a strict bounded schema and dispatches the exact input object", async () => {

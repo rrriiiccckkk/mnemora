@@ -355,192 +355,36 @@ bounded unavailable error.
   (disabled by default).
 - `cognition.admission.mode: "enforce"`: deterministic candidate policy;
   beliefs and enforcement remain separately opt-in.
-- `cognition.reasoningRuntime.shadowMode`: aggregates safe strategy-retrieval
-  telemetry only. Reasoning delivery remains disabled unless an operator also
-  calibrates and enables an exact-scope canary.
-- `cognition.reasoningRuntime.semantic.enabled`: enables a separate, local
-  semantic index for admitted ReasoningMemory strategies only when
-  `embeddings.enabled` is also true. It is disabled by default and always
-  falls back to deterministic lexical retrieval on provider failure.
-- `cognition.reasoningRuntime.verification.enabled`: runs a bounded, local
-  deterministic verifier after durable completed turns. It is disabled by
-  default and never enables delivery or makes strategy output authoritative.
-- `cognition.reasoningCuration`: optionally uses the public host runtime model
-  after durable turns to create source-linked decision/outcome candidates,
-  form reviewable strategy candidates, and periodically review existing
-  strategies. All paths are disabled by default; none can create a user fact,
-  admit a strategy, or change delivery automatically.
 
 Every model or network call has input/output bounds, timeout, and cancellation
 handling. Default installation never enables an extra automatic write path,
 strict verification, model compaction, or external provider.
 
-### Governed reasoning intake and curation
+### Agent isolation
 
-A hand-authored instruction file is appropriate for static instructions. Mnemora's
-optional curation path is for source-linked, evolving procedural advice: it
-keeps the confirmed outcome, the bounded model proposal, review status, and
-every later human decision together in the local database.
+Automatic memory is isolated per agent by default (`scope.isolation: "agent"`).
+Each agent reads and writes its own scope `agent:<id>`, derived from the host
+session key `agent:<id>:...`. The default agent (`scope.defaultAgentId`, `main`
+unless configured) keeps `scope.default`, so single-agent installations see
+their existing memory unchanged. Manual tools follow the same rule: for a
+non-default agent every `scope` argument is pinned to that agent's scope, and
+cross-scope administration tools (`kg_stats`, `kg_scopes`, `kg_forget`,
+`kg_merge`, `kg_merge_undo`, `kg_export`, `kg_import`, `kg_embed_backfill`)
+are not offered to it. Set `scope.isolation: "shared"` to restore the
+pre-1.33 behaviour where every agent shares `scope.default`.
 
-Enable either path only after ContextEngine is configured. Curation runs
-opportunistically after a *durable completed turn* for which OpenClaw exposed
-its public runtime LLM; it never reads host-private model state or credentials.
+### Tool surface
 
-```json5
-cognition: {
-  reasoningCuration: {
-    intake: { enabled: true }, // up to two decision/outcome candidates per turn
-    formation: { enabled: true }, // one outcome-backed candidate at most per turn
-    review: { enabled: true, intervalHours: 168 } // weekly advisory review
-  }
-}
-```
+`toolSurface` defaults to `core` (ten everyday memory tools). Use `research`
+for analysis and saved-query tools, or `full` for every operational tool.
 
-Intake first creates a source-linked `pending_review` candidate. It never
-creates a decision, outcome, belief, fact, profile, or strategy by itself.
-Review a candidate, then confirm or discard it. A confirmed decision remains
-`operator_confirmed`, never an automatically asserted user fact. A confirmed
-outcome can then feed formation on a later durable turn.
+### ReasoningMemory (removed)
 
-Formation starts only from confirmed TaskOutcomes with adequate confidence.
-Its model output is also stored as `pending_review`, not as a ReasoningMemory.
-Promote a candidate, then perform the existing separate admission step before
-it is eligible for retrieval. Periodic review can only recommend `retain`,
-`retire`, or `needs_review`; an operator must resolve it. `retire` is a
-reversible lifecycle state, not a destructive deletion.
-
-```bash
-mnemora cognition reasoning intake candidates --scope project:alpha
-mnemora cognition reasoning intake confirm <candidate-id> --scope project:alpha
-# Repeat the returned command with --preview-hash <hash> --confirm.
-mnemora cognition reasoning intake discard <candidate-id> --scope project:alpha
-
-mnemora cognition reasoning curation formations --scope project:alpha
-mnemora cognition reasoning curation promote <formation-proposal-id> --scope project:alpha
-# Repeat the returned command with --preview-hash <hash> --confirm.
-mnemora cognition reasoning admit <reasoning-memory-id> --scope project:alpha
-
-mnemora cognition reasoning curation reviews --scope project:alpha
-mnemora cognition reasoning curation resolve-review <review-proposal-id> retire --scope project:alpha
-# Repeat the returned command with --preview-hash <hash> --confirm.
-```
-
-To attach a reviewed candidate to an existing task, use the same `--task-ref <mnemora-task-episode-ref>` on both the `intake confirm` preview and final confirmation calls. The preview shows the Decision/TaskOutcome linkage, and the hash binds the selected task. Without an explicit selection, the candidate stays anchored to its source turn; a same-turn task episode is not treated as proof of task identity or added to that task's `resume` projection.
-
-See [governed reasoning curation](reasoning-curation.md) for failure,
-retry, scope, and review semantics.
-
-### Experimental ReasoningMemory delivery
-
-ReasoningMemory records reusable procedures separately from personal facts.
-Even after a strategy is admitted, its runtime delivery is disabled by default.
-Enable shadow collection first, review readiness, then explicitly calibrate and
-enable a canary for one exact scope:
-
-```json5
-cognition: {
-  reasoningRuntime: {
-    shadowMode: true,
-    scopes: ["project:alpha"],
-    delivery: {
-      enabled: true,
-      scopes: ["project:alpha"],
-      itemRetentionDays: 30
-    }
-  }
-}
-```
-
-Each delivered strategy is wrapped as `non_authoritative_reference` and receives
-a short-lived receipt. An operator may mark a receipt helpful/neutral/harmful;
-or an operator-confirmed task outcome can cite it for deterministic feedback.
-A harmful signal suppresses only that strategy in that scope. `effectiveStatus`
-reports the latest receipt signal; it is not delivery permission. The strategy
-remains withheld until an operator explicitly resets its memory circuit, and
-delivery items expose `requiresOperatorReset` while that is true. Reset records
-an append-only delivery-item correction, preserving the historic harmful
-signal. This never changes a strategy into a belief, fact, or graph edge, and
-does not automatically disable the whole canary.
-
-After the configured scope has run in shadow mode, inspect one readiness report
-before creating a calibration. The report uses the latest live runtime policy
-snapshot, so the operator does not need to reconstruct plugin settings in the
-CLI. It stores only bounded policy controls and aggregate counters—never the
-prompt, strategy text, memory IDs, evidence, sources, or provider credentials.
-
-```bash
-mnemora cognition reasoning runtime-diagnostics --scope project:alpha
-mnemora cognition reasoning runtime-calibrate --scope project:alpha
-# Re-run with the returned preview hash and --confirm, then enable the exact-scope canary.
-```
-
-Before a scope has run in the live runtime, diagnostics returns
-`policy_not_observed` and cannot make it ready. Delivery remains disabled until
-both an operator-confirmed calibration and an exact-scope canary exist.
-
-```bash
-mnemora cognition reasoning runtime-delivery-items --scope project:alpha
-mnemora cognition reasoning runtime-feedback-summary --scope project:alpha
-mnemora cognition reasoning runtime-memory-circuit <reasoning-memory-id> --scope project:alpha
-```
-
-`mnemora cognition reasoning find` is an operator catalog/audit command and
-may show a withheld strategy. Use `retrieve`, `compile`, or runtime delivery
-for circuit-gated selection.
-
-To measure whether delivery improves real tasks, run a de-identified A/B
-dataset through `mnemora cognition reasoning runtime-effectiveness <file>`.
-Only an operator-declared randomized comparison with at least 20 resolved
-outcomes in each arm receives a non-causal point estimate and conservative 95%
-interval. Shadow telemetry, adoption, synthetic benchmarks, and legacy v1
-datasets are not efficacy claims.
-
-An operator may attach a [bounded deterministic verification
-specification](reasoning-verification.md) to a proposed strategy. It can
-compare explicit receipt citations and normalized tool outcomes in a local
-append-only ledger; a mismatch only opens that strategy's delivery circuit
-until an operator resets it. It performs no model, network, or tool call and
-is never promoted into a belief or fact. Automatic processing remains disabled:
-
-```json5
-cognition: { reasoningRuntime: { verification: { enabled: true, maxJobsPerRun: 5 } } }
-```
-
-### Optional multilingual ReasoningMemory retrieval
-
-Reasoning strategies may be written in a different language than a runtime
-task. To make a Chinese strategy available to an English `debug` task (and the
-reverse), explicitly enable the existing local Ollama embedding provider and
-the separate ReasoningMemory semantic path:
-
-```json5
-embeddings: { enabled: true, provider: "ollama", model: "qwen3-embedding:4b" },
-cognition: {
-  reasoningRuntime: {
-    shadowMode: true,
-    scopes: ["project:alpha"],
-    semantic: { enabled: true, timeoutMs: 1500, minScore: 0.35, maxCandidates: 50 }
-  }
-}
-```
-
-Indexing is an explicit local operation; it never runs during admission or
-normal prompt assembly. `semantic-backfill` requires confirmation and stores
-only vector bytes, model identity, input hash, and scope—not strategy text or
-evidence. The standalone CLI deliberately needs an explicit local embedding
-opt-in as well:
-
-```bash
-MNEMORA_REASONING_SEMANTIC_EMBEDDINGS=1 mnemora cognition reasoning semantic-status --scope project:alpha
-MNEMORA_REASONING_SEMANTIC_EMBEDDINGS=1 mnemora cognition reasoning semantic-backfill --scope project:alpha --confirm
-```
-
-After changing the configured embedding model, rerun the confirmed backfill;
-it detects the model identity change and refreshes the local strategy index.
-
-The shadow report exposes aggregate `semanticCandidates`, `unmatched`, and
-`taskTypeExcluded` counters. It persists no prompt, strategy, memory ID, or
-source content.
+The experimental ReasoningMemory runtime, curation, intake, delivery and
+verification pipeline was removed in 1.33. `cognition.reasoningRuntime` and
+`cognition.reasoningCuration` are still accepted so existing configuration
+loads, but they are ignored. Existing ReasoningMemory tables are left in
+place untouched for backup compatibility.
 
 ## Safety model
 
