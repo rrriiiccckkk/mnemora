@@ -101,8 +101,8 @@ export class PluginRuntime {
     } else if (this.config.extraction?.autoExtract) {
       safe.warn?.("automatic extraction disabled: ContextEngine must be enabled", {});
     }
-    if (this.config.conversationJournal?.enabled || this.config.contextEngine?.enabled || (this.config.episodicMemory?.enabled && this.config.episodicMemory.autoExtract)) this.journal = new ConversationJournalService(this.config, () => this.openGraph(), () => this.derivedTaskKinds());
-    if (this.config.contextEngine?.enabled) this.contextEngine = new MnemoraContextEngine(this.config, () => this.openGraph(), undefined, {
+    if (this.config.conversationJournal?.enabled || this.config.contextEngine?.enabled || (this.config.episodicMemory?.enabled && this.config.episodicMemory.autoExtract)) this.journal = new ConversationJournalService(this.config, () => this.openSharedGraph(), () => this.derivedTaskKinds());
+    if (this.config.contextEngine?.enabled) this.contextEngine = new MnemoraContextEngine(this.config, () => this.openSharedGraph(), undefined, {
       derivedTaskKinds: () => this.derivedTaskKinds(),
       onCompletedTurn: (turn, receipt) => this.handleContextCompletedTurn(turn, receipt),
       onAssemble: input => this.runReasoningRuntime(input),
@@ -173,6 +173,31 @@ export class PluginRuntime {
       onRecallEvaluationFailure: (event) => this.logger.warn?.("recall evaluation failed", event),
       onSemanticClassification: (event) => this.logger.info?.("semantic classification observed", { ...event })
     });
+  }
+
+  /**
+   * One long-lived connection for the per-turn hot path (journal capture and
+   * ContextEngine). Opening a fresh Mnemora for every ingest/assemble/afterTurn
+   * re-ran migrations and leaked native statement handles (and their file
+   * descriptors) until GC. Callers still call close(); the shared handle
+   * ignores it and the runtime closes the connection on stop().
+   */
+  private sharedGraph?: Mnemora;
+  private sharedGraphHandle?: Mnemora;
+  private openSharedGraph(): Mnemora {
+    if (this.stopped) throw new RuntimeStoppedError("Mnemora runtime stopped");
+    if (!this.sharedGraph || !this.sharedGraphHandle) {
+      const graph = this.openGraph();
+      this.sharedGraph = graph;
+      this.sharedGraphHandle = new Proxy(graph, {
+        get(target, property) {
+          if (property === "close") return () => undefined;
+          const value = Reflect.get(target, property, target) as unknown;
+          return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+        }
+      });
+    }
+    return this.sharedGraphHandle;
   }
 
   private openGraphForAdmitted(): Mnemora {
@@ -346,5 +371,11 @@ export class PluginRuntime {
     return undefined;
   }
 
-  stop(): void { this.stopped = true; this.shutdown.abort(new RuntimeStoppedError("Mnemora runtime stopped")); }
+  stop(): void {
+    this.stopped = true;
+    this.shutdown.abort(new RuntimeStoppedError("Mnemora runtime stopped"));
+    const shared = this.sharedGraph;
+    this.sharedGraph = undefined; this.sharedGraphHandle = undefined;
+    try { shared?.close(); } catch { /* already closed */ }
+  }
 }

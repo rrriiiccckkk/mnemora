@@ -225,7 +225,9 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "default": { "type": "string", "minLength": 1, "maxLength": 80, "description": "Default isolated project or collection scope." }
+          "default": { "type": "string", "minLength": 1, "maxLength": 80, "description": "Default isolated project or collection scope." },
+          "isolation": { "anyOf": [{ "const": "agent", "type": "string" }, { "const": "shared", "type": "string" }], "description": "agent (default): each agent reads and writes its own scope agent:<id>; the default agent keeps scope.default. shared: every agent uses scope.default (pre-1.33 behaviour)." },
+          "defaultAgentId": { "type": "string", "minLength": 1, "maxLength": 64, "description": "Agent id that keeps scope.default under agent isolation. Defaults to main." }
         }
       },
       "memory": {

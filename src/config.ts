@@ -146,7 +146,7 @@ export function normalizeConfig(input: Partial<MnemoraConfig> = {}): MnemoraConf
       },
       excludedAgentIds: normalizeAgentIds(input.recall?.excludedAgentIds)
     },
-    scope: { default: configuredScope(input.scope?.default, defaultConfig.scope?.default ?? "default") },
+    scope: { default: configuredScope(input.scope?.default, defaultConfig.scope?.default ?? "default"), isolation: input.scope?.isolation === "shared" ? "shared" : "agent", defaultAgentId: typeof input.scope?.defaultAgentId === "string" && /^[A-Za-z0-9._-]{1,64}$/u.test(input.scope.defaultAgentId.trim()) ? input.scope.defaultAgentId.trim() : "main" },
     memory: {
       captureOnAutoExtract: input.memory?.captureOnAutoExtract === true,
       maxDocumentChars: clamp(input.memory?.maxDocumentChars, 12000, 256, 100000),

@@ -1,7 +1,7 @@
 import { createTempDir } from "./helpers/temp.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { rmSync } from "node:fs";
 
 import { join } from "node:path";
@@ -10,6 +10,13 @@ import { ConversationEventRepository, EpisodeRepository, Mnemora, createInspecto
 import { TaskOutcomeService } from "../dist/cognition/outcomes.js";
 import { createMnemoraContextRef } from "../dist/context/context-ref.js";
 import { MemoryImpactService } from "../dist/correction/impact-service.js";
+
+// Browser tests need a Playwright Chromium. Launching inside each test after
+// the Inspector server started leaked the server on launch failure and kept
+// the serial runner alive forever; skip explicitly when Chromium is absent.
+const browserAvailable=(()=>{try{return existsSync(chromium.executablePath());}catch{return false;}})();
+const browserSkip=browserAvailable?false:"Playwright Chromium is not installed (npx playwright install chromium)";
+function browserTest(name,options,fn){return typeof options==="function"?test(name,{skip:browserSkip},options):test(name,{...options,skip:browserSkip},fn);}
 
 test("client bootstrap removes the secret fragment and keeps CSRF only in module memory",()=>{
   const manifest=JSON.parse(readFileSync("dist/inspector/asset-manifest.json","utf8")),bundle=readFileSync(`dist/inspector/${manifest.app}`,"utf8");
@@ -21,14 +28,14 @@ test("client imports Sigma and destroys the previous renderer before graph repla
   assert.match(bundle,/kill\(\)/);assert.match(bundle,/community_color/);assert.match(bundle,/next_cursor/);assert.match(bundle,/community_id/);assert.match(bundle,/config_revision/);
 });
 
-test("operations UI is capability-gated and completes backup preview then confirmation",{timeout:120_000},async()=>{
+browserTest("operations UI is capability-gated and completes backup preview then confirmation",{timeout:120_000},async()=>{
   const directory=createTempDir("mnemora-browser-ops-"),graph=new Mnemora({config:{dbPath:join(directory,"memory.db")}}),application=createInspectorApplication({graph,allowOperations:true,artifactDirectory:directory,randomBytes:()=>Buffer.alloc(32,0xff)}),running=await startInspector({graph:application,allowOperations:true});
   const browser=await chromium.launch({headless:true});
   try{const page=await browser.newPage();await page.goto(running.url);await page.waitForSelector("#overview-cards .card");const operations=page.locator('button[data-view="operations"]');assert.equal(await operations.isVisible(),true);await operations.click();await page.locator("#operations:not([hidden])").waitFor();await page.locator('#operation-form select[name="operation"]').selectOption("backup");const previewResponse=page.waitForResponse(response=>new URL(response.url()).pathname==="/api/operations/preview"&&response.request().method()==="POST",{timeout:30_000});await page.locator("#operation-form").evaluate(form=>form.requestSubmit());assert.equal((await previewResponse).ok(),true);await page.waitForFunction(()=>document.querySelector("#operation-result")?.textContent?.includes('"phase": "preview"'),undefined,{timeout:10_000});assert.equal(await page.locator("#confirm-operation").isEnabled(),true);const confirmResponse=page.waitForResponse(response=>new URL(response.url()).pathname==="/api/operations/confirm"&&response.request().method()==="POST",{timeout:30_000});await page.locator("#confirm-operation").click();assert.equal((await confirmResponse).ok(),true);await page.waitForFunction(()=>document.querySelector("#operation-result")?.textContent?.includes('"confirmed": true'),undefined,{timeout:10_000});}
   finally{await browser.close();await running.close();graph.close();try{rmSync(directory,{recursive:true,force:true});}catch{}}
 });
 
-test("real browser bootstraps once, clears the fragment, and renders a non-empty graph without client failures",async()=>{
+browserTest("real browser bootstraps once, clears the fragment, and renders a non-empty graph without client failures",async()=>{
   const directory=createTempDir("mnemora-browser-"),graph=new Mnemora({config:{dbPath:":memory:"}});
   graph.store.ingest(
     [{name:"Acme",type:"company",confidence:.9,evidence_span:"Acme relates to Widget."},{name:"Widget",type:"product",confidence:.9,evidence_span:"Acme relates to Widget."}],
@@ -45,7 +52,7 @@ test("real browser bootstraps once, clears the fragment, and renders a non-empty
   } finally{await browser.close();await running.close();graph.close();try{rmSync(directory,{recursive:true,force:true});}catch{}}
 });
 
-test("graph view renders parallel relationships between the same two entities without client failures", async () => {
+browserTest("graph view renders parallel relationships between the same two entities without client failures", async () => {
   const directory = createTempDir("mnemora-browser-parallel-"), graph = new Mnemora({ config: { dbPath: ":memory:" } });
   graph.store.ingest(
     [
@@ -68,7 +75,7 @@ test("graph view renders parallel relationships between the same two entities wi
   } finally { await browser.close(); await running.close(); graph.close(); try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
 
-test("memory workbench lists available scopes and switches its read-only view", async () => {
+browserTest("memory workbench lists available scopes and switches its read-only view", async () => {
   const directory = createTempDir("mnemora-browser-workbench-"), graph = new Mnemora({ config: { dbPath: ":memory:", scope: { default: "project:alpha" } } });
   graph.store.ingest(
     [{ name: "Alpha memory", type: "company", confidence: .9, evidence_span: "An alpha-scoped memory." }], [],
@@ -90,7 +97,7 @@ test("memory workbench lists available scopes and switches its read-only view", 
   } finally { await browser.close(); await running.close(); graph.close(); try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
 
-test("task resume view submits an explicit read-only task query and renders its source-linked projection", async () => {
+browserTest("task resume view submits an explicit read-only task query and renders its source-linked projection", async () => {
   const directory = createTempDir("mnemora-browser-task-resume-"), graph = new Mnemora({ config: { dbPath: ":memory:", scope: { default: "project:alpha" } } });
   const event = new ConversationEventRepository(graph.store.db, { maxInlineChars: 16_000, maxEventBytes: 262_144, sensitiveContentPolicy: "redact" }).append({ scope: "project:alpha", sessionId: "task-resume", kind: "user_message", role: "user", parts: [{ type: "text", text: "Resume the deployment migration." }] });
   const episode = new EpisodeRepository(graph.store.db).create({ scope: "project:alpha", kind: "task", title: "Deployment migration", summary: "Move deployment after the upstream merge.", sourceEventIds: [event.id], importance: .8, confidence: .9 });
@@ -118,7 +125,7 @@ test("task resume view submits an explicit read-only task query and renders its 
   } finally { await browser.close(); await running.close(); graph.close(); try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
 
-test("task resume shows memory coverage on candidates and selected tasks without promoting sources to confirmed state", async () => {
+browserTest("task resume shows memory coverage on candidates and selected tasks without promoting sources to confirmed state", async () => {
   const directory = createTempDir("mnemora-browser-task-coverage-"), graph = new Mnemora({ config: { dbPath: ":memory:", scope: { default: "project:alpha" } } });
   const policy = { maxInlineChars: 16_000, maxEventBytes: 262_144, sensitiveContentPolicy: "redact" };
   const createTask = (title, scope = "project:alpha", hashOnly = false) => {
@@ -170,7 +177,7 @@ test("task resume shows memory coverage on candidates and selected tasks without
   } finally { await browser.close(); await running.close(); graph.close(); try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
 
-test("task resume source excerpts stay unverified, render as text and tolerate legacy responses", async () => {
+browserTest("task resume source excerpts stay unverified, render as text and tolerate legacy responses", async () => {
   const directory = createTempDir("mnemora-browser-resume-excerpts-"), graph = new Mnemora({ config: { dbPath: ":memory:" } });
   const application = createInspectorApplication({ graph, allowOperations: false, artifactDirectory: directory }), running = await startInspector({ graph: application, allowOperations: false }), browser = await chromium.launch({ headless: true });
   const userText = '<img src="invalid" onerror="window.sourceExecuted=true"> Please finish the rollout.';
@@ -236,7 +243,7 @@ test("task resume source excerpts stay unverified, render as text and tolerate l
   } finally { await browser.close(); await running.close(); graph.close(); }
 });
 
-test("recall explanation distinguishes a policy trace from a matching ContextEngine attachment", async () => {
+browserTest("recall explanation distinguishes a policy trace from a matching ContextEngine attachment", async () => {
   const directory = createTempDir("mnemora-browser-recall-explain-"), graph = new Mnemora({ config: { dbPath: ":memory:", unifiedRetrieval: { enabled: true, shadowMode: true, tokenBudget: 240, maxItems: 2, minConfidence: .5 } } });
   graph.store.ingest(
     [{ name: "Acme", type: "company", confidence: .9, evidence_span: "Acme is in the project memory." }], [],
@@ -257,7 +264,7 @@ test("recall explanation distinguishes a policy trace from a matching ContextEng
   } finally { await browser.close(); await running.close(); graph.close(); try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
 
-test("memory correction previews impact before a browser confirmation removes the selected event", async () => {
+browserTest("memory correction previews impact before a browser confirmation removes the selected event", async () => {
   const directory = createTempDir("mnemora-browser-correction-"), graph = new Mnemora({ config: { dbPath: ":memory:" } });
   const event = new ConversationEventRepository(graph.store.db, { maxInlineChars: 16_000, maxEventBytes: 262_144, sensitiveContentPolicy: "redact" }).append({ scope: "default", sessionId: "correction", kind: "user_message", role: "user", parts: [{ type: "text", text: "Remove this browser correction marker." }] });
   const application = createInspectorApplication({ graph, allowOperations: true, artifactDirectory: directory }), running = await startInspector({ graph: application, allowOperations: true }), browser = await chromium.launch({ headless: true });
@@ -277,7 +284,7 @@ test("memory correction previews impact before a browser confirmation removes th
   } finally { await browser.close(); await running.close(); graph.close(); try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
 
-test("a known claim opens its scoped evidence trace directly from the memory browser", async () => {
+browserTest("a known claim opens its scoped evidence trace directly from the memory browser", async () => {
   const directory = createTempDir("mnemora-browser-claim-evidence-"), graph = new Mnemora({ config: { dbPath: ":memory:" } }), now = Date.now();
   graph.store.db.prepare("INSERT INTO kg_source_anchors(id,scope,provider,source_label,content_hash,captured_at,status) VALUES(?,?,?,?,?,?,?)").run("browser-anchor", "default", "local", "DO_NOT_SHOW_THIS_LABEL", "a".repeat(64), now, "available");
   graph.store.db.prepare("INSERT INTO kg_claim_verifications(id,claim_id,source_anchor_id,scope,status,verifier_kind,created_at) VALUES(?,?,?,?,?,?,?)").run("browser-verification", "browser-claim", "browser-anchor", "default", "verified", "human", now);

@@ -288,3 +288,33 @@ const optionalDirection = (value: unknown): Direction | undefined => value === "
 const optionalSearchMode = (value: unknown): import("./index.js").SearchMode | undefined => value === "lexical" || value === "semantic" || value === "hybrid" ? value : undefined;
 const optionalReviewKind = (value: unknown): "duplicates" | "anomalies" | "identity" | "schema_drift" | "semantic_patterns" | "semantic_vocabulary" | "related_edge_refinements" | "related_edge_semantics" | "hygiene" | "worklist" => value === "anomalies" || value === "identity" || value === "schema_drift" || value === "semantic_patterns" || value === "semantic_vocabulary" || value === "related_edge_refinements" || value === "related_edge_semantics" || value === "hygiene" || value === "worklist" ? value : "duplicates";
 const optionalReviewStatus = (value: unknown): import("./tools.js").ReviewStatus => value === "accepted" || value === "invalidated" || value === "ignored" || value === "rejected" || value === "merged" ? value : "pending";
+
+/** Tools that operate across scopes and are therefore reserved for the default agent under agent isolation. */
+const CROSS_SCOPE_TOOLS = new Set(["kg_embed_backfill", "kg_stats", "kg_scopes", "kg_forget", "kg_merge", "kg_merge_undo", "kg_export", "kg_import"]);
+
+/**
+ * Agent-aware registration. OpenClaw treats a function as a tool factory and
+ * passes the calling agent's context; the returned definition pins `scope` to
+ * that agent's scope (any model-supplied scope is overridden) and hides
+ * cross-scope administration tools from non-default agents. The function also
+ * carries the unscoped definition's fields so direct callers keep working.
+ */
+export function agentScopedToolFactory(tool: OpenClawToolDefinition, resolveScope: (context: { agentId?: string; sessionKey?: string } | undefined) => { scope: string; isDefault: boolean }): OpenClawToolDefinition & ((context?: { agentId?: string; sessionKey?: string }) => OpenClawToolDefinition | null) {
+  const factory = (context?: { agentId?: string; sessionKey?: string }): OpenClawToolDefinition | null => {
+    const resolved = resolveScope(context);
+    if (resolved.isDefault) return tool;
+    if (CROSS_SCOPE_TOOLS.has(tool.name)) return null;
+    return { ...tool, execute: (toolCallId, params) => tool.execute(toolCallId, pinScope(tool.parameters, params, resolved.scope)) };
+  };
+  for (const [key, value] of Object.entries(tool)) Object.defineProperty(factory, key, { value, enumerable: true, configurable: true, writable: true });
+  return factory as OpenClawToolDefinition & typeof factory;
+}
+
+function pinScope(schema: TSchema, params: Record<string, unknown>, scope: string): Record<string, unknown> {
+  if (!params || typeof params !== "object" || Array.isArray(params)) return params;
+  const pinned = { ...params, scope };
+  try { if (Check(schema, pinned)) return pinned; } catch { /* fall through */ }
+  // Operation variants without a scope field cannot address another agent's scope by parameter.
+  const { scope: _ignored, ...rest } = params;
+  return rest;
+}

@@ -190,7 +190,7 @@ export interface MnemoraConfig {
     /** Host-exposed agent IDs whose automatic capture and recall must be skipped. */
     excludedAgentIds?: string[];
   };
-  scope?: { default?: string };
+  scope?: { default?: string; isolation?: "agent" | "shared"; defaultAgentId?: string };
   memory?: {
     captureOnAutoExtract?: boolean;
     maxDocumentChars?: number;

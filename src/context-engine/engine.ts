@@ -1,5 +1,7 @@
 import { recordAssemblyDiagnostic, type DiagnosticSegment } from "./assembly-diagnostics.js";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
+import { agentIdFromSessionKey, agentScope } from "../scope.js";
 import { delegateCompactionToRuntime } from "openclaw/plugin-sdk/core";
 import type { HarnessContextEngine as ContextEngine } from "openclaw/plugin-sdk/agent-harness-runtime";
 import type { MnemoraConfig } from "../index.js";
@@ -149,9 +151,38 @@ export class MnemoraContextEngine implements ContextEngine {
     return { maxInlineChars: value.maxInlineChars!, maxEventBytes: value.maxEventBytes!, sensitiveContentPolicy: value.sensitiveContentPolicy!, replayFloodThresholdExternal: value.replayFloodThresholdExternal!, replayFloodThresholdInternal: value.replayFloodThresholdInternal! };
   }
 
-  private scope() { return this.config.scope!.default!; }
+  /** Automatic memory is isolated per agent unless `scope.isolation` is `shared`. */
+  private readonly activeScope = new AsyncLocalStorage<string>();
+  private scope() { return this.activeScope.getStore() ?? this.config.scope!.default!; }
+  private resolveAgentScope(params: unknown): string {
+    const value = (params ?? {}) as { sessionKey?: unknown; sessionId?: unknown; agentId?: unknown; durable?: { agentId?: unknown }; messages?: unknown };
+    const explicit = typeof value.agentId === "string" ? value.agentId : typeof value.durable?.agentId === "string" ? value.durable.agentId : undefined;
+    const fromMessages = Array.isArray(value.messages) ? this.activeAgentId(value.messages as RuntimeMessage[]) : undefined;
+    const agentId = explicit ?? agentIdFromSessionKey(value.sessionKey) ?? agentIdFromSessionKey(value.sessionId) ?? fromMessages;
+    if (agentId || this.config.scope?.isolation === "shared" || typeof value.sessionId !== "string") return agentScope(this.config, agentId);
+    // Restarted callbacks may omit the session key; reuse the scope this
+    // session was already bound to so exclusions and history stay consistent.
+    return this.knownSessionScope(value.sessionId) ?? agentScope(this.config, undefined);
+  }
+  private knownSessionScope(sessionId: string): string | undefined {
+    let graph: ReturnType<MnemoraContextEngine["openGraph"]> | undefined;
+    try {
+      graph = this.openGraph();
+      const fallback = this.config.scope!.default!;
+      for (const table of ["mnemora_excluded_turn_suppressions", "mnemora_turn_advancements", "mnemora_conversation_events"]) {
+        const row = graph.store.db.prepare(`SELECT scope FROM ${table} WHERE session_id=? AND scope<>? LIMIT 1`).get(sessionId, fallback) as { scope?: string } | undefined;
+        if (row?.scope) return row.scope;
+      }
+      return undefined;
+    } catch { return undefined; } finally { try { graph?.close(); } catch { /* fail open */ } }
+  }
+  private inAgentScope<T>(params: unknown, run: () => Promise<T>): Promise<T> {
+    if (this.activeScope.getStore() !== undefined) return run();
+    return this.activeScope.run(this.resolveAgentScope(params), run);
+  }
 
   async bootstrap(params: BootstrapParams) {
+    return this.inAgentScope(params, async () => {
     const graph = this.openGraph();
     try {
       const count = Number((graph.store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_conversation_events WHERE scope=? AND session_id=? AND deleted_at IS NULL").get(this.scope(), params.sessionId) as { value: number }).value);
@@ -165,9 +196,11 @@ export class MnemoraContextEngine implements ContextEngine {
         reason: count > 0 ? "journal_session_reconciled" : "journal_session_empty_public_history_unavailable"
       };
     } finally { graph.close(); }
+    });
   }
 
   async ingest(params: IngestParams) {
+    return this.inAgentScope(params, async () => {
     let graph: ReturnType<MnemoraContextEngine["openGraph"]> | undefined;
     try {
       graph = this.openGraph();
@@ -177,9 +210,11 @@ export class MnemoraContextEngine implements ContextEngine {
       this.reportCaptureFailure("ingest", 1, error);
       return { ingested: false };
     } finally { try { graph?.close(); } catch { /* host capture remains fail-open */ } }
+    });
   }
 
   async ingestBatch(params: IngestBatchParams) {
+    return this.inAgentScope(params, async () => {
     let graph: ReturnType<MnemoraContextEngine["openGraph"]> | undefined;
     try {
       graph = this.openGraph();
@@ -189,9 +224,11 @@ export class MnemoraContextEngine implements ContextEngine {
       this.reportCaptureFailure("ingest_batch", Array.isArray(params.messages) ? params.messages.length : 0, error);
       return { ingestedCount: 0 };
     } finally { try { graph?.close(); } catch { /* host capture remains fail-open */ } }
+    });
   }
 
   async afterTurn(params: AfterTurnParams): Promise<void> {
+    return this.inAgentScope(params, async () => {
     if (!Array.isArray(params.messages)) {
       this.reportCaptureFailure("after_turn", 0, new Error("invalid_journal_turn"));
       return;
@@ -229,12 +266,14 @@ export class MnemoraContextEngine implements ContextEngine {
     // local lifecycle callback later fails.
     if (turn && receipt) try { await this.lifecycle.onCompletedTurn?.(turn, receipt); } catch { /* fail open */ }
     if (receipt && !params.isHeartbeat) await this.proactiveCompact(params);
+    });
   }
 
   /** Commit exactly the host-admitted message range. This is deliberately not
    * fail-open: throwing leaves the host outbox able to retry the same opaque
    * advancement key, while a successful retry returns `duplicate`. */
   async commitTurn(params: DurableCommitTurnParams): Promise<{ status: "committed" | "duplicate" }> {
+    return this.inAgentScope(params, async () => {
     const durable = this.validateDurableTurn(params);
     let graph: ReturnType<MnemoraContextEngine["openGraph"]> | undefined;
     let receipt: JournalTurnReceipt | undefined;
@@ -269,9 +308,11 @@ export class MnemoraContextEngine implements ContextEngine {
     if (turn && !params.isHeartbeat) try { await this.lifecycle.onCompletedTurn?.(turn, receipt); } catch { /* derived work never revokes an accepted host turn */ }
     if (!params.isHeartbeat) await this.proactiveCompact({ sessionId: params.sessionId, runtimeContext: params.runtimeContext });
     return { status: "committed" };
+    });
   }
 
   async assemble(params: AssembleParams): Promise<Awaited<ReturnType<ContextEngine["assemble"]>>> {
+    return this.inAgentScope(params, async () => {
     const requestedBudget = Number.isFinite(params.tokenBudget) ? Math.max(1, Math.floor(params.tokenBudget!)) : this.config.contextEngine!.maxContextTokens!;
     const budget = Math.min(this.config.contextEngine!.maxContextTokens!, requestedBudget);
     const hostMessages = params.messages.map(asHostMessage);
@@ -432,9 +473,11 @@ export class MnemoraContextEngine implements ContextEngine {
       } catch { /* diagnostics cannot change host assembly availability */ }
     }
     return { messages, estimatedTokens: total, promptAuthority: boundedMessages.overBudget || total > budget ? "preassembly_may_overflow" as const : "assembled" as const, ...(addition ? { systemPromptAddition: addition } : {}) };
+    });
   }
 
   async compact(params: CompactParams) {
+    return this.inAgentScope(params, async () => {
     abort(params.abortSignal);
     const options = this.config.contextEngine?.compaction;
     if (!options?.enabled) return await this.delegate(params);
@@ -447,9 +490,11 @@ export class MnemoraContextEngine implements ContextEngine {
     // local for explicit reconciliation rather than risking double compaction.
     if (!result.compacted && LOCAL_COMPACTION_SAFE_HOST_FALLBACK_REASONS.has(result.reason)) return await this.delegate(params);
     return { ok: true, compacted: result.compacted, reason: result.reason, result: { ...(result.summary ? { summary: result.summary } : {}), ...(result.firstKeptEntryId ? { firstKeptEntryId: result.firstKeptEntryId } : {}), tokensBefore: result.tokensBefore, tokensAfter: result.tokensAfter, details: result.details } };
+    });
   }
 
   async maintain(params: MaintainParams) {
+    return this.inAgentScope(params, async () => {
     const options = this.config.contextEngine?.compaction;
     if (!options?.enabled) return { changed: false, bytesFreed: 0, rewrittenEntries: 0, reason: "local_compaction_disabled" };
     const input = params.runtimeContext;
@@ -457,6 +502,7 @@ export class MnemoraContextEngine implements ContextEngine {
     if (this.activeJournalTokenEstimate(params.sessionId) < Math.floor(budget * options.contextThreshold!)) return { changed: false, bytesFreed: 0, rewrittenEntries: 0, reason: "below_context_threshold" };
     const result = await this.runLocalCompaction(params.sessionId, input, undefined);
     return { changed: result.compacted, bytesFreed: Number(result.details.bytesFreed ?? 0), rewrittenEntries: Number(result.details.rewrittenEntries ?? 0), reason: result.reason };
+    });
   }
 
   async dispose(): Promise<void> { /* SQLite handles are opened per operation and deterministically closed. */ }

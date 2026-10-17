@@ -132,3 +132,36 @@ CREATE TABLE IF NOT EXISTS mnemora_provider_migration_items (
 );
 CREATE INDEX IF NOT EXISTS idx_mnemora_provider_migration_items_run_status ON mnemora_provider_migration_items(run_id,status,ordinal);
 `;
+
+/**
+ * Schema v86: ranked journal recall. Chunks are a derived, rebuildable index
+ * over `normalized_text`; deleting, redacting or tombstoning an event purges
+ * its chunks and FTS rows in the same statement via triggers so forgotten text
+ * cannot remain searchable.
+ */
+export const journalSearchSchemaSql = `
+CREATE TABLE IF NOT EXISTS mnemora_conversation_event_chunks (
+  id INTEGER PRIMARY KEY,
+  event_id TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  ordinal INTEGER NOT NULL,
+  start_offset INTEGER NOT NULL,
+  end_offset INTEGER NOT NULL,
+  UNIQUE(event_id,ordinal),
+  CHECK(ordinal>=0 AND start_offset>=0 AND end_offset>=start_offset),
+  FOREIGN KEY(event_id) REFERENCES mnemora_conversation_events(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_mnemora_event_chunks_scope ON mnemora_conversation_event_chunks(scope);
+CREATE INDEX IF NOT EXISTS idx_mnemora_events_session ON mnemora_conversation_events(session_id);
+CREATE VIRTUAL TABLE IF NOT EXISTS mnemora_conversation_event_chunks_fts USING fts5(content, tokenize='porter unicode61 remove_diacritics 2');
+CREATE TRIGGER IF NOT EXISTS mnemora_event_chunks_delete AFTER DELETE ON mnemora_conversation_event_chunks BEGIN
+  DELETE FROM mnemora_conversation_event_chunks_fts WHERE rowid=OLD.id;
+END;
+CREATE TRIGGER IF NOT EXISTS mnemora_events_purge_chunks_on_update AFTER UPDATE OF deleted_at,normalized_text ON mnemora_conversation_events
+WHEN NEW.deleted_at IS NOT NULL OR NEW.normalized_text IS NULL OR NEW.normalized_text IS NOT OLD.normalized_text BEGIN
+  DELETE FROM mnemora_conversation_event_chunks WHERE event_id=OLD.id;
+END;
+CREATE TRIGGER IF NOT EXISTS mnemora_events_purge_chunks_on_delete AFTER DELETE ON mnemora_conversation_events BEGIN
+  DELETE FROM mnemora_conversation_event_chunks WHERE event_id=OLD.id;
+END;
+`;

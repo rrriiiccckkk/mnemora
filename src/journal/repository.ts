@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSyncInstance } from "@photostructure/sqlite";
 import { normalizeScope } from "../scope.js";
 import { captureText } from "./capture-policy.js";
+import { indexJournalEvent, searchJournalRanked, type RankedJournalHit } from "./search-index.js";
 import type { JournalCapturePolicy, JournalDerivedTask, JournalDiagnostics, JournalEvent, JournalEventInput, JournalPart, JournalScopeActivity, JournalTurnAdvancement, JournalTurnCaptureInput, JournalTurnReceipt } from "./types.js";
 
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -222,6 +223,7 @@ export class ConversationEventRepository {
     const contextDomain = input.contextDomain ?? (input.role === "user" || input.role === "assistant" ? "user_chat" : input.role === "tool" ? "tool" : input.role === "system" ? "system" : "unknown");
     this.db.prepare(`INSERT INTO mnemora_conversation_events(id,scope,session_id,branch_id,parent_id,sequence,kind,role,context_domain,identity_origin,host_correlation,content_hash,normalized_text,created_at)
       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, scope, sessionId, branchId, parentId ?? null, sequence, input.kind, input.role ?? null, contextDomain, origin, correlation ?? null, contentHash, normalizedText ?? null, now);
+    indexJournalEvent(this.db, id, scope, normalizedText);
     const insertPart = this.db.prepare("INSERT INTO mnemora_conversation_parts(event_id,scope,ordinal,kind,payload,created_at) VALUES(?,?,?,?,?,?)");
     parts.forEach((part, ordinal) => insertPart.run(id, scope, ordinal, part.type, JSON.stringify(part), now));
     if (recordEventCommit) {
@@ -295,6 +297,14 @@ export class ConversationEventRepository {
     const tombstoned = row.deleted_at != null;
     const parts = tombstoned ? [] : parseParts(this.db.prepare("SELECT payload FROM mnemora_conversation_parts WHERE event_id=? AND scope=? ORDER BY ordinal").all(id, row.scope) as Array<{ payload: string }>);
     return { id: String(row.id), scope: String(row.scope), sessionId: String(row.session_id), branchId: String(row.branch_id), ...(row.parent_id ? { parentId: String(row.parent_id) } : {}), sequence: Number(row.sequence), kind: row.kind as JournalEvent["kind"], ...(row.role ? { role: row.role as JournalEvent["role"] } : {}), contextDomain: (typeof row.context_domain === "string" ? row.context_domain : "unknown") as JournalEvent["contextDomain"], parts, contentHash: String(row.content_hash), ...(tombstoned ? { tombstoned: true as const } : row.normalized_text ? { normalizedText: String(row.normalized_text) } : {}), identityOrigin: row.identity_origin as JournalEvent["identityOrigin"], ...(row.host_correlation ? { hostCorrelation: String(row.host_correlation) } : {}), createdAt: Number(row.created_at) };
+  }
+
+  /** bm25-ranked recall over the chunked journal index (schema v86). */
+  searchRanked(scope: string, query: string, limit = 20, recordedBefore?: number, terms?: readonly string[]): Array<RankedJournalHit & { event: JournalEvent }> {
+    if (recordedBefore !== undefined && (!Number.isSafeInteger(recordedBefore) || recordedBefore < 0)) throw new Error("invalid_history_cutoff");
+    const normalized = normalizeScope(scope);
+    return searchJournalRanked(this.db, { scope: normalized, query: query.slice(0, 2048), limit, ...(recordedBefore === undefined ? {} : { recordedBefore }), ...(terms ? { terms } : {}) })
+      .flatMap(hit => { const event = this.get(hit.eventId, normalized); return event ? [{ ...hit, event }] : []; });
   }
 
   search(scope: string, query: string, limit = 20, recordedBefore?: number): JournalEvent[] {

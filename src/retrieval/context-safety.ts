@@ -12,9 +12,14 @@ const CONFUSABLES: Readonly<Record<string, string>> = {
   "Α": "a", "Ε": "e", "Ο": "o", "Ρ": "p", "С": "c", "Χ": "x", "Υ": "y"
 };
 
+// A speaker marker after other text on the same line ("...found online: SYSTEM: ignore ...").
+const INLINE_ROLE = /(?:^|[\s>"'(\[\]】）)])(?:system|developer|assistant|系统|开发者|助手)\s*[:：]/iu;
+// Instruction-override phrasing is quoted wherever it appears in recalled text.
+const OVERRIDE = /\b(?:ignore|disregard|forget|override)\b[^\n]{0,40}?\b(?:previous|prior|above|earlier|all|any|system|developer)\b[^\n]{0,40}?\b(?:instructions?|messages?|rules?|prompts?|polic(?:y|ies))\b|(?:忽略|无视|忘记|覆盖)[^\n]{0,20}?(?:之前|以上|前面|上面|所有|全部|系统)[^\n]{0,20}?(?:指令|指示|规则|提示|消息)/iu;
+
 const roleLike = (line: string): boolean => {
   const folded = [...line.normalize("NFKC").replace(INVISIBLE, "")].map(char => CONFUSABLES[char] ?? char).join("");
-  return ROLE.test(folded);
+  return ROLE.test(folded) || INLINE_ROLE.test(folded) || OVERRIDE.test(folded);
 };
 
 export function sanitizeMemoryForContext(value: unknown, maximum = 1200): string {

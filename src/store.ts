@@ -10,7 +10,8 @@ import { profileOptionalRestoreTables, profileSchemaSql } from "./profiles/schem
 import { trustOptionalRestoreTables } from "./trust/schema.js";
 import { integrationOptionalRestoreTables } from "./integrations/schema.js";
 import { governanceOptionalRestoreTables } from "./governance/schema.js";
-import { journalSchemaSql } from "./journal/schema.js";
+import { journalSchemaSql, journalSearchSchemaSql } from "./journal/schema.js";
+import { rebuildJournalSearchIndex } from "./journal/search-index.js";
 import { contextEngineSchemaSql } from "./context-engine/schema.js";
 import { artifactSchemaSql } from "./artifacts/schema.js";
 import { episodeSchemaSql } from "./episodes/schema.js";
@@ -192,6 +193,9 @@ export class GraphologyStore {
   migrate(): void {
     const version = Number((this.db.prepare("PRAGMA user_version").get() as { user_version?: number })?.user_version ?? 0);
     if (!Number.isSafeInteger(version) || version < 0 || version > SUPPORTED_SCHEMA_VERSION) throw new Error("unsupported_schema");
+    // A current database needs no DDL or backfill. Re-running the full schema
+    // and its table-scanning repairs on every open cost O(rows) per turn.
+    if (version === SUPPORTED_SCHEMA_VERSION) { this.repairCanonicalCorpusFtsOnce(); return; }
     this.db.exec(schemaSql);
     const now = Date.now();
     this.db.prepare("INSERT OR IGNORE INTO kg_scopes(id,created_at,updated_at) VALUES('default',?,?)").run(now, now);
@@ -304,13 +308,39 @@ export class GraphologyStore {
     if (version < 83) this.migrateLegacyCallbackFingerprintsV83();
     if (version < 84) this.migrateRecallAttachmentsV84();
     if (version < 85 && !(this.db.prepare("PRAGMA table_info(mnemora_unified_recall_shadow_runs)").all() as Array<{ name: string }>).some(column => column.name === "relevance_json")) this.db.exec("ALTER TABLE mnemora_unified_recall_shadow_runs ADD COLUMN relevance_json TEXT");
+    if (version < 86) this.migrateJournalSearchV86();
     this.repairCanonicalCorpusFts();
     this.db.exec(`PRAGMA user_version=${SUPPORTED_SCHEMA_VERSION}`);
+    const location = this.databaseLocation();
+    if (location) GraphologyStore.corpusFtsVerified.add(location);
+  }
+
+  /** Schema v86 adds a chunked, bm25-ranked journal index. It is derived from
+   * live `normalized_text`, so the migration rebuilds it from scratch. */
+  private migrateJournalSearchV86(): void {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.exec(journalSchemaSql);
+      this.db.exec(journalSearchSchemaSql);
+      rebuildJournalSearchIndex(this.db);
+      this.db.exec("COMMIT");
+    } catch (error) { try { this.db.exec("ROLLBACK"); } catch {} throw error; }
   }
 
   /** The corpus FTS table is a fully derived local index. A completed schema
    * version cannot prove that a prior trigram rebuild was not interrupted, so
    * repair only this cache from immutable corpus chunks at startup. */
+  /** Derived-cache verification is per process and database file; it ran at
+   * least once when this process first opened the file. */
+  private static readonly corpusFtsVerified = new Set<string>();
+  private databaseLocation(): string | undefined { try { const value = (this.db as { location?: () => string | null }).location?.(); return value ? String(value) : undefined; } catch { return undefined; } }
+  private repairCanonicalCorpusFtsOnce(): void {
+    const location = this.databaseLocation();
+    const present = this.db.prepare("SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name='mnemora_corpus_chunks_fts'").get() as { present?: number } | undefined;
+    if (present?.present && location && GraphologyStore.corpusFtsVerified.has(location)) return;
+    this.repairCanonicalCorpusFts();
+    if (location) GraphologyStore.corpusFtsVerified.add(location);
+  }
   private repairCanonicalCorpusFts(): void {
     let rebuild = this.db.prepare("SELECT COUNT(*) AS value FROM pragma_table_list WHERE name=?").get("mnemora_corpus_chunks_fts") as { value?: unknown } | undefined;
     if (Number(rebuild?.value) === 1) {

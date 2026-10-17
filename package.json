@@ -19,6 +19,7 @@
     "plugin:official:compat": "npm run build && node scripts/official-plugin-gate.mjs",
     "smoke": "node scripts/smoke-test.mjs",
     "release:validate": "node scripts/validate-release-version.mjs",
+    "eval:longmemeval": "node --expose-gc scripts/evaluate-longmemeval.mjs",
     "cli": "node dist/cli.js",
     "test:unit": "npm run build && node scripts/run-unit-tests.mjs",
     "test": "npm run test:unit",

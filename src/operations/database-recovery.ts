@@ -1,4 +1,5 @@
 import type { DatabaseSyncInstance } from "@photostructure/sqlite";
+import { rebuildJournalSearchIndex } from "../journal/search-index.js";
 
 export interface DatabaseRecoveryOptions {
   db: DatabaseSyncInstance;
@@ -20,8 +21,8 @@ export class DatabaseRecoveryService {
     db.prepare(`ATTACH DATABASE ? AS ${attached}`).run(sourcePath);
     db.exec("PRAGMA foreign_keys=OFF");
     try {
-      const sourceTables = new Set((db.prepare(`SELECT name FROM ${attached}.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'kg_nodes_fts%' AND name NOT LIKE 'kg_memory_documents_fts%' AND name NOT LIKE 'kg_memory_chunks_fts%' AND name NOT LIKE 'mnemora_corpus_chunks_fts%'`).all() as Array<{ name: string }>).map(row => row.name));
-      const targetTables = (db.prepare("SELECT name FROM main.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'kg_nodes_fts%' AND name NOT LIKE 'kg_memory_documents_fts%' AND name NOT LIKE 'kg_memory_chunks_fts%' AND name NOT LIKE 'mnemora_corpus_chunks_fts%' ORDER BY name").all() as Array<{ name: string }>).map(row => row.name);
+      const sourceTables = new Set((db.prepare(`SELECT name FROM ${attached}.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'kg_nodes_fts%' AND name NOT LIKE 'mnemora_conversation_event_chunks%' AND name NOT LIKE 'kg_memory_documents_fts%' AND name NOT LIKE 'kg_memory_chunks_fts%' AND name NOT LIKE 'mnemora_corpus_chunks_fts%'`).all() as Array<{ name: string }>).map(row => row.name));
+      const targetTables = (db.prepare("SELECT name FROM main.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'kg_nodes_fts%' AND name NOT LIKE 'mnemora_conversation_event_chunks%' AND name NOT LIKE 'kg_memory_documents_fts%' AND name NOT LIKE 'kg_memory_chunks_fts%' AND name NOT LIKE 'mnemora_corpus_chunks_fts%' ORDER BY name").all() as Array<{ name: string }>).map(row => row.name);
       const optionalNewTables = new Set(this.options.optionalNewTables);
       if (targetTables.some(name => !optionalNewTables.has(name) && !sourceTables.has(name))) throw new Error("incompatible_schema");
       db.exec("BEGIN IMMEDIATE");
@@ -44,6 +45,8 @@ export class DatabaseRecoveryService {
       db.exec("DELETE FROM main.kg_memory_documents_fts; INSERT INTO main.kg_memory_documents_fts(id,title,content) SELECT id,title,content FROM main.kg_memory_documents");
       db.exec("DELETE FROM main.kg_memory_chunks_fts; INSERT INTO main.kg_memory_chunks_fts(id,content) SELECT id,content FROM main.kg_memory_chunks");
       db.exec("DELETE FROM main.mnemora_corpus_chunks_fts; INSERT INTO main.mnemora_corpus_chunks_fts(id,content) SELECT id,content FROM main.mnemora_corpus_chunks");
+      // The ranked journal index is derived from restored events; never copy it.
+      rebuildJournalSearchIndex(db);
       db.exec("COMMIT");
     } catch {
       try { db.exec("ROLLBACK"); } catch { /* transaction may not have begun */ }

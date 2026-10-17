@@ -1,8 +1,9 @@
 import { Type } from "typebox";
 import { buildJsonPluginConfigSchema, definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
-import { createOpenClawToolDefinitions } from "./openclaw.js";
+import { agentScopedToolFactory, createOpenClawToolDefinitions } from "./openclaw.js";
 import { PluginRuntime } from "./plugin-runtime.js";
 import { runMnemoraOperatorCommand } from "./operator-command.js";
+import { agentIdFromSessionKey, agentScope } from "./scope.js";
 
 const configSchema = Type.Object({
   dbPath: Type.Optional(Type.String()),
@@ -35,7 +36,7 @@ const configSchema = Type.Object({
     }, { additionalProperties: false })),
     excludedAgentIds: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 80 }), { maxItems: 40, description: "Host-exposed agent IDs excluded from automatic ContextEngine-derived work when the public lifecycle provides an identity." }))
   }, { additionalProperties: false })),
-  scope: Type.Optional(Type.Object({ default: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })) }, { additionalProperties: false })),
+  scope: Type.Optional(Type.Object({ default: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })), isolation: Type.Optional(Type.Union([Type.Literal("agent"), Type.Literal("shared")])), defaultAgentId: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })) }, { additionalProperties: false })),
   memory: Type.Optional(Type.Object({
     captureOnAutoExtract: Type.Optional(Type.Boolean({ default: false })),
     maxDocumentChars: Type.Optional(Type.Integer({ default: 12000, minimum: 256, maximum: 100000 })),
@@ -276,7 +277,12 @@ const plugin: ReturnType<typeof definePluginEntry> = definePluginEntry({
   register(api) {
     const runtime = new PluginRuntime(api.pluginConfig, api.logger);
     if (runtime.contextEngine) api.registerContextEngine("mnemora", context => runtime.activateContextEngine(context));
-    for (const tool of createOpenClawToolDefinitions(() => runtime.openGraph(), runtime.config.toolSurface)) api.registerTool(tool as never);
+    const defaultScope = runtime.config.scope!.default!;
+    const resolveToolScope = (context: { agentId?: string; sessionKey?: string } | undefined) => {
+      const scope = agentScope(runtime.config, context?.agentId ?? agentIdFromSessionKey(context?.sessionKey));
+      return { scope, isDefault: scope === defaultScope };
+    };
+    for (const tool of createOpenClawToolDefinitions(() => runtime.openGraph(), runtime.config.toolSurface)) api.registerTool(agentScopedToolFactory(tool, resolveToolScope) as never, { name: tool.name });
     api.registerCommand({
       name: "mnemora",
       description: "Read-only Mnemora operator status and canonical corpus commands.",
