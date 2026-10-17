@@ -9,6 +9,16 @@ Real daily logs show scalar metadata and ContextEngine activation ready. No new
 classifier event was observed during that installation check, so classifier
 outcomes were not inferred from lifecycle logs.
 
+### v1.33.0: relevance-ranked recall, agent isolation, slimming
+
+Automatic recall ranks journal evidence with a chunked bm25 index (schema v86);
+LongMemEval_S session hit 9.8%→93.8%, turn hit 5.5%→83.2% at an 800-token
+budget, on par with a same-budget bm25 baseline (`docs/recall-quality.md`).
+Memory is isolated per agent by default; ReasoningMemory was removed and the
+default tool surface is `core`. Next: a calibrated relevance floor for
+unanswerable queries, hybrid recall for preference questions, and end-to-end
+answer accuracy.
+
 ### v1.32.19: validation, install verification and proxy diagnosis
 
 Fix operation-specific memory validation and expose all operation fields to
