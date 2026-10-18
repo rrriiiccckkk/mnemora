@@ -1,4 +1,5 @@
 import { RecallRelevanceShadow } from "./retrieval/relevance-shadow.js";
+import { failureCategory, recordOperationFailure, type OperationFailureReporter, type OperationName } from "./operations/failure-ledger.js";
 import { semanticClassificationTelemetry, SemanticMemoryClassifier, type MemoryClassificationInput, type MemoryClassificationReport } from "./cognition/semantic-classifier.js";
 import { type MnemoraConfig, type EmbeddingConfig, type SearchMode } from "./index.js";
 import { createExtractor, type ExtractOptions, type Extractor } from "./extractor.js";
@@ -92,6 +93,8 @@ export interface MnemoraOptions {
   onRecallEvaluationFailure?: (event: { stage: "candidate_widen" | "shadow_record" | "canary_apply"; category: "operation_failed" }) => void;
   /** Content-free optional classifier telemetry; observers cannot affect ingestion. */
   onSemanticClassification?: (event: import("./cognition/semantic-classifier.js").SemanticClassificationTelemetry) => void;
+  /** Shared reporter for fail-open operations; without one failures are still counted in the database. */
+  failures?: OperationFailureReporter;
   urlFetcher?: (url: string, limits: { maxBytes: number; maxRedirects: number; timeoutMs: number }) => Promise<UrlFetchResult>;
   now?: () => number;
   fetcher?: typeof fetch;
@@ -117,6 +120,7 @@ export class Mnemora {
   private readonly onEmbeddingFailure?: MnemoraOptions["onEmbeddingFailure"];
   private readonly onSemanticClassification?: MnemoraOptions["onSemanticClassification"];
   private readonly onRecallEvaluationFailure?: MnemoraOptions["onRecallEvaluationFailure"];
+  private readonly failures?: OperationFailureReporter;
   private readonly queryCache = new Map<string, import("./embeddings.js").EmbeddingResult>();
   private readonly runtimeSignal?: AbortSignal;
   private readonly fetcher: typeof fetch;
@@ -207,6 +211,7 @@ export class Mnemora {
     this.embedder = options.embedder ?? (this.embeddingConfig.enabled ? createEmbedder(this.embeddingConfig) : undefined);
     this.onEmbeddingFailure = options.onEmbeddingFailure;
     this.onRecallEvaluationFailure = options.onRecallEvaluationFailure;
+    this.failures = options.failures;
     this.onSemanticClassification = options.onSemanticClassification;
     this.runtimeSignal = options.signal;
     this.urlFetcher = options.urlFetcher ?? ((url, limits) => fetchUrlResource(url, limits));
@@ -373,7 +378,7 @@ export class Mnemora {
     const authorization = this.governance.authorize({ actor_id: this.governanceActorId, action: "verification.transition", scope: current.scope, resource_id: current.id, request_hash: requestHash, approval_id: input.approval_id });
     if (!authorization.allowed) throw new Error("governance_denied");
     const result = this.verifications.transition(input);
-    if (result.verification.status === "verified") try { this.retrospectiveAudits.scheduleContradictions(result.verification.scope); } catch { /* local audit scheduling cannot invalidate a confirmed transition */ }
+    if (result.verification.status === "verified") try { this.retrospectiveAudits.scheduleContradictions(result.verification.scope); } catch (error) { this.reportFailure("audit_schedule", error); /* scheduling cannot invalidate a confirmed transition */ }
     return result;
   }
   /** Legacy-compatible summary for callers that only need an allow/deny decision. */
@@ -385,7 +390,7 @@ export class Mnemora {
   filterAutomaticRecallContext(context: KgContextResult, scope?: string) {
     const normalizedScope = normalizeScope(scope, this.config.scope?.default ?? "default");
     const decision = this.recallPolicy.evaluateAutomaticContext(context, normalizedScope);
-    try { this.retrospectiveAudits.schedule(normalizedScope); } catch { /* audit scheduling must never block recall */ }
+    try { this.retrospectiveAudits.schedule(normalizedScope); } catch (error) { this.reportFailure("audit_schedule", error); /* never blocks recall */ }
     return decision;
   }
   /** Internal ContextEngine path: local candidates and graph evidence share one admission policy. */
@@ -586,7 +591,7 @@ export class Mnemora {
     try {
       fingerprint = fingerprintExtractedTemporal(inputFingerprint, extracted);
       let formation;
-      try { formation = this.formation?.observe({ scope, origin: effectiveProvenance.origin, authority: effectiveProvenance.authority, kind: "graph_extraction", source, entities: extracted.entities.length, relations: extracted.relations.length, content: text }); } catch { /* shadow audit never blocks ingestion */ }
+      try { formation = this.formation?.observe({ scope, origin: effectiveProvenance.origin, authority: effectiveProvenance.authority, kind: "graph_extraction", source, entities: extracted.entities.length, relations: extracted.relations.length, content: text }); } catch (error) { this.reportFailure("formation_observe", error); }
       const preAdmissionEnforced = effectiveProvenance.origin === "automatic_extract" && this.config.cognition?.formationShadow === true && this.config.cognition.admission?.preAdmission?.mode === "enforce";
       if (preAdmissionEnforced && formation?.preAdmission?.decision === "drop") {
         if (formation.preAdmission.reason === "same_source_duplicate") return { status: "skipped_duplicate", source, fingerprint, counts: empty, warnings: [] };
@@ -710,7 +715,7 @@ export class Mnemora {
         const result = await requestWithTimeout(signal => this.embedder!.embed(inputs, signal), this.embeddingConfig.timeoutMs, this.runtimeSignal);
         if (result.vectors.length !== batch.length) throw new Error("embedding vectors: count mismatch");
         result.vectors.forEach((vector, index) => this.store.putEmbedding(batch[index].id, result.identity, embeddingInputVersion, vector));
-        try { await this.vectors.mirrorNodes(batch.map((node, index) => ({ id: node.id, identity: result.identity, inputVersion: embeddingInputVersion, vector: result.vectors[index] })), this.runtimeSignal); } catch { /* Optional vector index is fail-open after canonical SQLite persistence. */ }
+        try { await this.vectors.mirrorNodes(batch.map((node, index) => ({ id: node.id, identity: result.identity, inputVersion: embeddingInputVersion, vector: result.vectors[index] })), this.runtimeSignal); } catch (error) { this.reportFailure("vector_mirror", error); /* Optional vector index is fail-open after canonical SQLite persistence. */ }
         this.embeddingHealth.recordSuccess(this.embeddingConfig);
         embedded += batch.length;
         lastSuccessfulId = batch.at(-1)?.id;
@@ -718,7 +723,7 @@ export class Mnemora {
         failed += batch.length;
         const category = classifyEmbeddingFailure(error);
         this.embeddingHealth.recordFailure(this.embeddingConfig, category);
-        try { this.onEmbeddingFailure?.({ operation, category, failed: batch.length }); } catch { /* logging is fail-open */ }
+        this.reportEmbeddingFailure(operation, category, batch.length);
         if (operation === "backfill") break;
       }
     }
@@ -753,11 +758,25 @@ export class Mnemora {
         failed += batch.length;
         const category = classifyEmbeddingFailure(error);
         this.embeddingHealth.recordFailure(this.embeddingConfig, category);
-        try { this.onEmbeddingFailure?.({ operation: "journal_embed", category, failed: batch.length }); } catch { /* Local observability must remain fail-open. */ }
+        this.reportEmbeddingFailure("journal_embed", category, batch.length);
         break;
       }
     }
     return { embedded, failed, pending: Math.max(0, chunks.length - embedded) };
+  }
+
+  private reportEmbeddingFailure(operation: NonNullable<MnemoraOptions["onEmbeddingFailure"]> extends (event: infer E) => void ? E extends { operation: infer O } ? O : never : never, category: "timeout" | "provider" | "invalid_response" | "persistence" | "unknown", failed: number): void {
+    try { this.onEmbeddingFailure?.({ operation, category, failed }); } catch { /* observers are fail-open */ }
+    const mapped = category === "timeout" ? "timeout" : category === "provider" ? "unavailable" : category === "invalid_response" ? "invalid_response" : "error";
+    const name = operation === "journal_embed" ? "journal_embed" : "graph_embed";
+    if (this.failures) this.failures.reportCategory(name, mapped, this.store.db);
+    else recordOperationFailure(this.store.db, { operation: name, category: mapped }, this.now());
+  }
+
+  /** Count a fail-open failure; never throws. */
+  reportFailure(operation: OperationName, error: unknown): void {
+    if (this.failures) this.failures.report(operation, error, this.store.db);
+    else recordOperationFailure(this.store.db, { operation, category: failureCategory(error) }, this.now());
   }
 
   /** Unit query vector for semantic journal recall, or undefined when unavailable. */
@@ -766,7 +785,7 @@ export class Mnemora {
     try {
       const result = await this.queryEmbedding(query, signal);
       return { identity: { provider: result.identity.provider, model: result.identity.model, dimensions: result.identity.dimensions }, vector: result.vectors[0] };
-    } catch { return undefined; }
+    } catch (error) { this.reportFailure("semantic_query", error); return undefined; }
   }
 
   private async embedMemoryChunks(chunks: import("./types.js").KgMemoryChunk[]): Promise<{ embedded: number; failed: number; lastSuccessfulId?: string }> {
@@ -788,7 +807,7 @@ export class Mnemora {
         failed += batch.length;
         const category = classifyEmbeddingFailure(error);
         this.embeddingHealth.recordFailure(this.embeddingConfig, category);
-        try { this.onEmbeddingFailure?.({ operation: "memory_backfill", category, failed: batch.length }); } catch { /* Local observability must remain fail-open. */ }
+        this.reportEmbeddingFailure("memory_backfill", category, batch.length);
         break;
       }
     }
@@ -821,7 +840,7 @@ export class Mnemora {
       // isolated is more important than applying a cross-scope ranking signal.
       if (normalizedScope !== "default") return ranked.slice(0, bounded);
       try { return this.applyQualityRanking(ranked, bounded, signal); }
-      catch { return ranked.slice(0, bounded); }
+      catch (error) { this.reportFailure("graph_signal", error); return ranked.slice(0, bounded); }
     } catch (error) {
       if (mode === "semantic") throw semanticError(error);
       return this.store.rankHybrid({ lexical, semantic: [], limit: bounded, now: Date.now(), scope: normalizedScope, weights: { semantic: 0, lexical: 1, confidence: 0, freshness: 0 } });
@@ -843,7 +862,7 @@ export class Mnemora {
         maxNodes: quality.pprMaxNodes, maxArcs: quality.pprMaxArcs, signal
       });
       pprAvailable = true;
-    } catch { /* PPR is an optional fail-open signal */ }
+    } catch (error) { this.reportFailure("graph_signal", error); /* PPR is an optional signal */ }
     const snapshot = this.store.qualityEvidenceSummaries(results.map(result => result.node.id), now, graphSnapshot);
     const ranked = rankQualityCandidates({
       now, halfLifeDays: quality.recencyHalfLifeDays, conflictFactor: quality.conflictPenaltyFactor, hubFloor: quality.hubPenaltyFloor, degreeP95: snapshot.degree_p95, limit,
@@ -1053,7 +1072,7 @@ export class Mnemora {
   kg_memory(input: { operation: "store"; content: string; title?: string; source?: string; scope?: string; metadata?: Record<string, string | number | boolean | null> } | { operation: "search"; query: string; scope?: string; limit?: number; mode?: SearchMode } | { operation: "artifact_read"; artifact_id: string; scope?: string; offset?: number; max_bytes?: number } | { operation: "corpus_status"; scope?: string } | { operation: "corpus_sync"; scope?: string } | { operation: "corpus_search"; query: string; scope?: string; limit?: number; sync?: boolean } | { operation: "embed_backfill"; scope?: string; limit?: number; after_id?: string } | { operation: "list_scopes"; limit?: number } | { operation: "expiry_review"; scope?: string; older_than_days?: number; limit?: number; after_id?: string } | { operation: "tier_review"; scope?: string; limit?: number } | { operation: "tier"; document_id: string; tier: MemoryTier; scope?: string; preview_hash?: string; confirm?: boolean } | { operation: "recall_decay_review"; scope?: string; min_age_days?: number; limit?: number } | { operation: "lifecycle"; action: "archive" | "recover" | "delete"; document_id: string; scope?: string; preview_hash?: string; confirm?: boolean } | { operation: "lifecycle_audit"; scope?: string; limit?: number } | { operation: "export"; scope?: string; max_bytes?: number; max_records?: number } | { operation: "import"; data: string; scope?: string; preview_hash?: string; confirm?: boolean; max_bytes?: number; max_records?: number }) {
     if (!input || typeof input !== "object" || !["store", "search", "artifact_read", "corpus_status", "corpus_sync", "corpus_search", "embed_backfill", "list_scopes", "expiry_review", "tier_review", "tier", "recall_decay_review", "lifecycle", "lifecycle_audit", "export", "import"].includes(input.operation)) throw new Error("kg_memory requires a supported operation");
     if ((input.operation === "search" || input.operation === "corpus_search") && (typeof input.query !== "string" || !input.query.trim() || input.query.length > (input.operation === "search" ? 4000 : 512))) throw new Error("kg_memory search requires a non-empty query within the declared size limit; content is not a query");
-    if (input.operation === "store") { const scope=normalizeScope(input.scope, this.config.scope?.default ?? "default"); try { this.formation?.observe({ scope, origin:"memory_store", authority:"manual_operator", kind:"memory_document", source:input.source??"manual", content:input.content }); } catch {} const stored = this.store.upsertMemoryDocument({ ...input, scope }); this.memoryLifecycle.inferForDocument({ documentId: stored.id, scope }); return stored; }
+    if (input.operation === "store") { const scope=normalizeScope(input.scope, this.config.scope?.default ?? "default"); try { this.formation?.observe({ scope, origin:"memory_store", authority:"manual_operator", kind:"memory_document", source:input.source??"manual", content:input.content }); } catch (error) { this.reportFailure("formation_observe", error); } const stored = this.store.upsertMemoryDocument({ ...input, scope }); this.memoryLifecycle.inferForDocument({ documentId: stored.id, scope }); return stored; }
     if (input.operation === "search") {
       const normalizedScope = normalizeScope(input.scope, this.config.scope?.default ?? "default");
       if (!input.mode || input.mode === "lexical") return this.searchMemoryDocumentsLexically(input.query, normalizedScope, input.limit);
@@ -1104,7 +1123,7 @@ export class Mnemora {
     try {
       const cleanup = await this.vectors.removeNodes({ ids: [entity_id], identity: { provider: embedding.provider, model: embedding.model, dimensions: embedding.dimensions }, inputVersion: embedding.input_version, signal: this.runtimeSignal });
       return { ...result, vector_index_cleanup: cleanup === "removed" ? "removed" : "deferred" };
-    } catch { return { ...result, vector_index_cleanup: "deferred" }; }
+    } catch (error) { this.reportFailure("vector_mirror", error); return { ...result, vector_index_cleanup: "deferred" }; }
   }
 
   kg_review(kind: "duplicates" | "anomalies" | "identity" | "schema_drift" | "semantic_patterns" | "semantic_vocabulary" | "related_edge_refinements" | "related_edge_semantics" | "hygiene" | "worklist" = "duplicates", status: ReviewStatus = "pending", scan = false, limit = 20, after_id?: string, candidate_id?: string, decision?: "ignored" | "rejected" | "accepted", scope?: string, approval_id?: string, repair_type?: "depends_on" | "part_of" | "instance_of" | "related_to", preview_hash?: string, confirm = false): unknown {

@@ -11,6 +11,7 @@ import { trustOptionalRestoreTables } from "./trust/schema.js";
 import { integrationOptionalRestoreTables } from "./integrations/schema.js";
 import { governanceOptionalRestoreTables } from "./governance/schema.js";
 import { journalEmbeddingSchemaSql, journalSchemaSql, journalSearchSchemaSql } from "./journal/schema.js";
+import { operationFailureSchemaSql, recordOperationFailure } from "./operations/failure-ledger.js";
 import { rebuildJournalSearchIndex } from "./journal/search-index.js";
 import { contextEngineSchemaSql } from "./context-engine/schema.js";
 import { artifactSchemaSql } from "./artifacts/schema.js";
@@ -108,7 +109,7 @@ export class GraphologyStore {
     this.semanticPatterns = new SemanticPatternRepository(this.db);
     this.recovery = new DatabaseRecoveryService({
       db: this.db,
-      optionalNewTables: ["kg_scopes", "kg_memory_documents", "kg_memory_chunks", "kg_memory_lifecycle_audits", "kg_memory_import_previews", "kg_memory_import_audits", "kg_entity_identities", "kg_schema_quarantine", "mnemora_turn_advancements", "mnemora_first_use_verifications", ...schemaDriftOptionalRestoreTables, ...semanticOptionalRestoreTables, ...relatedEdgeRefinementOptionalRestoreTables, ...relatedEdgeSemanticOptionalRestoreTables, ...graphReviewOptionalRestoreTables, ...semanticVocabularyOptionalRestoreTables, ...trustOptionalRestoreTables, ...integrationOptionalRestoreTables, ...profileOptionalRestoreTables, ...governanceOptionalRestoreTables, ...consolidationOptionalRestoreTables, ...cognitionOptionalRestoreTables, ...recallLifecycleOptionalRestoreTables, ...corpusOptionalRestoreTables],
+      optionalNewTables: ["kg_scopes", "mnemora_operation_failures", "kg_memory_documents", "kg_memory_chunks", "kg_memory_lifecycle_audits", "kg_memory_import_previews", "kg_memory_import_audits", "kg_entity_identities", "kg_schema_quarantine", "mnemora_turn_advancements", "mnemora_first_use_verifications", ...schemaDriftOptionalRestoreTables, ...semanticOptionalRestoreTables, ...relatedEdgeRefinementOptionalRestoreTables, ...relatedEdgeSemanticOptionalRestoreTables, ...graphReviewOptionalRestoreTables, ...semanticVocabularyOptionalRestoreTables, ...trustOptionalRestoreTables, ...integrationOptionalRestoreTables, ...profileOptionalRestoreTables, ...governanceOptionalRestoreTables, ...consolidationOptionalRestoreTables, ...cognitionOptionalRestoreTables, ...recallLifecycleOptionalRestoreTables, ...corpusOptionalRestoreTables],
       rebuildDerivedData: () => { this.ensureMemoryChunks(); this.entities.rebuild(); }
     });
     this.migrate();
@@ -310,6 +311,7 @@ export class GraphologyStore {
     if (version < 85 && !(this.db.prepare("PRAGMA table_info(mnemora_unified_recall_shadow_runs)").all() as Array<{ name: string }>).some(column => column.name === "relevance_json")) this.db.exec("ALTER TABLE mnemora_unified_recall_shadow_runs ADD COLUMN relevance_json TEXT");
     if (version < 86) this.migrateJournalSearchV86();
     if (version < 87) this.db.exec(journalEmbeddingSchemaSql);
+    if (version < 88) this.db.exec(operationFailureSchemaSql);
     this.repairCanonicalCorpusFts();
     this.db.exec(`PRAGMA user_version=${SUPPORTED_SCHEMA_VERSION}`);
     const location = this.databaseLocation();
@@ -936,10 +938,12 @@ export class GraphologyStore {
     const rows = this.db.prepare(`SELECT * FROM kg_nodes WHERE deleted_at IS NULL AND embedding IS NOT NULL AND embedding_provider=? AND embedding_model=? AND embedding_dimensions=? AND embedding_input_version=? AND (? IS NULL OR type=?) AND id>? ORDER BY id LIMIT ?`)
       .all(identity.provider, identity.model, identity.dimensions, inputVersion, nodeType ?? null, nodeType ?? null, afterId, Math.max(0, Math.trunc(limit))) as Array<NodeRow & { embedding: Uint8Array }>;
     const valid: Array<{ node: KgNode; vector: number[] }> = [];
+    let corrupt = 0;
     for (const row of rows) {
       try { valid.push({ node: mapNode(row), vector: decodeEmbedding(row.embedding, identity.dimensions) }); }
-      catch { /* isolate corrupt rows */ }
+      catch { corrupt++; /* isolate corrupt rows */ }
     }
+    if (corrupt) recordOperationFailure(this.db, { operation: "corrupt_record", category: "corrupt" });
     return valid;
   }
 
@@ -1936,7 +1940,7 @@ export class GraphologyStore {
     const bounded = clampInt(limit, 1, 10);
     const scanLimit = Math.min(Math.max(0, Math.trunc(maxScanChunks)), Math.max(bounded * 8, 64));
     const valid: Array<{ document: KgMemoryDocument; chunk: KgMemoryChunk; vector: number[] }> = [];
-    let afterId = "", scanned = 0;
+    let afterId = "", scanned = 0, corrupt = 0;
     while (valid.length < scanLimit && scanned < maxScanChunks) {
       const pageSize = Math.min(64, maxScanChunks - scanned);
       const rows = this.db.prepare(`SELECT d.*,c.id AS chunk_id,c.ordinal AS chunk_ordinal,c.content AS chunk_content,c.content_hash AS chunk_content_hash,c.embedding AS chunk_embedding,c.embedding_dimensions AS chunk_embedding_dimensions
@@ -1948,9 +1952,10 @@ export class GraphologyStore {
       for (const row of rows) {
         try {
           valid.push({ document: mapMemoryDocument(row), chunk: mapMemoryChunkFromDocumentRow(row), vector: decodeEmbedding(row.chunk_embedding as Uint8Array, Number(row.chunk_embedding_dimensions)) });
-        } catch { /* A corrupt chunk must not block local lexical recall. */ }
+        } catch { corrupt++; /* A corrupt chunk must not block local lexical recall. */ }
       }
     }
+    if (corrupt) recordOperationFailure(this.db, { operation: "corrupt_record", category: "corrupt" });
     const found = new Map<string, { document: KgMemoryDocument; chunk: KgMemoryChunk; score: number }>();
     for (const item of valid) {
       const score = (cosineSimilarity(queryVector, item.vector) + 1) / 2;

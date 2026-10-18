@@ -1,4 +1,5 @@
 import { AutoExtractService, type SafeLogger } from "./auto-extract.js";
+import { OperationFailureReporter } from "./operations/failure-ledger.js";
 import { normalizeConfig } from "./config.js";
 import type { EmbeddingConfig, MnemoraConfig } from "./index.js";
 import { Mnemora } from "./tools.js";
@@ -73,6 +74,8 @@ export class PluginRuntime {
   readonly reflectionEnabled: boolean;
   readonly explainer: InsightExplainer;
   private readonly logger: SafeLogger;
+  /** One reporter per runtime: counts survive per-operation graph handles. */
+  readonly failures: OperationFailureReporter;
   private stopped = false;
   private readonly shutdown = new AbortController();
 
@@ -80,6 +83,7 @@ export class PluginRuntime {
     this.config = normalizeConfig(input);
     const safe = safeLogger(logger);
     this.logger = safe;
+    this.failures = new OperationFailureReporter({ warn: (message, fields) => safe.warn?.(message, fields) });
     this.explainer = new InsightExplainer(this.config, fetch, this.shutdown.signal);
     const deps = { config: this.config, openGraph: () => this.openGraph(), openGraphForAdmitted: () => this.openGraphForAdmitted(), logger: safe, signal: this.shutdown.signal };
     if (this.config.extraction?.autoExtract && this.config.contextEngine?.enabled) {
@@ -95,7 +99,8 @@ export class PluginRuntime {
       // Context capture must fail open for the host. Keep the corresponding
       // gateway signal bounded as well: no host message content or provider
       // error body crosses this observability boundary.
-      onCaptureFailure: event => safe.warn?.("ContextEngine capture skipped", event)
+      onCaptureFailure: event => safe.warn?.("ContextEngine capture skipped", event),
+      failures: this.failures
     });
     this.standalone = standaloneReadiness(this.config, this.config.standalone?.activePluginIds);
     this.consolidationEnabled = this.config.consolidation?.enabled === true;
@@ -143,7 +148,7 @@ export class PluginRuntime {
     return new Mnemora({
       config: this.config,
       signal: this.shutdown.signal,
-      onEmbeddingFailure: (event) => this.logger.warn?.("embedding batch failed", event),
+      failures: this.failures,
       onRecallEvaluationFailure: (event) => this.logger.warn?.("recall evaluation failed", event),
       onSemanticClassification: (event) => this.logger.info?.("semantic classification observed", { ...event })
     });
@@ -175,7 +180,7 @@ export class PluginRuntime {
   }
 
   private openGraphForAdmitted(): Mnemora {
-    return new Mnemora({ config: this.config, signal: this.shutdown.signal, onSemanticClassification: (event) => this.logger.info?.("semantic classification observed", { ...event }), onEmbeddingFailure: (event) => this.logger.warn?.("embedding batch failed", event) });
+    return new Mnemora({ config: this.config, signal: this.shutdown.signal, failures: this.failures, onSemanticClassification: (event) => this.logger.info?.("semantic classification observed", { ...event }) });
   }
 
   runConsolidation(): void {

@@ -9,6 +9,24 @@ Real daily logs show scalar metadata and ContextEngine activation ready. No new
 classifier event was observed during that installation check, so classifier
 outcomes were not inferred from lifecycle logs.
 
+### v1.35 (in progress): visible failures, then measured answers
+
+1. **Fail-open, but visible (done on main).** Optional work that fails
+   (recall, journal search, embedding, compaction, lifecycle, projections) is
+   counted per day in `mnemora_operation_failures` (schema v88, 30 days,
+   content-free), logged at most once per 10 minutes per operation and
+   category, and reported by `mnemora health`. A broken journal index no longer
+   silently returns no recall. A test ratchet stops silent catches from growing
+   (124 → 104).
+2. **End-to-end answer accuracy.** LongMemEval_S with a reading model and a
+   judge, comparing no memory, bm25 and Mnemora. This calls an external model
+   API, so it starts only after cost and provider are approved.
+3. **Multilingual calibration.** Thresholds for a multilingual embedding model
+   on a Chinese probe set.
+4. **Abstention.** Measure whether a reading model refuses correctly when
+   attached memory does not answer the question, then decide whether retrieval
+   should attach less.
+
 ### v1.34.0: semantic journal recall, relevance gating, knowledge-update links
 
 Opt-in semantic journal recall (schema v87 chunk vectors, local Ollama) fused

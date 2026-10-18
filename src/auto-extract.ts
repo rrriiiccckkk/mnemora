@@ -163,7 +163,7 @@ export class AutoExtractService {
               scope: this.deps.config.scope?.default,
               metadata: { kind: "conversation_turn", truncated: memoryFormatted.truncated }
             });
-          } catch { /* Optional local memory capture must not block extraction. */ }
+          } catch (error) { graph.reportFailure?.("auto_extract", error); /* must not block extraction */ }
         }
         extract = graph.extract.bind(graph);
       } finally {

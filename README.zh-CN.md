@@ -89,11 +89,12 @@ node dist/cli.js standalone guide
 
 ```bash
 MNEMORA_DB=~/.openclaw/mnemora.db node dist/cli.js stats
+node dist/cli.js health
 node dist/cli.js inspect
 node dist/cli.js resume "deployment task" --scope project-a
 ```
 
-CLI 默认使用 `~/.openclaw/mnemora.db`。如果部署使用其他路径，请显式设置 `MNEMORA_DB`。OpenClaw 安装扩展时不一定会创建全局 `mnemora` 命令，上面的直接调用方式不依赖它。
+`health` 列出最近 7 天失败过的可选操作（召回、embedding、压缩等失败时都会 fail-open，宿主照常工作）。CLI 默认使用 `~/.openclaw/mnemora.db`。如果部署使用其他路径，请显式设置 `MNEMORA_DB`。OpenClaw 安装扩展时不一定会创建全局 `mnemora` 命令，上面的直接调用方式不依赖它。
 
 任务续接是只读的：不会执行计划，也不会确认候选。有歧义的任务在被选中前保持分开；选中的任务可以附带有长度上限的 `source_evidence` 原文摘录，但不会因此升级为已接受的任务状态。见[来源证据与复跑](docs/task-resume-source-evidence.zh-CN.md)。
 

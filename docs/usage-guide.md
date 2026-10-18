@@ -422,6 +422,29 @@ earlier one carries `newer_related=<n>` and the envelope states that the most
 recent statement is current. Both stay visible as evidence; Mnemora does not
 guess at contradictions.
 
+### Operational health
+
+Optional memory work is fail-open: when recall, embedding, compaction or a
+lifecycle step fails, the host turn still succeeds. Since 1.35 such failures
+are no longer silent. Each one is counted per day in
+`mnemora_operation_failures` (kept 30 days) with a coarse category
+(`timeout`, `aborted`, `busy`, `corrupt`, `network`, `invalid_response`,
+`unavailable`, `error`), and the gateway log gets at most one line per
+operation and category every 10 minutes, with the number suppressed.
+Error messages, prompts, record text and scope names are never stored or
+logged.
+
+```bash
+MNEMORA_DB=~/.openclaw/mnemora.db node dist/cli.js health            # last 7 days
+MNEMORA_DB=~/.openclaw/mnemora.db node dist/cli.js health --days 30
+```
+
+`status` is `attention` when anything failed or evidence needs review.
+Operations: `capture`, `recall_assemble`, `journal_search`, `semantic_query`, `journal_embed`, `graph_embed`, `turn_lifecycle`, `compaction`, `compaction_projection`, `tool_projection`, `recall_relevance_advice`, `session_scope_lookup`, `first_use_observation`, `graph_signal`, `audit_schedule`, `formation_observe`, `vector_mirror`, `auto_extract`, `corrupt_record`.
+A steady `recall_assemble` or `journal_search` count means automatic recall
+is not working; `journal_embed` with `timeout` or `unavailable` usually means
+the Ollama endpoint is down.
+
 ### ReasoningMemory (removed)
 
 The experimental ReasoningMemory runtime, curation, intake, delivery and

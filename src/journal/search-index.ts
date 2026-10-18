@@ -1,4 +1,5 @@
 import type { DatabaseSyncInstance } from "@photostructure/sqlite";
+import { failureCategory, recordOperationFailure } from "../operations/failure-ledger.js";
 import { chunkText, contentTerms, ftsMatchExpression, indexText } from "../retrieval/lexical.js";
 
 export interface RankedJournalHit {
@@ -51,7 +52,7 @@ export function journalTermWeights(db: DatabaseSyncInstance, terms: readonly str
       const frequency = Number((count.get(match) as { n: number }).n);
       weights.set(term, Math.log((total - frequency + .5) / (frequency + .5) + 1));
     }
-  } catch { return new Map(); }
+  } catch (error) { recordOperationFailure(db, { operation: "journal_search", category: failureCategory(error) }); return new Map(); }
   return weights;
 }
 
@@ -73,7 +74,7 @@ export function searchJournalRanked(db: DatabaseSyncInstance, input: { scope: st
       JOIN mnemora_conversation_events e ON e.id=c.event_id
       WHERE mnemora_conversation_event_chunks_fts MATCH ? AND c.scope=? AND e.scope=? AND e.deleted_at IS NULL${cutoff}
       ORDER BY rank LIMIT ?`).all(match, input.scope, input.scope, ...(input.recordedBefore === undefined ? [] : [input.recordedBefore]), take * 3) as typeof rows;
-  } catch { return []; }
+  } catch (error) { recordOperationFailure(db, { operation: "journal_search", category: failureCategory(error) }); return []; }
   const best = new Map<string, RankedJournalHit>();
   for (const row of rows) {
     const score = -Number(row.rank);

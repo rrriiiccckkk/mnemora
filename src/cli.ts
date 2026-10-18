@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { operationFailureSummary } from "./operations/failure-ledger.js";
+import { HealthService } from "./operations/health.js";
 import { SemanticMemoryClassifier, type MemoryClassificationInput, type SemanticClassifierConfig } from "./cognition/semantic-classifier.js";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -94,6 +96,7 @@ async function main(): Promise<void> {
     if (command === "search") print(await graph.kg_search(args.join(" ")));
     else if (command === "related") { const [entity, ...rest] = args; print(graph.kg_related(entity, Number(process.env.DEPTH ?? 1), rest as RelationshipType[], process.env.DIRECTION as Direction | undefined)); }
     else if (command === "stats") print(graph.kg_stats());
+    else if (command === "health") printOperator("health", healthCommand(graph, args));
     else if (command === "forget") print(await graph.kg_forget(args[0], process.env.HARD === "true", process.env.CONFIRM === "true"));
     else if (command === "ingest") { const text = args[0] ? readFileSync(args[0], "utf8") : readFileSync(0, "utf8"); print(await graph.kg_ingest(text, process.env.SOURCE ?? "manual")); }
     else if (command === "journal" && args[0] === "embed") printOperator("journal.embed", await journalEmbedCommand(dbPath, args.slice(1)));
@@ -318,6 +321,19 @@ function reviewCommand(graph: Mnemora, raw: string[]): unknown {
     }
   }
   throw new CliError("invalid_arguments");
+}
+
+/** Read-only operational health: fail-open failures, automation outcomes and evidence freshness. */
+function healthCommand(graph: Mnemora, raw: string[]): unknown {
+  const { positional, options } = parseOptions(raw);
+  if (positional.length || Object.keys(options).some(key => key !== "days")) throw new CliError("invalid_arguments");
+  const daysOption = option(options, "days");
+  const days = daysOption === undefined ? 7 : Number(daysOption);
+  if (!Number.isSafeInteger(days) || days < 1 || days > 30) throw new CliError("invalid_arguments");
+  const failures = operationFailureSummary(graph.store.db, days);
+  const report = new HealthService({ store: graph.store }).report();
+  const suggestions = [...report.suggestions, ...(failures.total ? [{ code: "inspect_operation_failures" as const, count: failures.total }] : [])];
+  return { status: failures.total || report.suggestions.length ? "attention" : "ok", operation_failures: failures, automatic: report.automatic, evidence: { current: report.evidence.current, stale: report.evidence.stale, unverified: report.evidence.unverified }, suggestions };
 }
 
 function standalone(raw: string[]): void {
@@ -565,7 +581,7 @@ function recallCommand(graph: Mnemora, command: string | undefined, args: string
 
 function parseOptions(args: string[]): { positional: string[]; options: Record<string, string | true> } {
   const positional: string[] = [], options: Record<string, string | true> = {};
-  const values = new Set(["scope", "limit", "task-ref", "format", "preview-hash", "issued-by", "token-budget", "max-items", "historical-at", "stale-after-days", "min-age-days", "adapter", "status", "after-id", "model", "base-url"]);
+  const values = new Set(["scope", "limit", "task-ref", "format", "preview-hash", "issued-by", "token-budget", "max-items", "historical-at", "stale-after-days", "min-age-days", "adapter", "status", "after-id", "model", "base-url", "days"]);
   for (let index = 0; index < args.length; index++) {
     const item = args[index];
     if (!item.startsWith("--")) { positional.push(item); continue; }
@@ -621,4 +637,4 @@ function reportInitializedDatabase(): void {
 function print(value: unknown): void { console.log(JSON.stringify(value, null, 2)); }
 function printOperator(command: string, result: unknown): void { console.log(JSON.stringify({ ok: true, command, result })); }
 function fail(command: string, error: unknown): void { console.error(JSON.stringify({ ok: false, command, error: { code: error instanceof CliError ? error.code : "operation_failed" } })); process.exitCode = 1; }
-function usage(): string { return "Usage: mnemora <ingest|search|related|stats|forget|inspect|surface|trust|profile|recall|governance|journal|retrieve|resume|evaluate|memory-impact|review|standalone|consolidation|cognition> [...]. Operator commands return structured JSON; use `resume <task query> --scope <scope>` or `resume --task-ref <mnemora-task-episode-ref> --scope <scope>` for a read-only, source-linked task continuation; `review gate --scope <scope>`, `review worklist --scope <scope> --status <pending|rejected|invalidated>`, `review vocabulary scan --scope <scope>`, `review vocabulary list --scope <scope> --status <pending|accepted|rejected>`, `review vocabulary preview <candidate_id> <accepted|rejected> --scope <scope>`, `review vocabulary confirm <candidate_id> <accepted|rejected> --scope <scope> --preview-hash <hash> --confirm`, `review anomalies preview <edge_id> --scope <scope>`, `review anomalies confirm <edge_id> --scope <scope> --preview-hash <hash> --confirm`, `journal compaction prepared`, `journal compaction reconcile <run_id> <rewrite_confirmed|rewrite_not_applied> --confirm`, `cognition status`, `cognition graduation status`, `cognition context compile <query>`, `cognition reflection preview`, `cognition feedback list`, `cognition decision list`, `cognition decision create <objective>`, `consolidation status`, `consolidation adopt preview <proposal_id>`, `consolidation adopt apply <proposal_id> --preview-hash <hash> --confirm`, `standalone guide`, `retrieve <query>`, `evaluate recall-quality <deidentified-golden.json>`, `evaluate task-resume-comparison <plan.json>`, or `memory-impact preview <event|artifact|episode|summary> <id>`. Reflection, feedback, consolidation adoption, vocabulary review, and anomaly cleanup require explicit confirmation; Decision creation also requires a preview hash."; }
+function usage(): string { return "Usage: mnemora <ingest|search|related|stats|health|forget|inspect|surface|trust|profile|recall|governance|journal|retrieve|resume|evaluate|memory-impact|review|standalone|consolidation|cognition> [...]. Operator commands return structured JSON; use `resume <task query> --scope <scope>` or `resume --task-ref <mnemora-task-episode-ref> --scope <scope>` for a read-only, source-linked task continuation; `review gate --scope <scope>`, `review worklist --scope <scope> --status <pending|rejected|invalidated>`, `review vocabulary scan --scope <scope>`, `review vocabulary list --scope <scope> --status <pending|accepted|rejected>`, `review vocabulary preview <candidate_id> <accepted|rejected> --scope <scope>`, `review vocabulary confirm <candidate_id> <accepted|rejected> --scope <scope> --preview-hash <hash> --confirm`, `review anomalies preview <edge_id> --scope <scope>`, `review anomalies confirm <edge_id> --scope <scope> --preview-hash <hash> --confirm`, `journal compaction prepared`, `journal compaction reconcile <run_id> <rewrite_confirmed|rewrite_not_applied> --confirm`, `cognition status`, `cognition graduation status`, `cognition context compile <query>`, `cognition reflection preview`, `cognition feedback list`, `cognition decision list`, `cognition decision create <objective>`, `consolidation status`, `consolidation adopt preview <proposal_id>`, `consolidation adopt apply <proposal_id> --preview-hash <hash> --confirm`, `standalone guide`, `retrieve <query>`, `evaluate recall-quality <deidentified-golden.json>`, `evaluate task-resume-comparison <plan.json>`, or `memory-impact preview <event|artifact|episode|summary> <id>`. Reflection, feedback, consolidation adoption, vocabulary review, and anomaly cleanup require explicit confirmation; Decision creation also requires a preview hash."; }

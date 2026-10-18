@@ -1,4 +1,5 @@
 import type { DatabaseSyncInstance } from "@photostructure/sqlite";
+import { recordOperationFailure } from "../operations/failure-ledger.js";
 import { cosineSimilarity, decodeEmbedding, type EmbeddingIdentity } from "../embeddings.js";
 import { mapNode, type NodeRow } from "../graph-records.js";
 import { normalizeScope } from "../scope.js";
@@ -61,7 +62,9 @@ export class GraphSearchRepository {
       const rows = this.db.prepare(`SELECT * FROM kg_nodes WHERE deleted_at IS NULL AND embedding IS NOT NULL AND embedding_provider=? AND embedding_model=? AND embedding_dimensions=? AND embedding_input_version=? AND (? IS NULL OR type=?) AND (? IS NULL OR EXISTS (SELECT 1 FROM kg_observations so WHERE so.source_entity_id=kg_nodes.id AND so.scope=?)) AND id>? ORDER BY id LIMIT ?`).all(identity.provider, identity.model, identity.dimensions, inputVersion, nodeType ?? null, nodeType ?? null, normalizedScope ?? null, normalizedScope ?? null, afterId, pageSize) as Array<NodeRow & { embedding: Uint8Array }>;
       if (!rows.length) break;
       scanned += rows.length; afterId = rows.at(-1)!.id;
-      for (const row of rows) try { valid.push({ node: mapNode(row), vector: decodeEmbedding(row.embedding, identity.dimensions) }); } catch { /* isolate one corrupt cached vector */ }
+      let corrupt = 0;
+      for (const row of rows) try { valid.push({ node: mapNode(row), vector: decodeEmbedding(row.embedding, identity.dimensions) }); } catch { corrupt++; /* isolate one corrupt cached vector */ }
+      if (corrupt) recordOperationFailure(this.db, { operation: "corrupt_record", category: "corrupt" });
     }
     return valid
       .map(({ node, vector }) => ({ node, score: (cosineSimilarity(queryVector, vector) + 1) / 2 }))

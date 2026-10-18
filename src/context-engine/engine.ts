@@ -1,4 +1,5 @@
 import { journalScopeHasEmbeddings } from "../journal/search-index.js";
+import { OperationFailureReporter, type OperationName } from "../operations/failure-ledger.js";
 import { recordAssemblyDiagnostic, type DiagnosticSegment } from "./assembly-diagnostics.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
@@ -92,9 +93,10 @@ type DurableCapture = {
 type ContextTurnLifecycle = {
   derivedTaskKinds?(): readonly JournalDerivedTaskKind[];
   onCompletedTurn?(turn: CompletedTurn, receipt: JournalTurnReceipt): Promise<void> | void;
-  onAssemble?(input: ContextAssemblyInput): string | undefined | Promise<string | undefined>;
   /** Bounded, content-free observability for fail-open host capture errors. */
   onCaptureFailure?(event: { source: string; category: "invalid_input" | "persistence_failed"; messageCount: number }): void;
+  /** Shared reporter for every fail-open operation; one is created when absent. */
+  failures?: OperationFailureReporter;
 };
 
 const estimate = (messages: HostMessage[]) => messages.reduce((total, message) => total + estimateMessageTokens(message), 0);
@@ -126,9 +128,11 @@ const LOCAL_COMPACTION_SAFE_HOST_FALLBACK_REASONS = new Set([
  */
 export class MnemoraContextEngine implements ContextEngine {
   readonly info: DurableContextEngineInfo;
+  private readonly failures: OperationFailureReporter;
 
   constructor(private readonly config: MnemoraConfig, private readonly openGraph: () => import("../tools.js").Mnemora, private readonly delegate = delegateCompactionToRuntime, private readonly lifecycle: ContextTurnLifecycle = {}) {
     const ownsCompaction = config.contextEngine?.compaction?.enabled === true;
+    this.failures = lifecycle.failures ?? new OperationFailureReporter();
     this.info = {
       id: "mnemora",
       name: "Mnemora",
@@ -175,7 +179,7 @@ export class MnemoraContextEngine implements ContextEngine {
         if (row?.scope) return row.scope;
       }
       return undefined;
-    } catch { return undefined; } finally { try { graph?.close(); } catch { /* fail open */ } }
+    } catch (error) { this.fail("session_scope_lookup", error, graph); return undefined; } finally { try { graph?.close(); } catch { /* fail open */ } }
   }
   private inAgentScope<T>(params: unknown, run: () => Promise<T>): Promise<T> {
     if (this.activeScope.getStore() !== undefined) return run();
@@ -266,15 +270,28 @@ export class MnemoraContextEngine implements ContextEngine {
     // Derived work is optional. Durable capture has already committed and the
     // host must never lose a completed turn because extraction or an optional
     // local lifecycle callback later fails.
-    if (turn && receipt) try { await this.lifecycle.onCompletedTurn?.(turn, receipt); } catch { /* fail open */ }
+    if (turn && receipt) try { await this.lifecycle.onCompletedTurn?.(turn, receipt); } catch (error) { this.fail("turn_lifecycle", error); }
     if (receipt && !params.isHeartbeat) await this.proactiveCompact(params);
     if (receipt?.inserted && this.semanticJournalEnabled()) {
       let embedGraph: ReturnType<MnemoraContextEngine["openGraph"]> | undefined;
       try { embedGraph = this.openGraph(); await this.embedJournalBacklog(embedGraph); }
-      catch { /* semantic indexing is optional and retried after the next turn */ }
+      catch (error) { this.fail("journal_embed", error, embedGraph); /* retried after the next turn */ }
       finally { try { embedGraph?.close(); } catch { /* fail open */ } }
     }
     });
+  }
+
+  /** Count and log (rate-limited) a fail-open failure. Never throws. */
+  private fail(operation: OperationName, error: unknown, graph?: { store: { db: import("@photostructure/sqlite").DatabaseSyncInstance } }, options?: { log?: boolean }): void {
+    let db: import("@photostructure/sqlite").DatabaseSyncInstance | undefined;
+    try { db = graph?.store.db; if (db && !db.isOpen) db = undefined; } catch { db = undefined; }
+    if (db) { this.failures.report(operation, error, db, options); return; }
+    // No live handle (the operation's own handle is closed or never opened):
+    // open one briefly so the count is durable. If that fails too, the
+    // reporter still keeps the in-process count and the log line.
+    let own: ReturnType<MnemoraContextEngine["openGraph"]> | undefined;
+    try { own = this.openGraph(); } catch { own = undefined; }
+    try { this.failures.report(operation, error, own?.store.db, options); } finally { try { own?.close(); } catch { /* fail open */ } }
   }
 
   private semanticJournalEnabled(): boolean {
@@ -286,7 +303,7 @@ export class MnemoraContextEngine implements ContextEngine {
     if (!this.semanticJournalEnabled()) return;
     const limit = this.config.unifiedRetrieval?.semantic?.embedPerTurn ?? 128;
     if (!limit) return;
-    try { await graph.embedJournalChunks({ scope: this.scope(), limit }); } catch { /* fail open */ }
+    try { await graph.embedJournalChunks({ scope: this.scope(), limit }); } catch (error) { this.fail("journal_embed", error, graph); }
   }
 
   private async semanticRecallInput(graph: ReturnType<MnemoraContextEngine["openGraph"]>, query: string, intent: string): Promise<import("../retrieval/service.js").SemanticRecallInput | undefined> {
@@ -336,7 +353,7 @@ export class MnemoraContextEngine implements ContextEngine {
     if (receipt.advancementStatus === "duplicate") return { status: "duplicate" };
 
     const turn = this.completedTurn(params.sessionId, params.messages, Boolean(params.isHeartbeat), params.runtimeContext?.llm, undefined, durable.agentId);
-    if (turn && !params.isHeartbeat) try { await this.lifecycle.onCompletedTurn?.(turn, receipt); } catch { /* derived work never revokes an accepted host turn */ }
+    if (turn && !params.isHeartbeat) try { await this.lifecycle.onCompletedTurn?.(turn, receipt); } catch (error) { this.fail("turn_lifecycle", error); /* never revokes an accepted host turn */ }
     if (!params.isHeartbeat) await this.proactiveCompact({ sessionId: params.sessionId, runtimeContext: params.runtimeContext });
     return { status: "committed" };
     });
@@ -351,7 +368,7 @@ export class MnemoraContextEngine implements ContextEngine {
     if (this.config.artifacts?.enabled && this.config.artifacts.toolPayloads?.enabled) {
       const graphForToolProjection = this.openGraph();
       try { toolProjectedMessages = new ToolPayloadArtifactService(this.config, graphForToolProjection.store.db).project(this.scope(), params.sessionId, hostMessages); }
-      catch { toolProjectedMessages = hostMessages; }
+      catch (error) { this.fail("tool_projection", error, graphForToolProjection); toolProjectedMessages = hostMessages; }
       finally { try { graphForToolProjection.close(); } catch { /* preserve public host context on optional projection failure */ } }
     }
     const projected = this.compactionProjection(params.sessionId, toolProjectedMessages, budget);
@@ -398,7 +415,7 @@ export class MnemoraContextEngine implements ContextEngine {
         // before final packing. Read-only/stateless sessions never send this optional request.
         let relevance: Awaited<ReturnType<import("../tools.js").Mnemora["adviseRecallRelevance"]>>;
         if (recallWritesAllowed && this.config.unifiedRetrieval.relevanceShadow?.enabled && typeof graph.adviseRecallRelevance === "function") {
-          try { relevance = await graph.adviseRecallRelevance(this.scope(), retrievalQuery, result.candidates, (params as AssembleParams & { signal?: AbortSignal }).signal); } catch { /* no advice is baseline */ }
+          try { relevance = await graph.adviseRecallRelevance(this.scope(), retrievalQuery, result.candidates, (params as AssembleParams & { signal?: AbortSignal }).signal); } catch (error) { this.fail("recall_relevance_advice", error, graph); /* no advice is baseline */ }
         }
 
         const attachmentEvidence = new RecallAttachmentEvidenceService(graph.store.db, {
@@ -478,20 +495,11 @@ export class MnemoraContextEngine implements ContextEngine {
         if (recallWritesAllowed && (this.config.unifiedRetrieval.shadowMode || relevance)) try {
           graph.unifiedRecallShadow.record({ scope: this.scope(), query: retrievalQuery, localCandidates: rawResult.candidates.length, localSelected: packed.candidates.length, localSuppressed: localAdmission.excluded + localSelection.suppressed, graphCandidates, graphAttached, graphSuppression, attached, ...(relevance ? { relevance: relevance.observation } : {}) });
         } catch { /* optional telemetry never changes host context assembly */ }
-      } catch { /* recall must remain fail-open: host messages are authoritative */ }
+      } catch (error) { this.fail("recall_assemble", error, graph); /* host messages are authoritative */ }
       finally { graph.close(); }
     }
     const currentAdditionTokens = () => additions.length ? estimateTextTokens(additions.join("\n\n")) : 0;
     const remaining = Math.max(0, budget - estimatedTokens - currentAdditionTokens());
-    // Reasoning delivery shares the same public assembly boundary as unified
-    // retrieval. It cannot create a second hook attachment, and an output that
-    // cannot fit is withheld rather than truncated into an invalid envelope.
-    if (!automaticWorkExcluded && remaining >= 64 && typeof params.prompt === "string" && params.prompt.trim()) {
-      try {
-        const reasoning = await this.lifecycle.onAssemble?.({ sessionId: params.sessionId, query: params.prompt.trim(), tokenBudget: remaining, ...(agentId ? { agentId } : {}) });
-        if (reasoning && estimateTextTokens(additions.length ? `${additions.join("\n\n")}\n\n${reasoning}` : reasoning) <= budget - estimatedTokens) { additions.push(reasoning); diagnosticSegments.push({ kind: "reasoning", text: reasoning }); }
-      } catch { /* optional governed reasoning must remain fail-open */ }
-    }
     const addition = additions.length ? additions.join("\n\n") : undefined;
     const total = estimatedTokens + currentAdditionTokens();
     if (this.config.contextEngine?.assemblyDiagnostics?.enabled && !automaticWorkExcluded && sessionWriteDisposition(params.sessionId, this.config.conversationJournal) === "writable") {
@@ -553,7 +561,7 @@ export class MnemoraContextEngine implements ContextEngine {
     try {
       if (this.activeJournalTokenEstimate(params.sessionId) < Math.floor(budget * options.contextThreshold!)) return;
       await this.runLocalCompaction(params.sessionId, runtime);
-    } catch { /* maintenance remains fail-open */ }
+    } catch (error) { this.fail("compaction", error); /* maintenance remains fail-open */ }
   }
 
   private activeJournalTokenEstimate(sessionId: string): number {
@@ -625,7 +633,7 @@ export class MnemoraContextEngine implements ContextEngine {
         }
       }
       return { messages, summaryTokens: 0 };
-    } catch { return { messages, summaryTokens: 0 }; }
+    } catch (error) { this.fail("compaction_projection", error, graph); return { messages, summaryTokens: 0 }; }
     finally { try { graph?.close(); } catch { /* projection remains fail-open */ } }
   }
 
@@ -681,7 +689,7 @@ export class MnemoraContextEngine implements ContextEngine {
           return contextDomain(host) === "user_chat" && String(host.role ?? "").toLowerCase() === "user" ? [messageText(host, 16_384)] : [];
         });
         new FirstUseVerificationRepository(db).recordCapture({ scope: this.scope(), sessionId, texts });
-      } catch { /* acceptance observation never changes durable capture */ }
+      } catch (error) { this.fail("first_use_observation", error); /* never changes durable capture */ }
     }
     return receipt;
   }
@@ -740,6 +748,8 @@ export class MnemoraContextEngine implements ContextEngine {
   }
 
   private reportCaptureFailure(source: string, messageCount: number, error: unknown): void {
+    // onCaptureFailure already logs a bounded line; only count it here.
+    this.fail("capture", error, undefined, { log: false });
     const code = error instanceof Error ? error.message : "";
     const category = /^(?:invalid_journal_turn|invalid_session_id|invalid_journal_event|invalid_journal_parent)$/.test(code) ? "invalid_input" : "persistence_failed";
     try { this.lifecycle.onCaptureFailure?.({ source, category, messageCount: Math.max(0, Math.min(512, Number.isFinite(messageCount) ? Math.floor(messageCount) : 0)) }); } catch { /* observability must remain fail-open */ }

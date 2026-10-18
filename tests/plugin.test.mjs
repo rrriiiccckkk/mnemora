@@ -569,7 +569,11 @@ test("plugin runtime logs only bounded embedding failure metadata and remains fa
     graph.store.ingest([{ name: "SECRET NODE TEXT", type: "company", confidence: 1, evidence_span: "SECRET EVIDENCE" }], [], "secret-source");
     const result = await graph.kg_embed_backfill();
     assert.deepEqual(result, { processed: 1, embedded: 0, failed: 1, next_after_id: null });
-    assert.deepEqual(warnings, [["embedding batch failed", { operation: "backfill", category: "provider", failed: 1 }]]);
+    // One rate-limited, content-free line per operation and category.
+    assert.deepEqual(warnings, [["Mnemora operation failed (fail-open)", { operation: "graph_embed", category: "unavailable" }]]);
+    await graph.kg_embed_backfill();
+    assert.equal(warnings.length, 1);
+    assert.deepEqual(graph.store.db.prepare("SELECT operation, category, count FROM mnemora_operation_failures").all().map(row => ({ ...row })), [{ operation: "graph_embed", category: "unavailable", count: 2 }]);
     assert.doesNotMatch(JSON.stringify(warnings), /secret|503|body|node text|evidence/i);
   } finally {
     graph.close();

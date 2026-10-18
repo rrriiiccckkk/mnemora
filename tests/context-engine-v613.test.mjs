@@ -16,16 +16,17 @@ test("ContextEngine uses one CJK and astral-aware estimator for messages and add
   assert.equal(estimateTextTokens("𠀀"), 1);
   assert.equal(estimateMessageTokens({ role: "user", content: "中文摘要" }), estimateTextTokens("中文摘要"));
 
-  const config = normalizeConfig({ dbPath: ":memory:", contextEngine: { enabled: true, maxContextTokens: 256 } });
-  const addition = "中文摘要😀";
-  const engine = new MnemoraContextEngine(config, () => {
-    const store = new GraphologyStore(":memory:");
-    return { store, close() { store.close(); } };
-  }, undefined, { onAssemble: async () => addition });
-  const assembled = await engine.assemble({ sessionId: "s", prompt: "当前任务", messages: [{ role: "user", content: "当前任务" }], tokenBudget: 256 });
-  assert.equal(assembled.systemPromptAddition, addition);
-  assert.equal(assembled.estimatedTokens, estimateTextTokens("当前任务") + estimateTextTokens(addition));
-  assert.equal(assembled.promptAuthority, "assembled");
+  const config = normalizeConfig({ dbPath: ":memory:", mode: "standalone", conversationJournal: { enabled: true }, contextEngine: { enabled: true, maxContextTokens: 2000 }, unifiedRetrieval: { enabled: true, shadowMode: false } });
+  const graph = new Mnemora({ config });
+  const shared = new Proxy(graph, { get: (target, property) => property === "close" ? () => undefined : Reflect.get(target, property, target) });
+  const engine = new MnemoraContextEngine(config, () => shared);
+  try {
+    await engine.ingestBatch({ sessionId: "earlier", messages: [{ role: "user", content: "当前任务是整理中文摘要😀和𠀀字表" }] });
+    const assembled = await engine.assemble({ sessionId: "s", prompt: "当前任务是什么", messages: [{ role: "user", content: "当前任务是什么" }], tokenBudget: 2000 });
+    assert.match(assembled.systemPromptAddition ?? "", /中文摘要😀/u);
+    assert.equal(assembled.estimatedTokens, estimateTextTokens("当前任务是什么") + estimateTextTokens(assembled.systemPromptAddition));
+    assert.equal(assembled.promptAuthority, "assembled");
+  } finally { graph.close(); }
 });
 
 test("ContextEngine never attaches a rejected graph claim through either automatic path", async () => {

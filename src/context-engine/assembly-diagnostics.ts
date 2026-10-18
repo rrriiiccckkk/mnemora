@@ -68,8 +68,8 @@ export function recordAssemblyDiagnostic(options: AssemblyDiagnosticOptions | un
     if (Buffer.byteLength(payload) > MAX_BYTES) return "unavailable";
     const name = `assembly-${randomUUID()}`, temporary = join(directory, `.${name}.tmp`), target = join(directory, `${name}.json`);
     try { writeFileSync(temporary, payload, { flag: "wx", mode: 0o600 }); renameSync(temporary, target); }
-    catch (error) { try { unlinkSync(temporary); } catch {} throw error; }
+    catch (error) { try { unlinkSync(temporary); } catch { /* original error wins */ } throw error; }
     return "recorded";
   } catch { return "unavailable"; }
-  finally { if (lockPath) try { unlinkSync(lockPath); } catch {} }
+  finally { if (lockPath) try { unlinkSync(lockPath); } catch { /* best-effort lock cleanup */ } }
 }

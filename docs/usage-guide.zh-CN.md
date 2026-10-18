@@ -289,6 +289,17 @@ MNEMORA_DB=~/.openclaw/mnemora.db node dist/cli.js journal embed --model all-min
 
 同一话题的早晚两条记录同时被注入时，较早的一条会带上 `newer_related=<n>`，注入头部也会说明"冲突时以最新陈述为准"。两条都作为证据保留，Mnemora 不自行判断矛盾。
 
+### 运行健康
+
+可选的记忆工作都是 fail-open 的：召回、embedding、压缩或生命周期中的某一步失败时，宿主这一轮照常成功。从 1.35 起，这类失败不再无声无息：每次失败都会按天计入 `mnemora_operation_failures`（保留 30 天），并附一个粗粒度类别（`timeout`、`aborted`、`busy`、`corrupt`、`network`、`invalid_response`、`unavailable`、`error`）。网关日志里，同一操作和类别每 10 分钟最多写一行，并注明期间被省略的次数。错误信息、提问、记录原文和 scope 名称都不会被存储或写入日志。
+
+```bash
+MNEMORA_DB=~/.openclaw/mnemora.db node dist/cli.js health            # 最近 7 天
+MNEMORA_DB=~/.openclaw/mnemora.db node dist/cli.js health --days 30
+```
+
+只要有失败或有证据需要复核，`status` 就是 `attention`。操作名：`capture`, `recall_assemble`, `journal_search`, `semantic_query`, `journal_embed`, `graph_embed`, `turn_lifecycle`, `compaction`, `compaction_projection`, `tool_projection`, `recall_relevance_advice`, `session_scope_lookup`, `first_use_observation`, `graph_signal`, `audit_schedule`, `formation_observe`, `vector_mirror`, `auto_extract`, `corrupt_record`。`recall_assemble` 或 `journal_search` 持续增长，说明自动召回没有在工作；`journal_embed` 出现 `timeout` 或 `unavailable`，通常是 Ollama 服务没有运行。
+
 ### ReasoningMemory（已移除）
 
 实验性的 ReasoningMemory 运行时、整理、intake、投递与验证流水线已在 1.33 移除。

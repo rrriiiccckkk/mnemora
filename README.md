@@ -130,11 +130,14 @@ Run these from the built plugin directory:
 
 ```bash
 MNEMORA_DB=~/.openclaw/mnemora.db node dist/cli.js stats
+node dist/cli.js health
 node dist/cli.js inspect
 node dist/cli.js resume "deployment task" --scope project-a
 ```
 
-The CLI defaults to `~/.openclaw/mnemora.db`. Set `MNEMORA_DB` explicitly
+`health` lists optional operations that failed in the last 7 days (recall,
+embedding, compaction and others fail open, so the host keeps working). The
+CLI defaults to `~/.openclaw/mnemora.db`. Set `MNEMORA_DB` explicitly
 when your deployment uses another path. OpenClaw's extension installation
 does not necessarily create a global `mnemora` command; direct invocation
 above does not need one.
