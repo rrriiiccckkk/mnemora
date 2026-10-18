@@ -101,6 +101,7 @@ function judgePrompt(row, response) {
   return `${base} \n\nQuestion: ${row.question}\n\nCorrect Answer: ${row.answer}\n\nModel Response: ${response}\n\nIs the model response correct? Answer yes or no only.`;
 }
 
+const PROVIDER_REFUSAL = /^the request was rejected because it was considered high risk/iu;
 const BASE_URL = (process.env.MNEMORA_QA_BASE_URL ?? "").replace(/\/+$/u, "");
 const MODEL = process.env.MNEMORA_QA_MODEL ?? "", JUDGE = process.env.MNEMORA_QA_JUDGE_MODEL ?? MODEL;
 const usage = { prompt: 0, completion: 0, calls: 0 };
@@ -137,6 +138,8 @@ async function answer([contextsPath, outPath, maxSeconds]) {
       const { row, arm } = jobs[next++];
       try {
         const response = await chat(MODEL, readerPrompt(row, arm), 300);
+        // A provider safety refusal is not an answer; leave the job for a rerun.
+        if (PROVIDER_REFUSAL.test(response)) throw new Error("provider_refusal");
         const verdict = await chat(JUDGE, judgePrompt(row, response), 8);
         appendFileSync(outPath, `${JSON.stringify({ qid: row.qid, type: row.type, abstention: row.abstention, arm, contextTokens: estimate(row.contexts[arm]), response, correct: /^\W*yes/iu.test(verdict) })}\n`);
       } catch (error) { failed++; if (failed > 20) throw new Error(`too many API failures: ${error.message}`); }

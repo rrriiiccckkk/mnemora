@@ -285,6 +285,19 @@ export class ConversationEventRepository {
 
   get(id: string, scope: string): JournalEvent | undefined { return this.read(id, scope, false); }
 
+  /** The assistant turn that answered `event`: the next live assistant event
+   * in the same session and branch, unless another user turn comes first. */
+  nextReply(event: Pick<JournalEvent, "id" | "scope" | "sessionId" | "branchId" | "sequence">): JournalEvent | undefined {
+    const rows = this.db.prepare("SELECT id, role FROM mnemora_conversation_events WHERE scope=? AND session_id=? AND branch_id=? AND sequence>? ORDER BY sequence LIMIT 4").all(event.scope, event.sessionId, event.branchId, event.sequence) as Array<{ id: string; role: string | null }>;
+    for (const row of rows) {
+      if (row.role === "user") return undefined;
+      if (row.role !== "assistant") continue;
+      const reply = this.get(row.id, event.scope);
+      return reply && !reply.tombstoned ? reply : undefined;
+    }
+    return undefined;
+  }
+
   /** Resolve a durable provenance anchor without reviving retained content.
    * Normal retrieval intentionally hides tombstones; summary expansion may
    * expose only this metadata-only anchor so an evidence chain cannot appear

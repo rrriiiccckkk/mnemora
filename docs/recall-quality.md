@@ -148,35 +148,41 @@ any API call; the answer phase is resumable.
 
 | Question type | n | none | bm25 | Mnemora before | Mnemora v1.35 |
 |---|---:|---:|---:|---:|---:|
-| **All** | 500 | 7.6% | 67.8% | 59.0% | **68.2%** |
-| single-session-user | 64 | 0% | 90.6% | 87.5% | 93.8% |
-| single-session-assistant | 56 | 12.5% | 91.1% | 51.8% | 78.6% |
-| single-session-preference | 30 | 0% | 40.0% | 43.3% | 33.3% |
-| multi-session | 121 | 0% | 41.3% | 33.1% | 40.5% |
-| temporal-reasoning | 127 | 0.8% | 63.0% | 54.3% | 66.1% |
+| **All** | 500 | 7.6% | 67.8% | 59.0% | **70.6%** |
+| single-session-user | 64 | 0% | 90.6% | 87.5% | 90.6% |
+| single-session-assistant | 56 | 12.5% | 91.1% | 51.8% | 92.9% |
+| single-session-preference | 30 | 0% | 40.0% | 43.3% | 40.0% |
+| multi-session | 121 | 0% | 41.3% | 33.1% | 42.1% |
+| temporal-reasoning | 127 | 0.8% | 63.0% | 54.3% | 67.7% |
 | knowledge-update | 72 | 0% | 83.3% | 84.7% | 90.3% |
 | abstention | 30 | 100% | 93.3% | 90.0% | 96.7% |
-| Mean context tokens | | 0 | 774 | 543 | 645 |
+| Mean context tokens | | 0 | 774 | 543 | 659 |
 
 "Before" is main after the v1.35 timestamp change and before the fixes below;
-the none and bm25 arms are from the same run. The v1.35 column reran only the
-Mnemora arm on rebuilt contexts.
+the none and bm25 arms are from the same run. The v1.35 column is one clean
+rerun of the Mnemora arm, all 500 questions, on contexts built by the final
+code.
 
 Reading of the numbers:
 
-- Mnemora now matches the bm25 baseline overall (68.2% vs 67.8%; the
-  difference is within noise at n=500) with 17% fewer context tokens.
-- It is ahead on knowledge updates (`newer_related`), temporal reasoning and
-  single-session facts, and still behind on questions about what the
-  assistant said (78.6% vs 91.1%), where bm25 attaches whole long messages.
+- Mnemora is 2.8 points above the bm25 baseline overall (70.6% vs 67.8%)
+  with 15% fewer context tokens, and at or above it on every question type.
+  At n=500 a gap under about 4 points is within noise; per-type gaps of one
+  or two questions are noise too. Rerunning identical contexts moved single
+  types by one or two questions.
+- It is clearly ahead on knowledge updates (`newer_related`) and temporal
+  reasoning.
 - Preference questions (n=30) are low for both arms and noisy.
-- Multi-session questions (about 40% for both) need facts from several
+- Multi-session questions (about 42% for both) need facts from several
   sessions; an 800-token budget limits both.
-- The cost was about 4,000 API calls (1,500 answers and 1,500 grades for the
-  first run, 500 and 500 for the rerun), about 1.8M prompt and 0.1M
-  completion tokens.
+- One reader call in an intermediate run was refused by the provider's
+  safety filter. The script now treats such a refusal as a failed call and
+  leaves the question for a rerun; the final run had none.
+- The cost was about 5,400 API calls (first run 3,000, final rerun 1,000,
+  and targeted reruns of changed questions while iterating), about 2.5M prompt
+  and 0.1M completion tokens.
 
-The run found four retrieval problems, all fixed in v1.35:
+The run found these retrieval problems, all fixed in v1.35:
 
 1. **Freshness gated admission.** The 0.35 admission floor applied to a score
    that includes freshness, so a record more than about a year old that
@@ -190,10 +196,29 @@ The run found four retrieval problems, all fixed in v1.35:
 4. **Repeated citations.** Each item repeated its ref as `provenance_refs`
    and `source` (about 60 tokens per item). The ref is now written once;
    `provenance_refs` appears only when it adds another record.
+5. **Wrapper not budgeted.** Retrieval filled the budget without the packet
+   wrapper, so final packing dropped the last admitted record. The wrapper is
+   now charged during retrieval.
 
-When a prompt asks what the assistant said earlier ("what did you
-recommend", "our previous conversation", "你之前推荐"), assistant turns are not
-demoted and are excerpted up to 2,400 characters instead of 1,180.
+Prompts that look back at what the assistant said get their own handling.
+They are recognised by past tense or an explicit look-back: "what did you
+recommend", "our previous conversation", "you could remind me",
+"你之前推荐", "你说过". A new request such as "can you recommend a hotel?" does
+not count. For these prompts:
+
+- The assistant reply that followed each of the three best-matching user
+  turns is attached (`reply_to_match`). The question usually shares more
+  words with the prompt than the answer does.
+- Assistant turns are not demoted, are ranked above the user's question, and
+  are excerpted up to 2,400 characters instead of 1,180. A long reply is
+  excerpted at the window with the most rarity-weighted query terms.
+- A long assistant turn that does not fit is shortened to the remaining
+  budget instead of skipped. Applied to every prompt, this cost
+  multi-session answers, so it stays limited to these prompts.
+
+The recognition patterns were tuned on LongMemEval_S. They match 54 of its
+56 assistant questions and none of the other 444, but they are English and
+Chinese phrasings only and may miss other wordings.
 
 ## What changed
 

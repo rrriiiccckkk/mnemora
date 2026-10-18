@@ -162,3 +162,35 @@ test("prompts about what the assistant said are recognised in English and Chines
   for (const prompt of ["Can you remind me which restaurant you recommended?", "Going back to our previous conversation about dinosaurs, what colour was the Plesiosaur?", "你之前推荐的那家餐厅叫什么？"]) assert.equal(asksAboutAssistant(prompt), true, prompt);
   for (const prompt of ["What degree did I graduate with?", "我上周买了什么？", "Where do you think I should travel?"]) assert.equal(asksAboutAssistant(prompt), false, prompt);
 });
+
+test("assistant-recall prompts attach the reply that followed the matching user turn", async () => {
+  const { engine: target, close } = engine();
+  try {
+    await target.ingestBatch({ sessionId: "bandung", messages: [
+      { role: "user", content: "I'm visiting Cihampelas Walk in Bandung. Where should I eat Nasi Goreng there?" },
+      { role: "assistant", content: `Head to Miss Bee Providore: its signature fried rice is the local favourite. ${"Plenty of other options line the street. ".repeat(40)}` },
+      { role: "user", content: "Thanks, what about shopping for denim?" },
+      { role: "assistant", content: "The denim street has many small boutiques." }
+    ] });
+    const prompt = await ask(target, "Can you remind me of the restaurant you recommended at Cihampelas Walk for Nasi Goreng?");
+    assert.match(prompt, /role=assistant[^\n]*\n[^\n]*Miss Bee Providore/u);
+    // A new request is not a look-back: the user's own turns keep their weight.
+    const { asksAboutAssistant } = await import("../dist/retrieval/service.js");
+    assert.equal(asksAboutAssistant("Can you recommend a restaurant in Bandung?"), false);
+  } finally { close(); }
+});
+
+test("find charges the packet wrapper so final packing keeps every admitted record", async () => {
+  const { UnifiedRetrievalService } = await import("../dist/retrieval/service.js");
+  const { engine: target, graph, close } = engine();
+  try {
+    await target.ingestBatch({ sessionId: "s", messages: Array.from({ length: 6 }, (_, index) => ({ role: "user", content: `Catalonia literature note ${index}: ${"political climate and music themes ".repeat(12)}` })) });
+    const service = new UnifiedRetrievalService(graph.store.db, target.policy(), Date.now, graph.memoryLifecycle);
+    for (const budget of [200, 320, 500]) {
+      const found = service.find({ scope: "default", query: "Catalonia literature political climate music", limit: 8, tokenBudget: budget });
+      const packed = service.packPrompt(found, 8, undefined, budget);
+      assert.equal(packed.candidates.length, found.candidates.length, `budget ${budget}`);
+      assert.ok(packed.estimatedTokens <= budget);
+    }
+  } finally { close(); }
+});

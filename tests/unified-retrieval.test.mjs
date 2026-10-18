@@ -98,8 +98,8 @@ test("identifier relevance does not bypass confidence floors or secret-label exc
     // Length ranks but no longer gates admission; a secret-like label still
     // gets no identifier exemption from length normalization in ranking.
     journal.append({ scope: "a", sessionId: "identifier", kind: "user_message", role: "user", parts: [{ type: "text", text: `RELEASE_TASK_43 的发布状态。${text}` }] });
-    const [secret] = service.find({ scope: "a", query: "PRIVATE_SIGNING_KEY", hardMinScore: 0 }).candidates;
-    const [identifier] = service.find({ scope: "a", query: "RELEASE_TASK_43", hardMinScore: 0 }).candidates;
+    const [secret] = service.find({ scope: "a", query: "PRIVATE_SIGNING_KEY", hardMinScore: 0, tokenBudget: 4000 }).candidates;
+    const [identifier] = service.find({ scope: "a", query: "RELEASE_TASK_43", hardMinScore: 0, tokenBudget: 4000 }).candidates;
     assert.ok(secret.score < .85 && identifier.score >= .85, `${secret.score} / ${identifier.score}`);
   } finally { store.close(); }
 });

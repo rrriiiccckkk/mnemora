@@ -58,7 +58,11 @@ export function selectInjectionCandidates(input: {
   // (a long history matches almost any word somewhere). An exact technical
   // identifier is specific evidence on its own and is never floored.
   const relevant = (candidate: RetrievalCandidate) => semantic(candidate) || (identifiers.length > 0 && hasIdentifier(candidate)) || !candidate.semanticallyDistant && (!floor || candidate.queryMatch === undefined || candidate.queryMatch >= floor || identifiers.length > 0 && hasIdentifier(candidate));
-  const anchored = input.candidates.filter(candidate => semantic(candidate) || containsAnchor(`${candidate.title}\n${candidate.excerpt}`, anchors));
+  // A reply attached to a matching user turn is anchored through that turn:
+  // "the restaurant you recommended" is answered by text that may share no
+  // word with the prompt. It is only produced for assistant-recall prompts.
+  const anchoredTurns = new Set(input.candidates.filter(candidate => candidate.selectionReason !== "reply_to_match" && (semantic(candidate) || containsAnchor(`${candidate.title}\n${candidate.excerpt}`, anchors))).map(candidate => candidate.contextRef));
+  const anchored = input.candidates.filter(candidate => anchoredTurns.has(candidate.contextRef) || candidate.selectionReason === "reply_to_match" && anchoredTurns.size > 0);
   if (!anchored.length) return { candidates: [], suppressed: input.candidates.length, reason: "no_anchor_match" };
   const matched = anchored.filter(relevant);
   if (!matched.length) return { candidates: [], suppressed: input.candidates.length, reason: "below_relevance_floor" };

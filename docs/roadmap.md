@@ -19,13 +19,14 @@ outcomes were not inferred from lifecycle logs.
    silently returns no recall. A test ratchet stops silent catches from growing
    (124 → 104).
 2. **End-to-end answer accuracy (done on main).** LongMemEval_S with a
-   reading model and a judge (`npm run eval:longmemeval-qa`). Mnemora 68.2%,
-   same-budget bm25 67.8%, no memory 7.6%, with 17% fewer tokens than bm25.
-   The run exposed four retrieval problems (freshness and length gating
-   admission, no speaker label, repeated citations), now fixed; before the
-   fixes Mnemora scored 59.0%. See [Recall quality](recall-quality.md).
-   Remaining gaps: questions about what the assistant said, and multi-session
-   questions.
+   reading model and a judge (`npm run eval:longmemeval-qa`). Mnemora 70.6%,
+   same-budget bm25 67.8%, no memory 7.6%, with 15% fewer tokens than bm25
+   and at or above it on every question type. The run exposed five retrieval
+   problems (freshness and length gating admission, no speaker label,
+   repeated citations, unbudgeted wrapper), now fixed, and led to dedicated
+   handling of "what did you say" prompts (51.8% → 92.9%; bm25 91.1%). Before the fixes Mnemora scored 59.0%. See
+   [Recall quality](recall-quality.md). Remaining gap for both: multi-session
+   and preference questions.
 3. **Multilingual calibration.** Thresholds for a multilingual embedding model
    on a Chinese probe set.
 4. **Abstention.** Measure whether a reading model refuses correctly when

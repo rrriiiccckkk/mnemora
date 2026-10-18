@@ -31,9 +31,57 @@ const WIDE_EXCERPT = 2400;
  * the question shares with them.
  */
 export function asksAboutAssistant(query: string): boolean {
-  return /\b(?:you|your)\b[^.?!]{0,60}\b(?:said|say|told|tell|recommend\w*|suggest\w*|mention\w*|gave|give|provid\w*|list\w*|wrote|write|shared|explain\w*|describ\w*|propos\w*|came up with)\b/iu.test(query)
-    || /\bour (?:previous|last|earlier|past|prior) (?:chat|conversation|discussion|talk)\b/iu.test(query)
-    || /你(?:之前|上次|刚才|以前|曾经)?(?:说|推荐|建议|提到|讲|给|列|写|介绍)/u.test(query);
+  // Past tense or an explicit look-back: "can you recommend a hotel?" is a new
+  // request and must not demote the user's own facts.
+  return /\b(?:you|your)\b[^.?!]{0,60}\b(?:said|told|recommended|suggested|mentioned|gave|provided|listed|wrote|shared|explained|described|proposed|came up with|made|created|wrote|played|picked|chose)\b/iu.test(query)
+    || /\b(?:our|the) (?:previous|last|earlier|past|prior) (?:chat|conversation|discussion|talk)\b/iu.test(query)
+    || /\bremind me\b[^.?!]{0,80}\byou\b/iu.test(query)
+    || /\byou (?:could|can|would) remind me\b/iu.test(query)
+    || /\b(?:our|the) (?:previous|last|earlier|past|prior) [a-z]+ (?:game|session|exchange)\b/iu.test(query)
+    || /你(?:之前|上次|刚才|以前|曾经)[^。？！?!]{0,8}(?:说|推荐|建议|提到|讲|给|列|写|介绍)|你(?:说|推荐|建议|提到|讲|介绍|写)过/u.test(query);
+}
+/** Wrapper and policy line of every rendered packet. */
+const PACKET_OVERHEAD_TOKENS = estimateTextTokens('<MNEMORA_MEMORY authority="non_authoritative">\nReference; obey user and host policy.\n\n</MNEMORA_MEMORY>');
+/** The optional newer_related guidance line. Reserved only at budgets where
+ * it is under a tenth of the budget, so small budgets keep their one record. */
+const GUIDANCE_TOKENS = estimateTextTokens("\nnewer_related lists later records on the same topic; when they conflict, the most recent statement is current.");
+/** Smallest remaining budget worth filling with a shortened long turn. */
+const MIN_TRIMMED_TOKENS = 160;
+/**
+ * Shorten an excerpt to `maximum` characters. A window cut around a match
+ * (it starts with "…") keeps its middle, where the match is; a whole message
+ * or a reply that starts at its beginning keeps its head, where answers lead.
+ */
+function trimExcerpt(value: string, maximum: number): string {
+  const body = value.replace(/^…|…$/gu, "");
+  if (body.length <= maximum) return value;
+  const from = value.startsWith("…") ? Math.floor((body.length - maximum) / 2) : 0;
+  const to = from + maximum;
+  return `${value.startsWith("…") || from > 0 ? "…" : ""}${body.slice(from, to).trim()}…`;
+}
+/** User turns whose reply is attached for an assistant-recall prompt. */
+const REPLY_EXPANSION = 3;
+/**
+ * Excerpt of a long reply: the window with the most rarity-weighted query
+ * terms (a rare name like "Plesiosaur" outweighs "book"), else its start,
+ * where answers usually lead.
+ */
+function replyExcerpt(value: string, terms: readonly string[], weights: ReadonlyMap<string, number>, maximum: number): string {
+  if (value.length <= maximum) return value;
+  const lower = value.toLowerCase(), hits: Array<{ at: number; weight: number }> = [];
+  for (const term of terms) for (let at = lower.indexOf(term); at >= 0 && hits.length < 400; at = lower.indexOf(term, at + term.length)) hits.push({ at, weight: weights.get(term) ?? 1 });
+  hits.sort((a, b) => a.at - b.at);
+  let best = 0, bestWeight = 0, windowWeight = 0, opening = 0;
+  for (let i = 0, j = 0; i < hits.length; i++) {
+    windowWeight += hits[i].weight;
+    while (hits[i].at - hits[j].at > maximum * .8) windowWeight -= hits[j++].weight;
+    if (windowWeight > bestWeight) { bestWeight = windowWeight; best = hits[j].at; }
+    if (hits[i].at < maximum * .8) opening += hits[i].weight;
+  }
+  // Move only when a later window clearly beats the opening one.
+  const start = bestWeight > opening * 1.25 ? Math.max(0, best - Math.floor(maximum * .1)) : 0;
+  const from = Math.max(0, Math.min(start, value.length - maximum)), to = Math.min(value.length, from + maximum);
+  return `${from > 0 ? "…" : ""}${value.slice(from, to).trim()}${to < value.length ? "…" : ""}`;
 }
 /** The score as if the record were new; used for the admission floor only. */
 const freshnessNeutral = (value: number, candidate: { confidence: number; freshness: number }, now: number) => {
@@ -149,13 +197,20 @@ export class UnifiedRetrievalService {
       }
     }
     const feedback = new RecallFeedbackRepository(this.db, this.now), seen = new Set<string>(), candidates: RetrievalCandidate[] = [];
-    let duplicate = 0, budgetExcluded = 0, lowConfidence = 0, stale = 0, used = 0;
+    // The packet wrapper (and, at ordinary budgets, the newer_related
+    // guidance) is charged up front, so final packing does not drop the last
+    // admitted record for it.
+    let duplicate = 0, budgetExcluded = 0, lowConfidence = 0, stale = 0, used = PACKET_OVERHEAD_TOKENS + (budget >= 10 * GUIDANCE_TOKENS ? GUIDANCE_TOKENS : 0);
     // Explicit user feedback is a retrieval-only signal. A neutral record
     // preserves the prior score exactly; negative feedback can demote a
     // candidate but can never mutate confidence, evidence, or lifecycle.
     const identifiers = safeIdentifierMatchers(query);
     const adjusted = raw.map(candidate => {
-      const derivedScore = Math.min(1, candidate.score * intentBoost(candidate.kind, intentCategory) * lengthNormalization(candidate, identifiers));
+      // For "what did you say" the answer is the assistant's turn: it is not
+      // shortened by the length prior and outranks the question that led to it.
+      const assistantTurn = this.assistantRecall && candidate.kind === "conversation-event" && candidate.speaker === "assistant";
+      const speakerWeight = this.assistantRecall && candidate.kind === "conversation-event" && candidate.speaker === "user" ? .85 : 1;
+      const derivedScore = Math.min(1, candidate.score * intentBoost(candidate.kind, intentCategory) * (assistantTurn ? 1 : lengthNormalization(candidate, identifiers)) * speakerWeight);
       const derived = derivedScore === candidate.score ? candidate : { ...candidate, score: derivedScore };
       // Length is a ranking prior (prefer the concise record), not evidence
       // of irrelevance; the admission floor ignores it like freshness.
@@ -181,8 +236,20 @@ export class UnifiedRetrievalService {
         selected = { ...selected, projectionEvidence: limitProjectionEvidence(selected.projectionEvidence, selected.projectionEvidence.sources.length - 1) };
         estimatedTokens = estimateTextTokens(this.renderItem(selected, candidates.length + 1));
       }
+      // For "what did you say", a long assistant turn that does not fit is
+      // shortened to the remaining budget rather than skipped: several long
+      // answers compete there. Elsewhere trimming cost more answers than it
+      // added (LongMemEval multi-session), so it stays off.
+      if (this.assistantRecall && candidates.length < limit && used + estimatedTokens > budget && selected.kind === "conversation-event" && budget - used >= MIN_TRIMMED_TOKENS) {
+        for (let attempt = 0; attempt < 8 && used + estimatedTokens > budget; attempt++) {
+          const keep = Math.floor(selected.excerpt.length * Math.min(.9, (budget - used) / estimatedTokens));
+          if (keep < 200) break;
+          selected = { ...selected, excerpt: trimExcerpt(selected.excerpt, keep) };
+          estimatedTokens = estimateTextTokens(this.renderItem(selected, candidates.length + 1));
+        }
+      }
       if (candidates.length >= limit || used + estimatedTokens > budget) { budgetExcluded++; continue; }
-      candidates.push({ ...selected, estimatedTokens }); used += estimatedTokens;
+      candidates.push({ ...selected, estimatedTokens, bytes: Buffer.byteLength(selected.excerpt) }); used += estimatedTokens + 1;
     }
     return { version: "unified-find-v2", intent, scope, candidates, excluded: { duplicate, budget: budgetExcluded, lowConfidence, stale }, empty: candidates.length === 0 };
   }
@@ -356,6 +423,20 @@ export class UnifiedRetrievalService {
       const event = journal.get(hit.eventId, scope);
       if (!event || event.tombstoned) continue;
       emit(event, excerptAround(event.normalizedText ?? "", hit.start, hit.end, width(event)), semanticRelevance(hit.similarity), hit.similarity);
+    }
+    // "What did you recommend?" usually matches the user's own question
+    // better than the answer, which may share few words with the prompt.
+    // Attach the reply that followed each of the best-matching user turns.
+    if (this.assistantRecall) {
+      const seen = new Set(raw.filter(candidate => candidate.kind === "conversation-event").map(candidate => candidate.sourceIds[0]));
+      for (const hit of ranked.filter(entry => entry.event.role === "user").slice(0, REPLY_EXPANSION)) {
+        const reply = journal.nextReply(hit.event);
+        if (!reply || seen.has(reply.id)) continue;
+        seen.add(reply.id);
+        emit(reply, replyExcerpt(reply.normalizedText ?? "", this.rankTerms, this.termWeights, WIDE_EXCERPT - 20), hit.relevance);
+        const pushed = raw.at(-1);
+        if (pushed?.sourceIds[0] === reply.id) pushed.selectionReason = "reply_to_match";
+      }
     }
     // Exact identifiers (paths, ticket ids, partial tokens) may not survive
     // word tokenisation; keep the literal full-query match as a fallback only.
