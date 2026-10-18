@@ -209,3 +209,21 @@ test("aggregate prompts are recognised and admit weaker single-fact matches", as
   // A look-back at the assistant keeps the default floor: its handling attaches replies instead.
   assert.equal(defaultAdmissionFloor("How many songs did you recommend in our previous conversation?"), .35);
 });
+
+test("the semantic neighbourhood gates the packet, not each record", () => {
+  const query = "How many doctors did I visit this year?";
+  const close = { ...candidate("a", "I saw a doctor about my knee in March.", .4), semanticSimilarity: .6 };
+  const distant = { ...candidate("b", "The doctor I visited, a dermatologist, prescribed a cream.", .3), semanticallyDistant: true };
+  const weak = candidate("c", "My visit to the doctor in June was quick.", .1);
+  const options = { query, maxItems: 8, diversityLambda: 1, minSemanticSimilarity: .45, gateQueryMatch: .15 };
+  const opened = selectInjectionCandidates({ ...options, candidates: [close, distant, weak] });
+  assert.deepEqual(opened.candidates.map(item => item.sourceIds[0]).sort(), ["a", "b", "c"]);
+  // Every word match lies outside the neighbourhood: the prompt is about something else.
+  const closed = selectInjectionCandidates({ ...options, candidates: [distant, { ...weak, semanticallyDistant: true }] });
+  assert.equal(closed.candidates.length, 0);
+  assert.equal(closed.reason, "below_relevance_floor");
+  // Only weak matches: the gate floor keeps the packet closed.
+  assert.equal(selectInjectionCandidates({ ...options, candidates: [weak] }).candidates.length, 0);
+  // A floor the operator sets still applies to each record.
+  assert.deepEqual(selectInjectionCandidates({ ...options, minQueryMatch: .15, candidates: [close, distant, weak] }).candidates.map(item => item.sourceIds[0]).sort(), ["a", "b"]);
+});

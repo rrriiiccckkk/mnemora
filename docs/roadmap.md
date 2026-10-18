@@ -30,11 +30,14 @@ outcomes were not inferred from lifecycle logs.
    [Recall quality](recall-quality.md). Next for multi-session: semantic
    hits that add to lexical ones instead of gating them.
 
-### v1.36 (planned)
+### v1.36 (in progress)
 
-1. **Semantic hits that add, not gate.** On multi-session questions the
-   union of lexical and semantic hits would cover 63.5% of evidence turns,
-   against 59.0% lexical alone.
+1. **Semantic gate on the packet (done on main).** With embeddings, the
+   semantic neighbourhood and the 0.15 term floor now decide whether memory
+   is attached at all instead of dropping each lexical hit outside it.
+   Multi-session accuracy with `all-minilm` 47.9% → 56.2% (lexical 48.8%,
+   bm25 41.3%); foreign and off-topic attachment unchanged (55.2% / 33.1%).
+   See [Recall quality](recall-quality.md).
 2. **Multilingual calibration.** Thresholds for a multilingual embedding model
    on a Chinese probe set.
 3. **Abstention.** Measure whether a reading model refuses correctly when

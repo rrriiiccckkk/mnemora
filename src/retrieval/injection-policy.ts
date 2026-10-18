@@ -31,8 +31,14 @@ export function selectInjectionCandidates(input: {
   diversityLambda: number;
   /** An exact local metadata or content constraint already limited candidates. */
   exactLocalConstraint?: boolean;
-  /** Relevance floor on `queryMatch`; 0 or absent disables it. */
+  /** Relevance floor on `queryMatch` for each record; 0 or absent disables it. */
   minQueryMatch?: number;
+  /**
+   * Floor on `queryMatch` that at least one record must reach, outside any
+   * semantic neighbourhood, for anything to be attached. It decides whether
+   * the prompt is answered from memory at all, not which records go in.
+   */
+  gateQueryMatch?: number;
   /** A record whose semantic similarity reaches this floor needs no shared word. */
   minSemanticSimilarity?: number;
 }): InjectionCandidateSelection {
@@ -50,6 +56,7 @@ export function selectInjectionCandidates(input: {
   }
   const identifiers = safeIdentifierMatchers(input.query);
   const floor = Number.isFinite(input.minQueryMatch) ? Math.max(0, Math.min(1, input.minQueryMatch!)) : 0;
+  const gateFloor = Math.max(floor, Number.isFinite(input.gateQueryMatch) ? Math.max(0, Math.min(1, input.gateQueryMatch!)) : 0);
   const hasIdentifier = (candidate: RetrievalCandidate) => {
     const content = `${candidate.title}\n${candidate.excerpt}`.toLocaleUpperCase();
     return identifiers.some(identifier => identifier.test(content));
@@ -57,7 +64,16 @@ export function selectInjectionCandidates(input: {
   // The floor drops records that share only common words with the prompt
   // (a long history matches almost any word somewhere). An exact technical
   // identifier is specific evidence on its own and is never floored.
-  const relevant = (candidate: RetrievalCandidate) => semantic(candidate) || (identifiers.length > 0 && hasIdentifier(candidate)) || !candidate.semanticallyDistant && (!floor || candidate.queryMatch === undefined || candidate.queryMatch >= floor || identifiers.length > 0 && hasIdentifier(candidate));
+  const passes = (candidate: RetrievalCandidate, minimum: number) => !minimum || candidate.queryMatch === undefined || candidate.queryMatch >= minimum;
+  const relevant = (candidate: RetrievalCandidate) => semantic(candidate) || (identifiers.length > 0 && hasIdentifier(candidate)) || passes(candidate, floor);
+  // The semantic neighbourhood and the gate floor decide whether memory is
+  // attached at all: a prompt whose word matches all lie outside it is about
+  // something else. Once one record clears that bar, the others are judged
+  // on their own words, because a fact asked about in aggregate ("how many
+  // doctors") often sits in a turn the embedding places far from the prompt
+  // (LongMemEval multi-session: 47.9% answered with per-record gating,
+  // 56.2% with this gate; foreign and off-topic prompts unchanged).
+  const opensPacket = (candidate: RetrievalCandidate) => semantic(candidate) || (identifiers.length > 0 && hasIdentifier(candidate)) || !candidate.semanticallyDistant && passes(candidate, gateFloor);
   // A reply attached to a matching user turn is anchored through that turn:
   // "the restaurant you recommended" is answered by text that may share no
   // word with the prompt. It is only produced for assistant-recall prompts.
@@ -65,7 +81,7 @@ export function selectInjectionCandidates(input: {
   const anchored = input.candidates.filter(candidate => anchoredTurns.has(candidate.contextRef) || candidate.selectionReason === "reply_to_match" && anchoredTurns.size > 0);
   if (!anchored.length) return { candidates: [], suppressed: input.candidates.length, reason: "no_anchor_match" };
   const matched = anchored.filter(relevant);
-  if (!matched.length) return { candidates: [], suppressed: input.candidates.length, reason: "below_relevance_floor" };
+  if (!matched.length || !matched.some(opensPacket)) return { candidates: [], suppressed: input.candidates.length, reason: "below_relevance_floor" };
   const exact = identifiers.length ? matched.filter(hasIdentifier) : [];
   // Diversify within exact task matches before considering generic history.
   // Otherwise final prompt packing can drop the only task completion after

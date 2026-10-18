@@ -386,10 +386,14 @@ chunks, default 128) and automatic recall fuses bm25 with cosine similarity:
 
 - a record that shares no word with the prompt is attached when its similarity
   reaches `semantic.minSimilarity` (default 0.45);
-- a lexical hit is attached only if it is also among the prompt's nearest
-  embedded records above `semantic.gateSimilarity` (default 0.2), and the
-  lexical floor `minQueryMatch` defaults to 0.15. Records without a vector yet
-  are never judged by the gate.
+- memory is attached only if at least one record is semantically close
+  (`minSimilarity`), carries an exact identifier, or is a lexical hit that is
+  among the prompt's nearest embedded records above `semantic.gateSimilarity`
+  (default 0.2) and matches at least 0.15 of the prompt's terms. This gate
+  decides whether the prompt is answered from memory at all; once it opens,
+  every lexical hit is judged on its own words, as without embeddings.
+  Records without a vector yet are never judged by the gate. An explicit
+  `minQueryMatch` still applies to each record.
 
 Both thresholds are model-specific and were calibrated on `all-minilm`; for
 another model, rerun `npm run eval:longmemeval` with

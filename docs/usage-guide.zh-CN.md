@@ -271,7 +271,7 @@ agent id 取自宿主会话键 `agent:<id>:...`。默认 agent（`scope.defaultA
 开启 `embeddings.enabled: true` 后，每轮对话结束会用本地 Ollama 模型为新记录生成向量（每轮最多 `unifiedRetrieval.semantic.embedPerTurn` 个分块，默认 128），自动召回把 bm25 与余弦相似度融合：
 
 - 与提问没有任何共同词的记录，相似度达到 `semantic.minSimilarity`（默认 0.45）即可注入；
-- 词面命中的记录，还必须同时处在提问的语义近邻中（相似度高于 `semantic.gateSimilarity`，默认 0.2），并且词面下限 `minQueryMatch` 默认取 0.15。尚未生成向量的记录不受这道门限影响。
+- 只有至少一条记录满足以下任一条件时，才会注入记忆：语义相近（达到 `minSimilarity`）、包含精确标识符、或是处在提问语义近邻中（相似度高于 `semantic.gateSimilarity`，默认 0.2）且词面匹配度不低于 0.15 的词面命中。这道门限只决定这次提问是否使用记忆；一旦通过，每条词面命中都按自身词面判断，与不开向量时相同。尚未生成向量的记录不受这道门限影响。显式设置的 `minQueryMatch` 仍逐条生效。
 
 两个阈值都与模型相关，目前在 `all-minilm` 上校准；换模型时请用 `MNEMORA_EVAL_EMBED_MODEL=<模型>` 重跑 `npm run eval:longmemeval` 再调整。中文或中英混合的历史请使用多语言模型（例如 `bge-m3`）。向量服务不可用时不会影响记录和召回，自动退回纯词面召回。
 

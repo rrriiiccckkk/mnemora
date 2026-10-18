@@ -405,9 +405,11 @@ export class MnemoraContextEngine implements ContextEngine {
           query: retrievalQuery, alternates: plan.alternates, candidates: admittedResult.candidates,
           maxItems: this.config.unifiedRetrieval.maxItems!, diversityLambda: this.config.unifiedRetrieval.diversityLambda!,
           exactLocalConstraint: Boolean(plan.tags.length || plan.metadataFilters?.length || plan.mustContain?.length),
-          // The lexical floor pays off only alongside semantic evidence; on its
-          // own it costs more recall than it saves (docs/recall-quality.md).
-          minQueryMatch: this.config.unifiedRetrieval.minQueryMatch ?? (semantic ? .15 : 0),
+          // The lexical floor pays off only alongside semantic evidence, and
+          // then as a gate on the whole packet; per record, or on its own, it
+          // costs more recall than it saves (docs/recall-quality.md).
+          minQueryMatch: this.config.unifiedRetrieval.minQueryMatch ?? 0,
+          ...(semantic ? { gateQueryMatch: .15 } : {}),
           ...(semantic ? { minSemanticSimilarity: this.config.unifiedRetrieval.semantic?.minSimilarity ?? .45 } : {})
         });
         const result = { ...rawResult, candidates: localSelection.candidates, empty: localSelection.candidates.length === 0 };

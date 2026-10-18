@@ -99,7 +99,8 @@ Findings:
   embeddings.
 - **Semantic evidence is the real lever.** With embeddings, a lexical hit must
   also be among the prompt's nearest embedded records (cosine at least
-  `gateSimilarity`, default 0.2), and a record that shares no word with the
+  `gateSimilarity`, default 0.2; since 1.36 this gates the packet, not each
+  record, see below), and a record that shares no word with the
   prompt is attached at cosine at least `minSimilarity` (default 0.45).
   Preference questions are phrased indirectly ("any tips for…"), and semantic
   matching is what finds them.
@@ -237,11 +238,60 @@ Multi-session work (aggregate prompts and the header):
 - Tried and dropped: shorter excerpts for aggregate prompts (cut the
   sentence that held the fact; coverage fell), and one-record-per-session
   ordering (more distinct sessions, but they were the wrong ones).
-- **Semantic recall did not help here.** On 99 answerable multi-session
-  questions with `all-minilm`, evidence-turn coverage was 54.2% semantic vs
-  59.0% lexical; the semantic gate dropped lexical hits that held evidence.
-  The union of both would reach 63.5%, so a stronger embedding model, or
-  semantic hits added without gating lexical ones, is the remaining lever.
+- **Semantic recall, as gated in 1.35, did not help here.** On 99
+  answerable multi-session questions with `all-minilm`, evidence-turn
+  coverage was 54.2% semantic vs 59.0% lexical; the semantic gate dropped
+  lexical hits that held evidence. 1.36 changes the gate (next section).
+
+## Semantic gate on the packet (1.36)
+
+In 1.34 and 1.35, with embeddings on, every lexical hit outside the prompt's
+semantic neighbourhood (the nearest embedded records above
+`gateSimilarity`) was dropped, and a 0.15 term-match floor applied to each
+record. That is what made foreign and off-topic prompts attach less, but it
+also dropped evidence: a fact asked about in aggregate ("how many doctors
+did I visit") often sits in a turn the embedding places far from the prompt.
+
+Since 1.36 the neighbourhood and the 0.15 floor decide whether memory is
+attached at all. If at least one record passes them (or is semantically
+close, or carries an exact identifier), every lexical hit is judged on its
+own words, as without embeddings; otherwise nothing is attached. Simply
+dropping the gate was measured too: it recalled as much, but attached memory
+for 100% of foreign and 90% of off-topic prompts.
+
+Measured with `all-minilm`, 800-token budget. Multi-session (121 answerable
+and 12 abstention questions), end-to-end QA with the same reader and judge
+as above:
+
+| | bm25 | Lexical | Semantic, record gate (1.35) | Semantic, packet gate (1.36) |
+|---|---:|---:|---:|---:|
+| Multi-session accuracy | 41.3% | 48.8% | 47.9% | **56.2%** |
+| Abstention accuracy (n=12) | 83.3% | 91.7% | 100% | 100% |
+| Evidence-turn coverage | 52.6% | 64.1% | 57.9% | 66.3% |
+| Mean context tokens | 772 | 697 | 550 | 686 |
+
+Retrieval eval (`npm run eval:longmemeval`) on the 163 questions with indices
+70–232 (multi-session and preference), with a borrowed foreign question and
+an off-topic prompt per question:
+
+| | Lexical | Record gate | Packet gate | No gate |
+|---|---:|---:|---:|---:|
+| Session hit, answerable | 91.4% | 91.4% | 93.4% | 95.4% |
+| Foreign question attaches memory | 100% | 55.2% | 55.2% | 100% |
+| Off-topic prompt attaches memory | 90.8% | 33.1% | 33.1% | 90.2% |
+
+On a sample of the other types (35 single-session-user, 32
+single-session-assistant, 50 temporal-reasoning and 40 knowledge-update
+questions), the packet gate's evidence-turn hits were equal to or above the
+record gate on every type (user 31 vs 29, assistant 26 vs 26, temporal 46 vs
+46, knowledge update 40 vs 40), and foreign and off-topic attachment was
+identical (60.5% and 35.7%). Lexical recall is still slightly ahead on
+single-session turns (user 32, assistant 28, temporal 47): turning
+embeddings on remains a trade of a little single-session recall for
+precision and for indirectly phrased questions.
+
+The evaluation embedding service cached vectors by text, so repeated runs
+over the same histories only embedded the prompts.
 
 The recognition patterns were tuned on LongMemEval_S. They match 54 of its
 56 assistant questions and none of the other 444, but they are English and
