@@ -71,7 +71,7 @@ for (const [offset, question] of data.entries()) {
     const rows = graph.store.db.prepare("SELECT id, session_id FROM mnemora_conversation_events ORDER BY session_id, sequence").all();
     const position = new Map(); const counters = new Map();
     for (const row of rows) { const turn = counters.get(row.session_id) ?? 0; counters.set(row.session_id, turn + 1); position.set(row.id, `${row.session_id}#${turn}`); }
-    const ids = [...rendered.matchAll(/provenance_refs=(\S+)/gu)].flatMap(match => match[1].replace(/;$/u, "").split(",")).map(value => value.replace(/[;,]+$/u, "").split("/").pop());
+    const ids = [...rendered.matchAll(/(?:^\[\d+\] ref=|^provenance_refs=)([^\s;]+)/gmu)].flatMap(match => match[1].split(",")).map(value => value.replace(/[;,]+$/u, "").split("/").pop());
     const items = [...new Set(ids)].map(id => position.get(id)).filter(Boolean);
     const gold = new Set(question.answer_session_ids);
     const goldTurns = new Set(question.haystack_sessions.flatMap((session, index) => session.map((message, turn) => message.has_answer ? `${question.haystack_session_ids[index]}#${turn}` : null)).filter(Boolean));

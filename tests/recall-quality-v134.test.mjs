@@ -13,7 +13,7 @@ function engine(unifiedRetrieval = {}) {
   const config = normalizeConfig({ dbPath: join(directory, "m.db"), mode: "standalone", conversationJournal: { enabled: true }, contextEngine: { enabled: true }, unifiedRetrieval: { enabled: true, shadowMode: false, tokenBudget: 800, maxItems: 8, ...unifiedRetrieval } });
   const graph = new Mnemora({ config });
   const shared = new Proxy(graph, { get: (target, property) => property === "close" ? () => undefined : Reflect.get(target, property, target) });
-  return { engine: new MnemoraContextEngine(config, () => shared), close: () => graph.close() };
+  return { engine: new MnemoraContextEngine(config, () => shared), graph, close: () => graph.close() };
 }
 async function ask(target, prompt) {
   return (await target.assemble({ sessionId: "query-session", prompt, messages: [{ role: "user", content: prompt }], tokenBudget: 16000 })).systemPromptAddition ?? "";
@@ -125,4 +125,40 @@ test("host message timestamps become record time and render as ISO", async () =>
     const future = rendered.match(/recorded_at=(\S+)\nI washed the trail jacket\./u);
     assert.ok(future && Date.parse(future[1]) <= Date.now());
   } finally { close(); }
+});
+
+test("freshness ranks but does not gate: an old record keeps its admission score", async () => {
+  const { UnifiedRetrievalService } = await import("../dist/retrieval/service.js");
+  for (const age of [0, 3 * 365 * 86_400_000]) {
+    const { engine: target, graph, close } = engine();
+    try {
+      await target.ingestBatch({ sessionId: "s", messages: [{ role: "user", content: "The play I attended was The Glass Menagerie at the community theater.", timestamp: Date.now() - age }] });
+      const service = new UnifiedRetrievalService(graph.store.db, target.policy(), Date.now, graph.memoryLifecycle);
+      // A fresh copy scores about 0.98; at the 0.1 freshness floor the same
+      // record scores about 0.85. A 0.9 floor must treat both alike.
+      const found = service.find({ scope: "default", query: "play attended Glass Menagerie community theater", limit: 8, tokenBudget: 800, hardMinScore: .9 });
+      assert.equal(found.candidates.length, 1, `age ${age}`);
+    } finally { close(); }
+  }
+});
+
+test("recalled conversation turns name their speaker and cite their ref once", async () => {
+  const { engine: target, close } = engine();
+  try {
+    await target.ingestBatch({ sessionId: "rome", messages: [
+      { role: "user", content: "Which Rome restaurant is best for a romantic dinner?" },
+      { role: "assistant", content: "For a romantic dinner in Rome, I would recommend Roscioli." }
+    ] });
+    const prompt = await ask(target, "Remind me which romantic Rome restaurant you recommended?");
+    assert.match(prompt, /kind=conversation-event; role=assistant; authority=source_linked/u);
+    assert.match(prompt, /kind=conversation-event; role=user; authority=user_explicit/u);
+    const refs = [...prompt.matchAll(/mnemora:\/\/[^\s;,]+/gu)].map(match => match[0]);
+    assert.equal(refs.length, new Set(refs).size, "each record is cited once");
+  } finally { close(); }
+});
+
+test("prompts about what the assistant said are recognised in English and Chinese", async () => {
+  const { asksAboutAssistant } = await import("../dist/retrieval/service.js");
+  for (const prompt of ["Can you remind me which restaurant you recommended?", "Going back to our previous conversation about dinosaurs, what colour was the Plesiosaur?", "你之前推荐的那家餐厅叫什么？"]) assert.equal(asksAboutAssistant(prompt), true, prompt);
+  for (const prompt of ["What degree did I graduate with?", "我上周买了什么？", "Where do you think I should travel?"]) assert.equal(asksAboutAssistant(prompt), false, prompt);
 });

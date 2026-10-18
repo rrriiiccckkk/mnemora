@@ -1,9 +1,10 @@
 # Recall quality
 
 This page records how automatic recall is measured and what changed in the
-1.33 recall rewrite and the 1.34 semantic and relevance work. It measures retrieval only: whether the memory injected
-into the prompt contains the evidence needed to answer. It does not measure
-end-to-end answer accuracy, which also depends on the reading model.
+1.33 recall rewrite and the 1.34 semantic and relevance work. Most of it measures retrieval: whether the memory injected
+into the prompt contains the evidence needed to answer. The
+[answer accuracy](#answer-accuracy-v135) section adds an end-to-end run with a
+reading model and a judge.
 
 ## Method
 
@@ -124,6 +125,76 @@ long message, injected role lines, cross-agent isolation, knowledge updates and
 an unrelated prompt) run in `scripts/benchmark-recall-probes.mjs` as part of
 `npm run verify`.
 
+## Answer accuracy (v1.35)
+
+`scripts/evaluate-longmemeval-qa.mjs` (`npm run eval:longmemeval-qa`) runs
+LongMemEval_S end to end. Each question is answered three ways by the same
+reading model, which sees only the question, the question date and the
+attached history:
+
+- **none**: no history.
+- **bm25**: the same-budget SQLite FTS5 baseline (800 tokens, 8 items, whole
+  messages, speaker and time per item).
+- **Mnemora**: the `systemPromptAddition` from `assemble()`, README
+  configuration, lexical only (no embedding model).
+
+Sessions are ingested with their dataset timestamps, and each question runs
+with the clock set to its question date. A judge grades each answer with the
+official LongMemEval prompts per question type. Reader and judge:
+`mimo-v2.6-pro`, thinking disabled, temperature 0. The reader prompt is
+LongMemEval's generation prompt plus "Answer concisely. If the history does
+not contain the information needed, say so." Contexts are built first without
+any API call; the answer phase is resumable.
+
+| Question type | n | none | bm25 | Mnemora before | Mnemora v1.35 |
+|---|---:|---:|---:|---:|---:|
+| **All** | 500 | 7.6% | 67.8% | 59.0% | **68.2%** |
+| single-session-user | 64 | 0% | 90.6% | 87.5% | 93.8% |
+| single-session-assistant | 56 | 12.5% | 91.1% | 51.8% | 78.6% |
+| single-session-preference | 30 | 0% | 40.0% | 43.3% | 33.3% |
+| multi-session | 121 | 0% | 41.3% | 33.1% | 40.5% |
+| temporal-reasoning | 127 | 0.8% | 63.0% | 54.3% | 66.1% |
+| knowledge-update | 72 | 0% | 83.3% | 84.7% | 90.3% |
+| abstention | 30 | 100% | 93.3% | 90.0% | 96.7% |
+| Mean context tokens | | 0 | 774 | 543 | 645 |
+
+"Before" is main after the v1.35 timestamp change and before the fixes below;
+the none and bm25 arms are from the same run. The v1.35 column reran only the
+Mnemora arm on rebuilt contexts.
+
+Reading of the numbers:
+
+- Mnemora now matches the bm25 baseline overall (68.2% vs 67.8%; the
+  difference is within noise at n=500) with 17% fewer context tokens.
+- It is ahead on knowledge updates (`newer_related`), temporal reasoning and
+  single-session facts, and still behind on questions about what the
+  assistant said (78.6% vs 91.1%), where bm25 attaches whole long messages.
+- Preference questions (n=30) are low for both arms and noisy.
+- Multi-session questions (about 40% for both) need facts from several
+  sessions; an 800-token budget limits both.
+- The cost was about 4,000 API calls (1,500 answers and 1,500 grades for the
+  first run, 500 and 500 for the rerun), about 1.8M prompt and 0.1M
+  completion tokens.
+
+The run found four retrieval problems, all fixed in v1.35:
+
+1. **Freshness gated admission.** The 0.35 admission floor applied to a score
+   that includes freshness, so a record more than about a year old that
+   answered the question could be dropped. Freshness now only ranks.
+2. **Length gated admission.** Excerpts longer than 500 characters were
+   down-weighted by up to 0.47 before the same floor, so long assistant
+   answers rarely passed it. Length now only ranks.
+3. **No speaker.** Recalled turns did not say who spoke, so the reader could
+   not tell "you recommended" from "I asked". Conversation events now carry
+   `role=user|assistant`.
+4. **Repeated citations.** Each item repeated its ref as `provenance_refs`
+   and `source` (about 60 tokens per item). The ref is now written once;
+   `provenance_refs` appears only when it adds another record.
+
+When a prompt asks what the assistant said earlier ("what did you
+recommend", "our previous conversation", "你之前推荐"), assistant turns are not
+demoted and are excerpted up to 2,400 characters instead of 1,180.
+
 ## What changed
 
 - **Ranking uses the query.** Candidate scores previously used a constant
@@ -152,7 +223,8 @@ an unrelated prompt) run in `scripts/benchmark-recall-probes.mjs` as part of
 - **Semantic results are a 60-question sample** with one English model.
   Chinese and mixed-language history need a multilingual model, which has not
   been calibrated here.
-- This evaluation does not enable LLM extraction or summaries, and does not
-  measure answer accuracy.
+- The retrieval evaluation does not enable LLM extraction or summaries. The
+  answer-accuracy run uses one reading model and one judge; another model
+  may rank the arms differently.
 - LongMemEval_S favours lexical retrieval; the bm25 baseline is a floor to
   beat, not a target.

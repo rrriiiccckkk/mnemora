@@ -11,7 +11,8 @@
 //     node scripts/evaluate-longmemeval-qa.mjs answer <contexts.jsonl> <answers.jsonl> [maxSeconds]
 //   node scripts/evaluate-longmemeval-qa.mjs report <answers.jsonl>
 //
-// Haystack sessions are ingested with their dataset timestamps. The API key is
+// Haystack sessions are ingested with their dataset timestamps, and each
+// question runs with the clock set to its question date. The API key is
 // read from MNEMORA_QA_API_KEY only (or injected by an HTTPS proxy) and is
 // never written to any output. Outputs contain model answers and verdicts.
 import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -60,6 +61,10 @@ async function contexts([datasetPath, range, outPath]) {
   const done = new Set(lines(outPath).map(row => row.qid));
   for (const question of all.slice(start, end)) {
     if (done.has(question.question_id)) continue;
+    // Run each question on its own clock: "now" is the question date, so record
+    // age (freshness) is what it would have been when the user asked.
+    const realNow = Date.now, started = realNow(), asked = datasetTime(question.question_date);
+    Date.now = () => asked + (realNow() - started);
     const directory = createTempDir("mnemora-lme-qa-");
     const config = normalizeConfig({ dbPath: join(directory, "m.db"), mode: "standalone", conversationJournal: { enabled: true }, contextEngine: { enabled: true }, episodicMemory: { enabled: true }, unifiedRetrieval: { enabled: true, shadowMode: false, tokenBudget: BUDGET, maxItems: MAX_ITEMS, diversityLambda: .75 } });
     const graph = new Mnemora({ config });
@@ -75,6 +80,7 @@ async function contexts([datasetPath, range, outPath]) {
     } finally {
       graph.close(); globalThis.gc?.(); await new Promise(resolve => setTimeout(resolve, 10));
       rmSync(directory, { recursive: true, force: true });
+      Date.now = realNow;
     }
   }
 }

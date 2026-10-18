@@ -22,6 +22,25 @@ const bounded = (value: unknown, fallback: number, min: number, max: number) => 
 const score = (base: number, confidence: number, freshness: number, authority: RetrievalAuthority) => base * (.55 + confidence * .3 + freshness * .15) * authorityWeight(authority);
 const authorityWeight = (value: RetrievalAuthority) => value === "user_correction" ? 1 : value === "user_explicit" || value === "operator_confirmed" ? .98 : value === "source_linked" ? .92 : value === "tool_observation" || value === "external_source" ? .82 : value === "assistant_inference" ? .55 : value === "derived_projection" ? .5 : .45;
 const freshness = (time: number, now: number) => Math.max(.1, Math.exp(-(Math.max(0, now - time) / 86_400_000) / 365));
+/** Excerpt width for an assistant turn the prompt asks about ("what did you recommend"). */
+const WIDE_EXCERPT = 2400;
+/**
+ * The prompt asks what the assistant itself said earlier. Those turns are the
+ * evidence then, so they are not demoted and get a wider excerpt: long
+ * answers (lists, stories) often hold the asked detail far from the words
+ * the question shares with them.
+ */
+export function asksAboutAssistant(query: string): boolean {
+  return /\b(?:you|your)\b[^.?!]{0,60}\b(?:said|say|told|tell|recommend\w*|suggest\w*|mention\w*|gave|give|provid\w*|list\w*|wrote|write|shared|explain\w*|describ\w*|propos\w*|came up with)\b/iu.test(query)
+    || /\bour (?:previous|last|earlier|past|prior) (?:chat|conversation|discussion|talk)\b/iu.test(query)
+    || /你(?:之前|上次|刚才|以前|曾经)?(?:说|推荐|建议|提到|讲|给|列|写|介绍)/u.test(query);
+}
+/** The score as if the record were new; used for the admission floor only. */
+const freshnessNeutral = (value: number, candidate: { confidence: number; freshness: number }, now: number) => {
+  const confidence = Math.max(0, Math.min(1, candidate.confidence));
+  const decayed = .55 + confidence * .3 + freshness(candidate.freshness, now) * .15;
+  return Math.min(1, value * (.55 + confidence * .3 + .15) / decayed);
+};
 // Collapse horizontal whitespace but keep line breaks: context-safety quotes
 // role-like lines ("SYSTEM: ...") by line start, so flattening first would
 // silently disable that defence for every recalled record.
@@ -88,6 +107,7 @@ export class UnifiedRetrievalService {
   private termWeights: ReadonlyMap<string, number> = new Map();
   private semantic?: SemanticRecallInput;
   private semanticDone = false;
+  private assistantRecall = false;
   constructor(private readonly db: DatabaseSyncInstance, private readonly policy: JournalCapturePolicy, private readonly now: () => number = Date.now, private readonly memoryLifecycle?: MemoryDocumentLifecycleService) {}
 
   find(input: { scope: string; query: string; alternates?: string[]; tags?: string[]; metadataFilters?: RecallMetadataFilter[]; mustContain?: string[]; lexicalOnly?: boolean; scopeConstraint?: string; intent?: RetrievalIntent; intentCategory?: RetrievalIntentCategory; limit?: number; tokenBudget?: number; minConfidence?: number; hardMinScore?: number; maxStalenessDays?: number; recordedBefore?: number; signal?: AbortSignal; semantic?: SemanticRecallInput }): UnifiedFindResult {
@@ -104,6 +124,7 @@ export class UnifiedRetrievalService {
     this.termWeights = journalTermWeights(this.db, this.rankTerms);
     this.semantic = input.semantic && input.semantic.vector.length === input.semantic.identity.dimensions ? input.semantic : undefined;
     this.semanticDone = false;
+    this.assistantRecall = asksAboutAssistant(query);
     const queries = query ? [...new Set([query, ...(input.alternates ?? []).map(value => value.trim().slice(0, 512)).filter(Boolean)])].slice(0, 4) : [""];
     const collectionLimit = Math.min(20, limit * intentDepth(intentCategory));
     for (const candidateQuery of queries) {
@@ -136,16 +157,21 @@ export class UnifiedRetrievalService {
     const adjusted = raw.map(candidate => {
       const derivedScore = Math.min(1, candidate.score * intentBoost(candidate.kind, intentCategory) * lengthNormalization(candidate, identifiers));
       const derived = derivedScore === candidate.score ? candidate : { ...candidate, score: derivedScore };
-      return { candidate: derived, score: derivedScore * feedbackFactor(derived, feedback) };
+      // Length is a ranking prior (prefer the concise record), not evidence
+      // of irrelevance; the admission floor ignores it like freshness.
+      const feedbackWeight = feedbackFactor(derived, feedback);
+      return { candidate: derived, score: derivedScore * feedbackWeight, admission: Math.min(1, candidate.score * intentBoost(candidate.kind, intentCategory)) * feedbackWeight };
     });
-    for (const { candidate, score: adjustedScore } of adjusted.sort((a, b) => b.score - a.score || a.candidate.contextRef.localeCompare(b.candidate.contextRef))) {
+    for (const { candidate, score: adjustedScore, admission } of adjusted.sort((a, b) => b.score - a.score || a.candidate.contextRef.localeCompare(b.candidate.contextRef))) {
       if (input.signal?.aborted) throw input.signal.reason ?? new Error("aborted");
       const key = [...candidate.sourceRefs, ...candidate.sourceIds].sort().join("|") || candidate.contextRef;
       if (seen.has(key)) { duplicate++; continue; }
       seen.add(key);
       if (candidate.confidence < floor) { lowConfidence++; continue; }
       if (now - candidate.freshness > oldest) { stale++; continue; }
-      if (adjustedScore < hardMinScore) { lowConfidence++; continue; }
+      // Freshness and length rank but do not gate: an old or long record
+      // that still answers the query must not vanish for its age or size.
+      if (freshnessNeutral(admission, candidate, now) < hardMinScore) { lowConfidence++; continue; }
       let selected = adjustedScore === candidate.score ? candidate : { ...candidate, score: adjustedScore };
       // Candidate budgets include their eventual reference and provenance
       // envelope. The final packet is packed again below, where its shared
@@ -221,19 +247,22 @@ export class UnifiedRetrievalService {
     return { prompt, candidates, graphAttached: Boolean(supplement), estimatedTokens: estimateTextTokens(prompt) };
   }
 
-  private push(raw: RetrievalCandidate[], input: { scope: string; kind: RetrievalKind; id: string; title: string; excerpt: string; sourceIds?: string[]; sourceRefs?: string[]; authority: RetrievalAuthority; confidence?: number; updatedAt?: number; relevance?: number; selectionReason?: RetrievalCandidate["selectionReason"]; scoreMultiplier?: number; validity?: RetrievalCandidate["validity"] }) {
-    const excerpt = text(input.excerpt); if (!excerpt) return;
+  private push(raw: RetrievalCandidate[], input: { scope: string; kind: RetrievalKind; id: string; title: string; excerpt: string; maxExcerpt?: number; sourceIds?: string[]; sourceRefs?: string[]; speaker?: string; authority: RetrievalAuthority; confidence?: number; updatedAt?: number; relevance?: number; selectionReason?: RetrievalCandidate["selectionReason"]; scoreMultiplier?: number; validity?: RetrievalCandidate["validity"] }) {
+    const excerpt = text(input.excerpt, input.maxExcerpt ?? 1200); if (!excerpt) return;
     const confidence = Math.max(0, Math.min(1, input.confidence ?? .6)), updatedAt = Number.isSafeInteger(input.updatedAt) ? input.updatedAt! : this.now(), candidateRef = ref(input.scope, input.kind, input.id), sourceRefs = [...new Set(input.sourceRefs ?? [candidateRef])].slice(0, 12), f = freshness(updatedAt, this.now());
-    raw.push({ contextRef: candidateRef, kind: input.kind, scope: input.scope, title: text(input.title, 160) || input.kind, excerpt, estimatedTokens: estimateTextTokens(excerpt), bytes: Buffer.byteLength(excerpt), score: score(this.relevanceBase(input.kind, `${input.title}\n${excerpt}`, input.relevance), confidence, f, input.authority) * Math.max(0, Math.min(2, Number(input.scoreMultiplier ?? 1))), sourceIds: [...new Set(input.sourceIds ?? [])].slice(0, 50), sourceRefs, authority: input.authority, confidence, freshness: updatedAt, ...(input.validity ? { validity: input.validity } : {}), selectionReason: input.selectionReason ?? "lexical_match" , ...(this.rankTerms.length ? { queryMatch: weightedCoverage(`${input.title}\n${excerpt}`, this.rankTerms, this.termWeights) } : {}) });
+    raw.push({ contextRef: candidateRef, kind: input.kind, scope: input.scope, title: text(input.title, 160) || input.kind, excerpt, ...(input.speaker ? { speaker: input.speaker } : {}), estimatedTokens: estimateTextTokens(excerpt), bytes: Buffer.byteLength(excerpt), score: score(this.relevanceBase(input.kind, `${input.title}\n${excerpt}`, input.relevance), confidence, f, input.authority) * Math.max(0, Math.min(2, Number(input.scoreMultiplier ?? 1))), sourceIds: [...new Set(input.sourceIds ?? [])].slice(0, 50), sourceRefs, authority: input.authority, confidence, freshness: updatedAt, ...(input.validity ? { validity: input.validity } : {}), selectionReason: input.selectionReason ?? "lexical_match" , ...(this.rankTerms.length ? { queryMatch: weightedCoverage(`${input.title}\n${excerpt}`, this.rankTerms, this.termWeights) } : {}) });
     if (input.kind === "summary" || input.kind === "episode") raw[raw.length - 1].projectionEvidence = new ProjectionEvidenceReader(this.db).read(input.kind, input.id, input.scope);
   }
 
   private renderItem(item: RetrievalCandidate, index: number, newer: readonly number[] = []): string {
     const provenance = [...new Set([item.contextRef, ...item.sourceRefs.filter(source => source.startsWith("mnemora://"))])].slice(0, 4);
-    // The canonical provenance ref is the compact, durable citation. Repeating
-    // every external label here can crowd out the only useful candidate at a
-    // small configured budget; the canonical record remains the audit route.
-    const canonicalSource = provenance[0] ?? item.contextRef;
+    // The canonical ref is the record's own citation; extra provenance is only
+    // rendered when it adds a different record. Repeating the same URI as ref,
+    // provenance_refs and source cost ~60 tokens per item with no information.
+    const extraProvenance = provenance.length > 1 ? `\nprovenance_refs=${provenance.map(source => sanitizeMemoryForContext(source, 320)).join(",")}` : "";
+    // Who said it matters: "what did you recommend" asks about the assistant's
+    // turn, "what did I say" about the user's.
+    const role = item.kind === "conversation-event" && (item.speaker === "user" || item.speaker === "assistant") ? `; role=${item.speaker}` : "";
     const derived = item.kind === "summary" || item.kind === "episode";
     const projection = derived ? `\n${renderProjectionEvidence(item.projectionEvidence)}` : "";
     const origin = derived ? "; content_origin=derived_paraphrase; claim_verification=not_verified" : "";
@@ -243,7 +272,7 @@ export class UnifiedRetrievalService {
     const validity = item.validity ? `; valid_from=${item.validity.validFrom ?? "unknown"}; valid_to=${item.validity.validTo ?? "open"}` : "";
     const chronology = item.kind === "conversation-event" && Number.isSafeInteger(item.freshness) && item.freshness >= 0 ? `; recorded_at=${new Date(item.freshness).toISOString()}` : "";
     const related = newer.length ? `; newer_related=${newer.join(",")}` : "";
-    return `[${index}] ref=${sanitizeMemoryForContext(item.contextRef, 320)}; kind=${item.kind}; authority=${item.authority}; confidence=${item.confidence.toFixed(2)}${chronology}${related}${validity}${origin}\n${sanitizeMemoryForContext(item.excerpt)}\nprovenance_refs=${provenance.map(source => sanitizeMemoryForContext(source, 320)).join(",")}; source=${sanitizeMemoryForContext(canonicalSource, 320)}${projection}`;
+    return `[${index}] ref=${sanitizeMemoryForContext(item.contextRef, 320)}; kind=${item.kind}${role}; authority=${item.authority}; confidence=${item.confidence.toFixed(2)}${chronology}${related}${validity}${origin}\n${sanitizeMemoryForContext(item.excerpt, WIDE_EXCERPT)}${extraProvenance}${projection}`;
   }
 
   private renderPrompt(scope: string, items: readonly RetrievalCandidate[], supplement: string): string | undefined {
@@ -307,7 +336,7 @@ export class UnifiedRetrievalService {
     const semanticRelevance = (value: number) => Math.max(0, Math.min(1, (value - floor) / Math.max(1e-6, top - floor)));
     let lexicalIds: Set<string> | undefined;
     const emit = (event: { id: string; kind: string; role?: string; normalizedText?: string; createdAt: number }, excerpt: string, relevance: number, similarity?: number) => {
-      this.push(raw, { scope, kind: "conversation-event", id: event.id, title: event.kind, excerpt, sourceIds: [event.id], authority: event.role === "user" ? "user_explicit" : "source_linked", confidence: event.role === "user" ? 1 : .8, updatedAt: event.createdAt, relevance });
+      this.push(raw, { scope, kind: "conversation-event", id: event.id, title: event.kind, excerpt, sourceIds: [event.id], speaker: event.role, authority: event.role === "user" ? "user_explicit" : "source_linked", confidence: event.role === "user" || (this.assistantRecall && event.role === "assistant") ? 1 : .8, ...(this.assistantRecall && event.role === "assistant" ? { maxExcerpt: WIDE_EXCERPT } : {}), updatedAt: event.createdAt, relevance });
       const pushed = raw.at(-1);
       if (pushed?.sourceIds[0] !== event.id) return;
       if (similarity !== undefined) { pushed.semanticSimilarity = similarity; if (lexicalIds && !lexicalIds.has(event.id)) pushed.selectionReason = "semantic_match"; }
@@ -315,17 +344,18 @@ export class UnifiedRetrievalService {
       // but not meaning. Records without a vector yet (backlog) are not judged.
       else if (this.semantic && semanticRan && journalEventEmbedded(this.db, event.id, this.semantic.identity)) pushed.semanticallyDistant = true;
     };
+    const width = (event: { role?: string }) => this.assistantRecall && event.role === "assistant" ? WIDE_EXCERPT - 20 : 1180;
     const ranked = journal.searchRanked(scope, query, limit * 2, recordedBefore);
     for (const hit of ranked) {
       const semanticHit = similarity.get(hit.event.id);
-      emit(hit.event, excerptAround(hit.event.normalizedText ?? "", hit.start, hit.end, 1180), semanticHit ? Math.max(hit.relevance, semanticRelevance(semanticHit.similarity)) : hit.relevance, semanticHit?.similarity);
+      emit(hit.event, excerptAround(hit.event.normalizedText ?? "", hit.start, hit.end, width(hit.event)), semanticHit ? Math.max(hit.relevance, semanticRelevance(semanticHit.similarity)) : hit.relevance, semanticHit?.similarity);
     }
     lexicalIds = new Set(ranked.map(hit => hit.event.id));
     for (const hit of semantic) {
       if (lexicalIds.has(hit.eventId) || raw.some(candidate => candidate.kind === "conversation-event" && candidate.sourceIds[0] === hit.eventId)) continue;
       const event = journal.get(hit.eventId, scope);
       if (!event || event.tombstoned) continue;
-      emit(event, excerptAround(event.normalizedText ?? "", hit.start, hit.end, 1180), semanticRelevance(hit.similarity), hit.similarity);
+      emit(event, excerptAround(event.normalizedText ?? "", hit.start, hit.end, width(event)), semanticRelevance(hit.similarity), hit.similarity);
     }
     // Exact identifiers (paths, ticket ids, partial tokens) may not survive
     // word tokenisation; keep the literal full-query match as a fallback only.

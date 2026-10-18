@@ -764,7 +764,7 @@ test("public OpenClaw lifecycle bootstraps, assembles, restarts, and delegates s
   assert.equal((await lifecycle.finalizeHarnessContextEngineTurn(finalization)).postTurnFinalizationSucceeded, true);
   const assembled = await lifecycle.assembleHarnessContextEngine({ contextEngine: engine, sessionId: "graduation-session", sessionKey, agentId: "main", messages: [{ id: "current", role: "user", content: "Help me write TypeScript", timestamp: 5 }], prompt: "TypeScript coding", tokenBudget: 512, modelId: "fixture" });
   assert.match(assembled?.systemPromptAddition ?? "", /MNEMORA_MEMORY/);
-  assert.match(assembled?.systemPromptAddition ?? "", /source=mnemora:\/\//);
+  assert.match(assembled?.systemPromptAddition ?? "", /\] ref=mnemora:\/\//);
   const compacted = await lifecycle.compactContextEngineWithSafetyTimeout(engine, { sessionId: "graduation-session", sessionKey, sessionFile: "session.jsonl", currentTokenCount: 100 }, 1_000);
   assert.equal(compacted.ok, true); assert.equal(compacted.compacted, true); assert.equal(delegated, 1);
   const restarted = new MnemoraContextEngine(config, open);
