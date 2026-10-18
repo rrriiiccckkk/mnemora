@@ -10,12 +10,12 @@ export function compactAdviserMemory(packets) {
     const blocks = packet.slice(prefix.length, -suffix.length).split("\n\n");
     const records = [];
     for (const block of blocks) {
-      const match = block.match(/^\[\d+\] ref=(mnemora:\/\/[^\s;]+); kind=conversation-event; authority=(user_explicit|source_linked); confidence=(0\.\d{2}|1\.00)(?:; recorded_at=(\d+))?\n([^\n]+)\nprovenance_refs=([^\n;]+); source=(mnemora:\/\/[^\s;]+)$/);
+      const match = block.match(/^\[\d+\] ref=(mnemora:\/\/[^\s;]+); kind=conversation-event; authority=(user_explicit|source_linked); confidence=(0\.\d{2}|1\.00)(?:; recorded_at=(\d+|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z))?\n([^\n]+)\nprovenance_refs=([^\n;]+); source=(mnemora:\/\/[^\s;]+)$/);
       if (!match) return packet;
       const [, ref, authority, confidence, time, text, refs, source] = match;
       const provenance = [...new Set([ref, ...refs.split(","), source])];
       if (provenance.some(value => !/^mnemora:\/\/[^\s;,]+$/.test(value))) return packet;
-      const recordedAt = time === undefined ? null : Number(time);
+      const recordedAt = time === undefined ? null : /^\d+$/.test(time) ? Number(time) : Date.parse(time);
       if (recordedAt !== null && !Number.isSafeInteger(recordedAt)) return packet;
       records.push({ ref, authority, confidence: Number(confidence), recordedAt, text, ...(provenance.length > 1 ? { provenance } : {}) });
     }

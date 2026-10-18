@@ -241,7 +241,7 @@ export class UnifiedRetrievalService {
     // or evidence that a pending operation has completed. Account for it in
     // both candidate selection and final packing through this shared renderer.
     const validity = item.validity ? `; valid_from=${item.validity.validFrom ?? "unknown"}; valid_to=${item.validity.validTo ?? "open"}` : "";
-    const chronology = item.kind === "conversation-event" && Number.isSafeInteger(item.freshness) && item.freshness >= 0 ? `; recorded_at=${item.freshness}` : "";
+    const chronology = item.kind === "conversation-event" && Number.isSafeInteger(item.freshness) && item.freshness >= 0 ? `; recorded_at=${new Date(item.freshness).toISOString()}` : "";
     const related = newer.length ? `; newer_related=${newer.join(",")}` : "";
     return `[${index}] ref=${sanitizeMemoryForContext(item.contextRef, 320)}; kind=${item.kind}; authority=${item.authority}; confidence=${item.confidence.toFixed(2)}${chronology}${related}${validity}${origin}\n${sanitizeMemoryForContext(item.excerpt)}\nprovenance_refs=${provenance.map(source => sanitizeMemoryForContext(source, 320)).join(",")}; source=${sanitizeMemoryForContext(canonicalSource, 320)}${projection}`;
   }

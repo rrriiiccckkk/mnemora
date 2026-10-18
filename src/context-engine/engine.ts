@@ -823,7 +823,8 @@ export class MnemoraContextEngine implements ContextEngine {
       contextDomain: domain,
       parts: [{ type: "text", text: messageText(host) }],
       hostCorrelation: this.correlation(sessionId, host, ordinal, options.source),
-      identityOrigin: "host"
+      identityOrigin: "host",
+      ...(hostTimestamp(host.timestamp) !== undefined ? { createdAt: hostTimestamp(host.timestamp) } : {})
     };
   }
 
@@ -868,4 +869,16 @@ function freshTail(messages: HostMessage[], count: number): HostMessage[] {
   const conversational = messages.flatMap((message, index) => contextDomain(message) === "user_chat" ? [index] : []);
   const keep = new Set(conversational.slice(-bounded));
   return messages.filter((message, index) => contextDomain(message) !== "user_chat" || keep.has(index));
+}
+
+/**
+ * When a host message carries its own time (imported or replayed history), the
+ * record keeps it, so recall can say when something was said rather than when
+ * it was captured. Seconds are accepted; values before 2000 or more than five
+ * minutes in the future are ignored.
+ */
+function hostTimestamp(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return undefined;
+  const ms = Math.floor(value < 100_000_000_000 ? value * 1000 : value);
+  return ms >= 946_684_800_000 && ms <= Date.now() + 300_000 ? ms : undefined;
 }

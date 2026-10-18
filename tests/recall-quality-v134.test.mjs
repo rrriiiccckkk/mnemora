@@ -111,3 +111,18 @@ test("unrelated records are not linked as updates", async () => {
     assert.doesNotMatch(rendered, /newer_related=/u);
   } finally { close(); }
 });
+
+test("host message timestamps become record time and render as ISO", async () => {
+  const { engine: target, close } = engine();
+  try {
+    const at = Date.parse("2023-05-20T10:00:00Z");
+    await target.ingestBatch({ sessionId: "old", messages: [{ role: "user", content: "I bought new trail running shoes.", timestamp: at }] });
+    await target.ingestBatch({ sessionId: "secs", messages: [{ role: "user", content: "I repaired the trail bike chain.", timestamp: at / 1000 }] });
+    await target.ingestBatch({ sessionId: "future", messages: [{ role: "user", content: "I washed the trail jacket.", timestamp: Date.now() + 86_400_000 }] });
+    const rendered = await ask(target, "What trail gear did I deal with?");
+    assert.match(rendered, /recorded_at=2023-05-20T10:00:00\.000Z\nI bought new trail running shoes\./u);
+    assert.match(rendered, /recorded_at=2023-05-20T10:00:00\.000Z\nI repaired the trail bike chain\./u);
+    const future = rendered.match(/recorded_at=(\S+)\nI washed the trail jacket\./u);
+    assert.ok(future && Date.parse(future[1]) <= Date.now());
+  } finally { close(); }
+});

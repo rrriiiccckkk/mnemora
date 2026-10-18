@@ -33,8 +33,8 @@ test("Journal prompt chronology preserves old pending and newer explicit results
     journal.append({scope:"a",sessionId:"new",kind:"user_message",role:"user",createdAt:now,parts:[{type:"text",text:"TASK_GUARD_42 guard passed; publication still pending."}]});
     journal.append({scope:"b",sessionId:"foreign",kind:"user_message",role:"user",createdAt:now+1,parts:[{type:"text",text:"TASK_GUARD_42 published FOREIGN_RELEASE."}]});
     const service=new UnifiedRetrievalService(store.db,policy,()=>now),result=service.find({scope:"a",query:"TASK_GUARD_42",tokenBudget:800}),packed=service.packPrompt(result,8,undefined,800);
-    assert.match(packed.prompt,/recorded_at=1699999999000/);
-    assert.match(packed.prompt,/recorded_at=1700000000000/);
+    assert.match(packed.prompt,/recorded_at=2023-11-14T22:13:19\.000Z/);
+    assert.match(packed.prompt,/recorded_at=2023-11-14T22:13:20\.000Z/);
     assert.match(packed.prompt,/guard pending/);
     assert.match(packed.prompt,/guard passed; publication still pending/);
     assert.doesNotMatch(packed.prompt,/FOREIGN_RELEASE/);
