@@ -148,39 +148,42 @@ any API call; the answer phase is resumable.
 
 | Question type | n | none | bm25 | Mnemora before | Mnemora v1.35 |
 |---|---:|---:|---:|---:|---:|
-| **All** | 500 | 7.6% | 67.8% | 59.0% | **70.6%** |
-| single-session-user | 64 | 0% | 90.6% | 87.5% | 90.6% |
-| single-session-assistant | 56 | 12.5% | 91.1% | 51.8% | 92.9% |
-| single-session-preference | 30 | 0% | 40.0% | 43.3% | 40.0% |
-| multi-session | 121 | 0% | 41.3% | 33.1% | 42.1% |
-| temporal-reasoning | 127 | 0.8% | 63.0% | 54.3% | 67.7% |
+| **All** | 500 | 7.6% | 67.8% | 59.0% | **72.6%** |
+| single-session-user | 64 | 0% | 90.6% | 87.5% | 92.2% |
+| single-session-assistant | 56 | 12.5% | 91.1% | 51.8% | 91.1% |
+| single-session-preference | 30 | 0% | 40.0% | 43.3% | 43.3% |
+| multi-session | 121 | 0% | 41.3% | 33.1% | 48.8% |
+| temporal-reasoning | 127 | 0.8% | 63.0% | 54.3% | 68.5% |
 | knowledge-update | 72 | 0% | 83.3% | 84.7% | 90.3% |
 | abstention | 30 | 100% | 93.3% | 90.0% | 96.7% |
-| Mean context tokens | | 0 | 774 | 543 | 659 |
+| Mean context tokens | | 0 | 774 | 543 | 672 |
 
 "Before" is main after the v1.35 timestamp change and before the fixes below;
 the none and bm25 arms are from the same run. The v1.35 column is one clean
 rerun of the Mnemora arm, all 500 questions, on contexts built by the final
-code.
+code. An earlier v1.35 build (before the multi-session work below) scored
+70.6% overall and 42.1% on multi-session.
 
 Reading of the numbers:
 
-- Mnemora is 2.8 points above the bm25 baseline overall (70.6% vs 67.8%)
-  with 15% fewer context tokens, and at or above it on every question type.
+- Mnemora is 4.8 points above the bm25 baseline overall (72.6% vs 67.8%)
+  with 13% fewer context tokens, and at or above it on every question type.
   At n=500 a gap under about 4 points is within noise; per-type gaps of one
   or two questions are noise too. Rerunning identical contexts moved single
   types by one or two questions.
-- It is clearly ahead on knowledge updates (`newer_related`) and temporal
-  reasoning.
+- It is clearly ahead on knowledge updates (`newer_related`), temporal
+  reasoning and multi-session questions.
 - Preference questions (n=30) are low for both arms and noisy.
-- Multi-session questions (about 42% for both) need facts from several
-  sessions; an 800-token budget limits both.
+- Multi-session questions are still the weakest type (48.8%). Their
+  evidence is on average 2.7 user turns in different sessions, and many of
+  those turns share no word with the question ("doctors" vs "my
+  dermatologist"), which word matching cannot find.
 - One reader call in an intermediate run was refused by the provider's
   safety filter. The script now treats such a refusal as a failed call and
   leaves the question for a rerun; the final run had none.
-- The cost was about 5,400 API calls (first run 3,000, final rerun 1,000,
-  and targeted reruns of changed questions while iterating), about 2.5M prompt
-  and 0.1M completion tokens.
+- The cost was about 6,400 API calls (first run 3,000, two full Mnemora
+  reruns of 1,000 each, and targeted reruns of changed questions while
+  iterating), about 3.1M prompt and 0.15M completion tokens.
 
 The run found these retrieval problems, all fixed in v1.35:
 
@@ -215,6 +218,30 @@ not count. For these prompts:
 - A long assistant turn that does not fit is shortened to the remaining
   budget instead of skipped. Applied to every prompt, this cost
   multi-session answers, so it stays limited to these prompts.
+
+Multi-session work (aggregate prompts and the header):
+
+- **Compact header.** The per-record header was a third of every packet
+  (216 characters on average). A conversation turn's kind is in its ref, and
+  its authority and confidence follow from who spoke, so those three fields
+  are written only when they differ from the default (`role=user`:
+  `user_explicit`, 1.00; `role=assistant`: `source_linked`, 0.80).
+- **Aggregate prompts** ("how many", "in total", "the most", "一共", "多少")
+  admit records from a score of 0.25 instead of 0.35. Each fact of a count
+  sits in one sentence of a long turn and matches weakly. Evidence-turn
+  coverage on multi-session rose from 60.4% to 64.1%, and abstention
+  questions gained about 25 tokens of attached context with no change in
+  abstention accuracy. Floors of 0.20 and 0.15 added nothing further.
+  Assistant turns rank at 0.85 for these prompts, since the facts asked
+  about are the user's own.
+- Tried and dropped: shorter excerpts for aggregate prompts (cut the
+  sentence that held the fact; coverage fell), and one-record-per-session
+  ordering (more distinct sessions, but they were the wrong ones).
+- **Semantic recall did not help here.** On 99 answerable multi-session
+  questions with `all-minilm`, evidence-turn coverage was 54.2% semantic vs
+  59.0% lexical; the semantic gate dropped lexical hits that held evidence.
+  The union of both would reach 63.5%, so a stronger embedding model, or
+  semantic hits added without gating lexical ones, is the remaining lever.
 
 The recognition patterns were tuned on LongMemEval_S. They match 54 of its
 56 assistant questions and none of the other 444, but they are English and

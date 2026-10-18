@@ -150,8 +150,9 @@ test("recalled conversation turns name their speaker and cite their ref once", a
       { role: "assistant", content: "For a romantic dinner in Rome, I would recommend Roscioli." }
     ] });
     const prompt = await ask(target, "Remind me which romantic Rome restaurant you recommended?");
-    assert.match(prompt, /kind=conversation-event; role=assistant; authority=source_linked/u);
-    assert.match(prompt, /kind=conversation-event; role=user; authority=user_explicit/u);
+    assert.match(prompt, /conversation-event\/[^;\s]+; role=assistant[;\n]/u);
+    assert.match(prompt, /conversation-event\/[^;\s]+; role=user[;\n]/u);
+    assert.doesNotMatch(prompt, /kind=conversation-event|authority=user_explicit/u);
     const refs = [...prompt.matchAll(/mnemora:\/\/[^\s;,]+/gu)].map(match => match[0]);
     assert.equal(refs.length, new Set(refs).size, "each record is cited once");
   } finally { close(); }
@@ -193,4 +194,18 @@ test("find charges the packet wrapper so final packing keeps every admitted reco
       assert.ok(packed.estimatedTokens <= budget);
     }
   } finally { close(); }
+});
+
+test("aggregate prompts are recognised and admit weaker single-fact matches", async () => {
+  const { asksForAggregate, defaultAdmissionFloor } = await import("../dist/retrieval/service.js");
+  for (const prompt of ["How many plants did I acquire last month?", "What is the total amount I spent on gifts?", "Which grocery store did I spend the most money at?", "我一共买了几本书？", "上个月总共花了多少钱？"]) {
+    assert.equal(asksForAggregate(prompt), true, prompt);
+    assert.equal(defaultAdmissionFloor(prompt), .25, prompt);
+  }
+  for (const prompt of ["What degree did I graduate with?", "我上周买了什么？", "Can you suggest a hotel in Miami?"]) {
+    assert.equal(asksForAggregate(prompt), false, prompt);
+    assert.equal(defaultAdmissionFloor(prompt), .35, prompt);
+  }
+  // A look-back at the assistant keeps the default floor: its handling attaches replies instead.
+  assert.equal(defaultAdmissionFloor("How many songs did you recommend in our previous conversation?"), .35);
 });

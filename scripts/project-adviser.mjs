@@ -10,9 +10,16 @@ export function compactAdviserMemory(packets) {
     const blocks = packet.slice(prefix.length, -suffix.length).split("\n\n");
     const records = [];
     for (const block of blocks) {
-      const match = block.match(/^\[\d+\] ref=(mnemora:\/\/[^\s;]+); kind=conversation-event(?:; role=(user|assistant))?; authority=(user_explicit|source_linked); confidence=(0\.\d{2}|1\.00)(?:; recorded_at=(\d+|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z))?\n([^\n]+)(?:\nprovenance_refs=([^\n;]+)(?:; source=(mnemora:\/\/[^\s;]+))?)?$/);
+      // v1.35 leaves out kind (it is in the ref) and default authority and
+      // confidence (they follow from role); older packets spell them out.
+      const match = block.match(/^\[\d+\] ref=(mnemora:\/\/[^\s;]+); (?:kind=conversation-event(?:; role=(user|assistant))?|role=(user|assistant))(?:; authority=(user_explicit|source_linked))?(?:; confidence=(0\.\d{2}|1\.00))?(?:; recorded_at=(\d+|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z))?\n([^\n]+)(?:\nprovenance_refs=([^\n;]+)(?:; source=(mnemora:\/\/[^\s;]+))?)?$/);
       if (!match) return packet;
-      const [, ref, role, authority, confidence, time, text, refs, source] = match;
+      const [, ref, legacyRole, compactRole, statedAuthority, statedConfidence, time, text, refs, source] = match;
+      const role = legacyRole ?? compactRole;
+      if (compactRole && !/\/conversation-event\/[^/\s;]+$/u.test(ref)) return packet;
+      if (!compactRole && (!statedAuthority || !statedConfidence)) return packet;
+      const authority = statedAuthority ?? (role === "user" ? "user_explicit" : "source_linked");
+      const confidence = statedConfidence ?? (role === "user" ? "1.00" : "0.80");
       const provenance = [...new Set([ref, ...(refs ? refs.split(",") : []), ...(source ? [source] : [])])];
       if (provenance.some(value => !/^mnemora:\/\/[^\s;,]+$/.test(value))) return packet;
       const recordedAt = time === undefined ? null : /^\d+$/.test(time) ? Number(time) : Date.parse(time);

@@ -24,6 +24,10 @@ import { normalizeConfig } from "../dist/config.js";
 import { Mnemora } from "../dist/tools.js";
 
 const BUDGET = 800, MAX_ITEMS = 8;
+// Optional semantic recall: MNEMORA_QA_EMBED_MODEL=<ollama model> [MNEMORA_QA_EMBED_URL=http://127.0.0.1:11434]
+const EMBEDDINGS = process.env.MNEMORA_QA_EMBED_MODEL ? { embeddings: { enabled: true, provider: "ollama", baseURL: process.env.MNEMORA_QA_EMBED_URL ?? "http://127.0.0.1:11434", model: process.env.MNEMORA_QA_EMBED_MODEL, timeoutMs: 120000, batchSize: 32 } } : {};
+// Optional question-type filter for the contexts phase: MNEMORA_QA_TYPES=multi-session,temporal-reasoning
+const TYPES = process.env.MNEMORA_QA_TYPES ? new Set(process.env.MNEMORA_QA_TYPES.split(",")) : undefined;
 const [mode, ...args] = process.argv.slice(2);
 const estimate = value => Math.ceil(value.length / 4);
 const lines = path => existsSync(path) ? readFileSync(path, "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line)) : [];
@@ -60,13 +64,13 @@ async function contexts([datasetPath, range, outPath]) {
   const [start, end] = String(range ?? `0:${all.length}`).split(":").map(Number);
   const done = new Set(lines(outPath).map(row => row.qid));
   for (const question of all.slice(start, end)) {
-    if (done.has(question.question_id)) continue;
+    if (done.has(question.question_id) || TYPES && !TYPES.has(question.question_type)) continue;
     // Run each question on its own clock: "now" is the question date, so record
     // age (freshness) is what it would have been when the user asked.
     const realNow = Date.now, started = realNow(), asked = datasetTime(question.question_date);
     Date.now = () => asked + (realNow() - started);
     const directory = createTempDir("mnemora-lme-qa-");
-    const config = normalizeConfig({ dbPath: join(directory, "m.db"), mode: "standalone", conversationJournal: { enabled: true }, contextEngine: { enabled: true }, episodicMemory: { enabled: true }, unifiedRetrieval: { enabled: true, shadowMode: false, tokenBudget: BUDGET, maxItems: MAX_ITEMS, diversityLambda: .75 } });
+    const config = normalizeConfig({ dbPath: join(directory, "m.db"), mode: "standalone", ...EMBEDDINGS, conversationJournal: { enabled: true }, contextEngine: { enabled: true }, episodicMemory: { enabled: true }, unifiedRetrieval: { enabled: true, shadowMode: false, tokenBudget: BUDGET, maxItems: MAX_ITEMS, diversityLambda: .75, ...(EMBEDDINGS.embeddings ? { semantic: { embedPerTurn: 1000 } } : {}) } });
     const graph = new Mnemora({ config });
     const shared = new Proxy(graph, { get: (target, property) => property === "close" ? () => undefined : Reflect.get(target, property, target) });
     try {

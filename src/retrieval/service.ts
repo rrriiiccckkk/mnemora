@@ -59,6 +59,28 @@ function trimExcerpt(value: string, maximum: number): string {
   const to = from + maximum;
   return `${value.startsWith("…") || from > 0 ? "…" : ""}${body.slice(from, to).trim()}…`;
 }
+/**
+ * The prompt combines several facts ("how many", "in total", "the most",
+ * "一共"). Its evidence is usually one sentence in each of several user turns,
+ * so more, shorter excerpts serve it better than a few long ones.
+ */
+export function asksForAggregate(query: string): boolean {
+  return /\bhow many\b|\bhow much\b|\btotal\b|\baltogether\b|\bcombined\b|\bin all\b|\bsum of\b|\bdifference\b|\bthe most\b|\bthe least\b|\bpercentage\b|\baverage\b/iu.test(query)
+    || /多少|一共|总共|几(?:个|次|位|天|本|件|家)|合计|总计|最多|最少|平均/u.test(query);
+}
+/** Authority and confidence a conversation turn carries unless stated otherwise. */
+const CONVERSATION_DEFAULTS = { user: { authority: "user_explicit", confidence: "1.00" }, assistant: { authority: "source_linked", confidence: "0.80" } } as const;
+/**
+ * Admission floor for an aggregate prompt. Each fact of a count or total
+ * tends to sit in one sentence of a long turn, so it matches weakly; at the
+ * default 0.35 too few of them pass (LongMemEval multi-session: evidence turn
+ * coverage 60.4% → 64.1%, attached abstention context +25 tokens).
+ */
+const AGGREGATE_MIN_SCORE = .25;
+/** Admission floor used when the caller sets none. */
+export function defaultAdmissionFloor(query: string): number {
+  return asksForAggregate(query) && !asksAboutAssistant(query) ? AGGREGATE_MIN_SCORE : .35;
+}
 /** User turns whose reply is attached for an assistant-recall prompt. */
 const REPLY_EXPANSION = 3;
 /**
@@ -156,12 +178,13 @@ export class UnifiedRetrievalService {
   private semantic?: SemanticRecallInput;
   private semanticDone = false;
   private assistantRecall = false;
+  private aggregate = false;
   constructor(private readonly db: DatabaseSyncInstance, private readonly policy: JournalCapturePolicy, private readonly now: () => number = Date.now, private readonly memoryLifecycle?: MemoryDocumentLifecycleService) {}
 
   find(input: { scope: string; query: string; alternates?: string[]; tags?: string[]; metadataFilters?: RecallMetadataFilter[]; mustContain?: string[]; lexicalOnly?: boolean; scopeConstraint?: string; intent?: RetrievalIntent; intentCategory?: RetrievalIntentCategory; limit?: number; tokenBudget?: number; minConfidence?: number; hardMinScore?: number; maxStalenessDays?: number; recordedBefore?: number; signal?: AbortSignal; semantic?: SemanticRecallInput }): UnifiedFindResult {
     if (input.signal?.aborted) throw input.signal.reason ?? new Error("aborted");
     if (input.recordedBefore !== undefined && (input.intent !== "exact_history" || !Number.isSafeInteger(input.recordedBefore) || input.recordedBefore < 0 || input.lexicalOnly || input.tags?.length || input.metadataFilters?.length || input.mustContain?.length)) throw new Error("invalid_history_cutoff");
-    const scope = normalizeScope(input.scope), query = input.query.trim().slice(0, 512), tags = boundedValues(input.tags, 4, 64), metadataFilters = [...new Map((input.metadataFilters ?? []).filter(value => value && (value.prefix === "proj" || value.prefix === "env" || value.prefix === "team") && typeof value.value === "string").map(value => [`${value.prefix}:${value.value.trim().toLocaleLowerCase().slice(0, 64)}`, { prefix: value.prefix, value: value.value.trim().toLocaleLowerCase().slice(0, 64) }])).values()].slice(0, 4), mustContain = boundedValues(input.mustContain, 4, 64), intent = input.intent ?? "general", intentCategory = input.intentCategory, limit = bounded(input.limit, 8, 0, 20), budget = bounded(input.tokenBudget, 800, 64, 8000), floor = clamp01(input.minConfidence, 0), hardMinScore = clamp01(input.hardMinScore, .35), oldest = Math.max(1, bounded(input.maxStalenessDays, 36500, 1, 36500)) * 86_400_000, now = this.now();
+    const scope = normalizeScope(input.scope), query = input.query.trim().slice(0, 512), tags = boundedValues(input.tags, 4, 64), metadataFilters = [...new Map((input.metadataFilters ?? []).filter(value => value && (value.prefix === "proj" || value.prefix === "env" || value.prefix === "team") && typeof value.value === "string").map(value => [`${value.prefix}:${value.value.trim().toLocaleLowerCase().slice(0, 64)}`, { prefix: value.prefix, value: value.value.trim().toLocaleLowerCase().slice(0, 64) }])).values()].slice(0, 4), mustContain = boundedValues(input.mustContain, 4, 64), intent = input.intent ?? "general", intentCategory = input.intentCategory, limit = bounded(input.limit, 8, 0, 20), budget = bounded(input.tokenBudget, 800, 64, 8000), floor = clamp01(input.minConfidence, 0), hardMinScore = clamp01(input.hardMinScore, defaultAdmissionFloor(input.query)), oldest = Math.max(1, bounded(input.maxStalenessDays, 36500, 1, 36500)) * 86_400_000, now = this.now();
     const scopeConstraint = typeof input.scopeConstraint === "string" ? input.scopeConstraint.trim().toLocaleLowerCase().slice(0, 80) : "";
     // A scope prefix is an authorization constraint, never a request to search
     // another scope. Mismatches fail closed before touching any repository.
@@ -173,6 +196,7 @@ export class UnifiedRetrievalService {
     this.semantic = input.semantic && input.semantic.vector.length === input.semantic.identity.dimensions ? input.semantic : undefined;
     this.semanticDone = false;
     this.assistantRecall = asksAboutAssistant(query);
+    this.aggregate = !this.assistantRecall && asksForAggregate(query);
     const queries = query ? [...new Set([query, ...(input.alternates ?? []).map(value => value.trim().slice(0, 512)).filter(Boolean)])].slice(0, 4) : [""];
     const collectionLimit = Math.min(20, limit * intentDepth(intentCategory));
     for (const candidateQuery of queries) {
@@ -209,7 +233,11 @@ export class UnifiedRetrievalService {
       // For "what did you say" the answer is the assistant's turn: it is not
       // shortened by the length prior and outranks the question that led to it.
       const assistantTurn = this.assistantRecall && candidate.kind === "conversation-event" && candidate.speaker === "assistant";
-      const speakerWeight = this.assistantRecall && candidate.kind === "conversation-event" && candidate.speaker === "user" ? .85 : 1;
+      // For an aggregate prompt the facts are the user's own; the assistant's
+      // long replies would spend the budget several facts need.
+      const speakerWeight = candidate.kind !== "conversation-event" ? 1
+        : this.assistantRecall && candidate.speaker === "user" ? .85
+        : this.aggregate && candidate.speaker === "assistant" ? .85 : 1;
       const derivedScore = Math.min(1, candidate.score * intentBoost(candidate.kind, intentCategory) * (assistantTurn ? 1 : lengthNormalization(candidate, identifiers)) * speakerWeight);
       const derived = derivedScore === candidate.score ? candidate : { ...candidate, score: derivedScore };
       // Length is a ranking prior (prefer the concise record), not evidence
@@ -339,7 +367,14 @@ export class UnifiedRetrievalService {
     const validity = item.validity ? `; valid_from=${item.validity.validFrom ?? "unknown"}; valid_to=${item.validity.validTo ?? "open"}` : "";
     const chronology = item.kind === "conversation-event" && Number.isSafeInteger(item.freshness) && item.freshness >= 0 ? `; recorded_at=${new Date(item.freshness).toISOString()}` : "";
     const related = newer.length ? `; newer_related=${newer.join(",")}` : "";
-    return `[${index}] ref=${sanitizeMemoryForContext(item.contextRef, 320)}; kind=${item.kind}${role}; authority=${item.authority}; confidence=${item.confidence.toFixed(2)}${chronology}${related}${validity}${origin}\n${sanitizeMemoryForContext(item.excerpt, WIDE_EXCERPT)}${extraProvenance}${projection}`;
+    // A conversation turn's kind is in its ref, and its authority and
+    // confidence follow from who spoke; spell them out only when they differ
+    // from that default. The header was a third of every packet.
+    const turnDefault = role ? CONVERSATION_DEFAULTS[item.speaker as "user" | "assistant"] : undefined;
+    const kind = role ? "" : `; kind=${item.kind}`;
+    const authority = turnDefault?.authority === item.authority ? "" : `; authority=${item.authority}`;
+    const confidence = turnDefault && turnDefault.confidence === item.confidence.toFixed(2) ? "" : `; confidence=${item.confidence.toFixed(2)}`;
+    return `[${index}] ref=${sanitizeMemoryForContext(item.contextRef, 320)}${kind}${role}${authority}${confidence}${chronology}${related}${validity}${origin}\n${sanitizeMemoryForContext(item.excerpt, WIDE_EXCERPT)}${extraProvenance}${projection}`;
   }
 
   private renderPrompt(scope: string, items: readonly RetrievalCandidate[], supplement: string): string | undefined {
@@ -412,17 +447,23 @@ export class UnifiedRetrievalService {
       else if (this.semantic && semanticRan && journalEventEmbedded(this.db, event.id, this.semantic.identity)) pushed.semanticallyDistant = true;
     };
     const width = (event: { role?: string }) => this.assistantRecall && event.role === "assistant" ? WIDE_EXCERPT - 20 : 1180;
+    // An aggregate prompt needs the one sentence holding each fact; centre a
+    // short window on the rarest query terms rather than the first match.
+    const excerptFor = (event: { role?: string; normalizedText?: string }, start: number, end: number) => {
+      const value = event.normalizedText ?? "";
+      return excerptAround(value, start, end, width(event));
+    };
     const ranked = journal.searchRanked(scope, query, limit * 2, recordedBefore);
     for (const hit of ranked) {
       const semanticHit = similarity.get(hit.event.id);
-      emit(hit.event, excerptAround(hit.event.normalizedText ?? "", hit.start, hit.end, width(hit.event)), semanticHit ? Math.max(hit.relevance, semanticRelevance(semanticHit.similarity)) : hit.relevance, semanticHit?.similarity);
+      emit(hit.event, excerptFor(hit.event, hit.start, hit.end), semanticHit ? Math.max(hit.relevance, semanticRelevance(semanticHit.similarity)) : hit.relevance, semanticHit?.similarity);
     }
     lexicalIds = new Set(ranked.map(hit => hit.event.id));
     for (const hit of semantic) {
       if (lexicalIds.has(hit.eventId) || raw.some(candidate => candidate.kind === "conversation-event" && candidate.sourceIds[0] === hit.eventId)) continue;
       const event = journal.get(hit.eventId, scope);
       if (!event || event.tombstoned) continue;
-      emit(event, excerptAround(event.normalizedText ?? "", hit.start, hit.end, width(event)), semanticRelevance(hit.similarity), hit.similarity);
+      emit(event, excerptFor(event, hit.start, hit.end), semanticRelevance(hit.similarity), hit.similarity);
     }
     // "What did you recommend?" usually matches the user's own question
     // better than the answer, which may share few words with the prompt.
