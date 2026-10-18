@@ -9,16 +9,16 @@ Real daily logs show scalar metadata and ContextEngine activation ready. No new
 classifier event was observed during that installation check, so classifier
 outcomes were not inferred from lifecycle logs.
 
-### v1.35 (in progress): visible failures, then measured answers
+### v1.35.0: visible failures, then measured answers
 
-1. **Fail-open, but visible (done on main).** Optional work that fails
+1. **Fail-open, but visible (done).** Optional work that fails
    (recall, journal search, embedding, compaction, lifecycle, projections) is
    counted per day in `mnemora_operation_failures` (schema v88, 30 days,
    content-free), logged at most once per 10 minutes per operation and
    category, and reported by `mnemora health`. A broken journal index no longer
    silently returns no recall. A test ratchet stops silent catches from growing
    (124 → 104).
-2. **End-to-end answer accuracy (done on main).** LongMemEval_S with a
+2. **End-to-end answer accuracy (done).** LongMemEval_S with a
    reading model and a judge (`npm run eval:longmemeval-qa`). Mnemora 72.6%,
    same-budget bm25 67.8%, no memory 7.6%, with 13% fewer tokens than bm25
    and at or above it on every question type. The run exposed five retrieval
@@ -29,9 +29,15 @@ outcomes were not inferred from lifecycle logs.
    48.8%; bm25 41.3%). Before the fixes Mnemora scored 59.0%. See
    [Recall quality](recall-quality.md). Next for multi-session: semantic
    hits that add to lexical ones instead of gating them.
-3. **Multilingual calibration.** Thresholds for a multilingual embedding model
+
+### v1.36 (planned)
+
+1. **Semantic hits that add, not gate.** On multi-session questions the
+   union of lexical and semantic hits would cover 63.5% of evidence turns,
+   against 59.0% lexical alone.
+2. **Multilingual calibration.** Thresholds for a multilingual embedding model
    on a Chinese probe set.
-4. **Abstention.** Measure whether a reading model refuses correctly when
+3. **Abstention.** Measure whether a reading model refuses correctly when
    attached memory does not answer the question, then decide whether retrieval
    should attach less.
 

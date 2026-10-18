@@ -187,8 +187,26 @@ not directly comparable with the 500-question rows. Lexical recall on the same
 subset: 72.4% / 65.5% / 53.3% / 85.0%. Non-preference questions are unchanged
 (92.9% session hit either way). Details in [recall quality](docs/recall-quality.md).
 
-These are retrieval measurements. End-to-end answer accuracy with a reading
-model has not been measured yet. Reproduce with `npm run eval:longmemeval`.
+These are retrieval measurements. Reproduce with `npm run eval:longmemeval`.
+
+End-to-end answer accuracy (1.35.0): the same 500 questions answered by a
+reading model from the attached memory and graded by a judge (MiMo V2.6 Pro),
+with the same 800-token budget.
+
+| Question type | No memory | bm25 baseline | Mnemora 1.35.0 |
+|---|---|---|---|
+| **All** | 7.6% | 67.8% | **72.6%** |
+| single-session-user | 0% | 90.6% | 92.2% |
+| single-session-assistant | 12.5% | 91.1% | 91.1% |
+| single-session-preference | 0% | 40.0% | 43.3% |
+| multi-session | 0% | 41.3% | 48.8% |
+| temporal-reasoning | 0.8% | 63.0% | 68.5% |
+| knowledge-update | 0% | 83.3% | 90.3% |
+| abstention | 100% | 93.3% | 96.7% |
+| Mean context tokens | 0 | 774 | 672 |
+
+Reproduce with `npm run eval:longmemeval-qa` (needs an OpenAI-compatible
+endpoint).
 
 ## Safety and limits
 
@@ -223,7 +241,7 @@ first-use checks, correction workflows and operating commands.
   [formal three-arm runner](docs/task-resume-experiment-runner.zh-CN.md).
 - **Optional classifiers:** [semantic admission classifier](docs/semantic-classifier.md).
 - **Planning:** [roadmap](docs/roadmap.md) and
-  [release notes](docs/releases/v1.34.0.md).
+  [release notes](docs/releases/v1.35.0.md).
 
 Some detailed guides are currently available in Chinese only.
 

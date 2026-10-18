@@ -127,7 +127,23 @@ node dist/cli.js resume "deployment task" --scope project-a
 
 ¹ 60 题子集（全部 30 道偏好题加随机 30 道其他题），不能与 500 题的行直接比较。同一子集上纯词面召回为 72.4% / 65.5% / 53.3% / 85.0%；非偏好题两种方式都是 92.9% 会话命中。详见[召回质量](docs/recall-quality.md)。
 
-以上是检索层指标，尚未用阅读模型测端到端答题准确率。复现：`npm run eval:longmemeval`。
+以上是检索层指标。复现：`npm run eval:longmemeval`。
+
+端到端答题准确率（1.35.0）：同样 500 道题，由阅读模型根据注入的记忆作答，再由评判模型打分（均为 MiMo V2.6 Pro），预算同为 800 token。
+
+| 题型 | 不用记忆 | bm25 基线 | Mnemora 1.35.0 |
+|---|---|---|---|
+| **总体** | 7.6% | 67.8% | **72.6%** |
+| 单会话·用户信息 | 0% | 90.6% | 92.2% |
+| 单会话·助手回复 | 12.5% | 91.1% | 91.1% |
+| 单会话·偏好 | 0% | 40.0% | 43.3% |
+| 跨会话 | 0% | 41.3% | 48.8% |
+| 时间推理 | 0.8% | 63.0% | 68.5% |
+| 知识更新 | 0% | 83.3% | 90.3% |
+| 拒答 | 100% | 93.3% | 96.7% |
+| 平均上下文 token | 0 | 774 | 672 |
+
+复现：`npm run eval:longmemeval-qa`（需要一个 OpenAI 兼容接口）。
 
 ## 安全与边界
 
@@ -146,7 +162,7 @@ node dist/cli.js resume "deployment task" --scope project-a
 - **召回**：[召回质量](docs/recall-quality.md)、[阈值评估](docs/recall-threshold-evaluation.md)、[注入回执](docs/recall-attachment-evidence.zh-CN.md)、[有用性边界](docs/recall-usefulness-review.zh-CN.md)、[相关度影子评估](docs/recall-relevance-shadow.md)和[相关度评估](docs/recall-relevance-evaluation.md)。
 - **任务续接**：[评估](docs/task-resume-evaluation.md)、[来源证据](docs/task-resume-source-evidence.zh-CN.md)、[一键回归](docs/task-resume-regression.zh-CN.md)和[正式三臂实验](docs/task-resume-experiment-runner.zh-CN.md)。
 - **可选分类器**：[语义准入分类器](docs/semantic-classifier.md)。
-- **规划**：[路线图](docs/roadmap.md)和[发布说明](docs/releases/v1.34.0.md)。
+- **规划**：[路线图](docs/roadmap.md)和[发布说明](docs/releases/v1.35.0.md)。
 
 ## 开发
 
