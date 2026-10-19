@@ -40,18 +40,88 @@ temporal reasoning 68.5% / 63.0%. The other three types are above 90%.
 
 ## Next: v1.37 (proposed)
 
+Chosen after comparing open-source agent memory (2026-10-19, see
+[Comparison with other memory systems](#comparison-with-other-memory-systems)).
+Each item targets a measured weakness.
+
 1. **Preference recall.** Stated preferences ("I don't eat spicy food") and
    later requests ("recommend a restaurant") share few words, so lexical recall
-   misses them. Analyse the failing questions first, then choose the fix.
-   Target: preference session hit at least bm25's 70%, answer accuracy clearly
-   above 43.3%.
-2. **Retrieval regression gate in CI.** A fixed small question set, lexical
+   misses them. Profile-style memory (Memobase profile slots, OpenClaw
+   `USER.md`) addresses the same need, but here the recall stays the user's own
+   first-person statements with their sources, never a model-written profile.
+   Check first how this overlaps with `USER.md` when memory-core is active, so
+   the same preference is not injected twice. Analyse the failing questions
+   before choosing the mechanism. Target: preference session hit at least
+   bm25's 70%, answer accuracy clearly above 43.3%.
+2. **Event-time normalization.** Records carry when they were recorded, not
+   when the event happened. At capture, resolve relative dates ("last
+   Tuesday", "next month") against the message date and show the absolute date
+   in the packet; mark facts superseded by a newer related record as such
+   (1.34 already links them). Deterministic, no model calls. Temporal reasoning
+   is the largest type (127 questions, 68.5%); first read about 30 failures to
+   confirm they are retrieval misses rather than reader arithmetic.
+3. **Hybrid recall without extra setup.** Semantic recall today needs a
+   separately configured Ollama model, so most installs run lexical only.
+   Reuse the embedding provider the host already configures for memory
+   (OpenAI by default; Gemini, Ollama and other OpenAI-compatible endpoints),
+   keep lexical fallback, and calibrate thresholds for the common hosted
+   models with `npm run eval:calibrate-semantic`.
+4. **Retrieval regression gate in CI.** A fixed small question set, lexical
    recall only, no model calls; CI fails when evidence recall or wrong
    attachment moves beyond a tolerance. First check the dataset's size and
    licence for the repository or a CI download.
-3. **Temporal reasoning triage (optional).** Read about 30 failures and decide
-   whether they are retrieval misses or reader arithmetic. Change retrieval
-   only for the former.
+5. **Comparable published number (optional).** One LongMemEval_S run at a
+   4k–7k token budget, the range other systems report at, so results can be
+   read side by side (about 1,000 model calls).
+
+## Next: slimming (after v1.37, not started)
+
+Candidates for removal: code that never runs on the automatic recall path and
+has no measured benefit. Nothing is deleted until each reference is checked
+and the full suite passes; as in 1.33, schema tables and configuration keys
+stay accepted so existing installs keep loading.
+
+| Candidate | Size (source) | Reason |
+|---|---|---|
+| Graph governance: `related-edge-refinement`, `related-edge-semantics`, `semantic-vocabulary`, `schema-drift`, `graph-review`, `hygiene` | about 117 KB | Reachable only through tools; the 2026-09-06 decision gate produced no action; all benchmark gains came from the journal path |
+| `insights` (community detection) and research tools `kg_compare`, `kg_digest`, `kg_insights`, `kg_watch`, `kg_timeline`, `kg_query` | about 59 KB plus tool code | Not in the default `core` tool surface; no usage evidence |
+| Graph-recall canary: `trust/adaptive-canary`, `trust/adaptive-recall`, `kg_recall_canary`, `kg_recall_metrics` | to be measured | A rollout mechanism for graph recall that was never enabled |
+| ReasoningMemory leftovers in `cognition`: beliefs, decisions, graduation, semantic classifier, outcomes | to be measured | The pipeline itself was removed in 1.33. `recall-attachment` and `reflection` stay: automatic recall uses them |
+
+Together about 7–8% of the 2.3 MB source for the first two rows, and around
+15% if the last two hold up after review.
+
+## Comparison with other memory systems
+
+Checked 2026-10-19 against public documentation; scores are self-reported
+and use different readers, judges and budgets, so they are not a ranking.
+
+- **OpenClaw memory-core** (the host default): provenance tiers, observed
+  timestamps with a supersession key, `USER.md` profile, dreaming
+  consolidation into `MEMORY.md`, standing intents, and hybrid vector plus
+  keyword search when an embedding provider is set
+  ([architecture](https://docs.openclaw.ai/concepts/memory-architecture),
+  [memory](https://docs.openclaw.ai/concepts/memory)). Mnemora's value is
+  measured against this, not against no memory.
+- **mem0 OSS v3**: single-pass ADD-only extraction; semantic, BM25 and entity
+  signals fused; graph memory removed from open source (about 4,000 lines)
+  ([migration guide](https://docs.mem0.ai/migration/oss-v2-to-v3)).
+- **Graphiti / Zep**: bi-temporal facts with edge invalidation; vector, BM25
+  and graph traversal combined
+  ([overview](https://help.getzep.com/v2/graphiti/getting-started/overview)).
+- **Letta**: in-context memory blocks edited by the agent, with a background
+  sleep-time agent that consolidates them
+  ([guide](https://forum.letta.com/t/sleeptime-agents-for-memory-consolidation-best-practices-guide/154)).
+- **Memobase**: structured user-profile slots
+  ([profiles](https://docs.memobase.io/features/profile/profile)).
+- **Reported LongMemEval numbers**: mem0 94.4% at about 6.8k tokens per
+  retrieval, Zep 71.2%
+  ([mem0 summary](https://mem0.ai/library/agent-memory/ai-memory-benchmarks-in-2026));
+  Zep reports 90.2% at about 4.4k tokens
+  ([Zep](https://www.getzep.com/ai-agents/how-to-test-agent-memory/));
+  agentmemory retrieval-only R@5 86.2% with BM25 and 95.2% with BM25 plus
+  vectors ([comparison](https://github.com/aiagentmemory/agentmemory/blob/main/benchmark/COMPARISON.md)).
+  Mnemora: 72.6% answer accuracy at an 800-token budget with MiMo V2.6 Pro.
 
 ## Toward v2.0
 
@@ -92,6 +162,7 @@ earlier plan was not started and that number is used.
   `shadow`; cues, bridges and predictions must never become prompt facts.
 - **Graph policy (PPR, related-edge expansion).** Only with new scope-local
   evidence of a quality gain; the last review (2026-09-06) produced no action.
+  Its governance code is now a slimming candidate (above).
 
 ## Decided against
 
@@ -102,6 +173,11 @@ earlier plan was not started and that number is used.
   the provisional mpnet thresholds, `bge-m3` calibration (2026-10-19).
 - More relationship types, generic personality modelling, or broad provider
   integration before the task-resume gate.
+- Background model-driven consolidation (Letta sleep-time agents, dreaming)
+  and model-extracted facts (mem0): they promote model output into durable
+  memory, and memory-core's dreaming already covers consolidation (2026-10-19).
+- MCP or cross-framework servers and Ebbinghaus-style decay: no evidence of
+  benefit, and outside scope discipline (2026-10-19).
 
 ## Scope discipline
 
