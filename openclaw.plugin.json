@@ -398,8 +398,8 @@
             "description": "Semantic journal recall. Active only when embeddings.enabled is true; captured turns are embedded locally and fused with lexical recall.",
             "properties": {
               "enabled": { "type": "boolean", "default": true },
-              "minSimilarity": { "type": "number", "default": 0.45, "minimum": -1, "maximum": 1, "description": "Cosine floor for attaching a record that shares no word with the prompt. Model-specific (calibrated on all-minilm); see docs/recall-quality.md." },
-              "gateSimilarity": { "type": "number", "default": 0.2, "minimum": -1, "maximum": 1, "description": "A lexical hit is attached only if it is among the prompt's nearest embedded records above this cosine. Model-specific." },
+              "minSimilarity": { "type": "number", "minimum": -1, "maximum": 1, "description": "Cosine floor for attaching a record that shares no word with the prompt. Unset: the calibrated value for the embedding model (all-minilm 0.45, paraphrase-multilingual-MiniLM 0.65, bge-small-zh 0.6, paraphrase-multilingual 0.65), else 0.45; see docs/recall-quality.md." },
+              "gateSimilarity": { "type": "number", "minimum": -1, "maximum": 1, "description": "Memory is attached only if a record is semantically close, or a lexical hit is among the prompt's nearest embedded records above this cosine. Unset: the calibrated value for the embedding model, else 0.2." },
               "maxScanChunks": { "type": "integer", "default": 50000, "minimum": 100, "maximum": 500000 },
               "embedPerTurn": { "type": "integer", "default": 128, "minimum": 0, "maximum": 1000 }
             }

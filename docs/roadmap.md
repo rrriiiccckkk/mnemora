@@ -38,8 +38,15 @@ outcomes were not inferred from lifecycle logs.
    Multi-session accuracy with `all-minilm` 47.9% → 56.2% (lexical 48.8%,
    bm25 41.3%); foreign and off-topic attachment unchanged (55.2% / 33.1%).
    See [Recall quality](recall-quality.md).
-2. **Multilingual calibration.** Thresholds for a multilingual embedding model
-   on a Chinese probe set.
+2. **Multilingual calibration (done on main).** Calibrated thresholds per
+   embedding model, used when none are set: multilingual MiniLM 0.65 / 0.3,
+   `bge-small-zh-v1.5` 0.6 / 0.45, Ollama `paraphrase-multilingual` 0.65 / 0.35
+   (provisional, 24 questions); all-minilm keeps 0.45 / 0.2. On Chinese
+   LongMemEval they keep or raise recall over lexical while foreign and
+   off-topic attachment falls to the English level. `all-minilm` skips
+   prompts in non-Latin script, where it was worse than lexical.
+   `npm run eval:calibrate-semantic` calibrates other models. See
+   [Recall quality](recall-quality.md).
 3. **Abstention.** Measure whether a reading model refuses correctly when
    attached memory does not answer the question, then decide whether retrieval
    should attach less.

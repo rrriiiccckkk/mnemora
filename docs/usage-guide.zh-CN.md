@@ -270,10 +270,27 @@ agent id 取自宿主会话键 `agent:<id>:...`。默认 agent（`scope.defaultA
 
 开启 `embeddings.enabled: true` 后，每轮对话结束会用本地 Ollama 模型为新记录生成向量（每轮最多 `unifiedRetrieval.semantic.embedPerTurn` 个分块，默认 128），自动召回把 bm25 与余弦相似度融合：
 
-- 与提问没有任何共同词的记录，相似度达到 `semantic.minSimilarity`（默认 0.45）即可注入；
-- 只有至少一条记录满足以下任一条件时，才会注入记忆：语义相近（达到 `minSimilarity`）、包含精确标识符、或是处在提问语义近邻中（相似度高于 `semantic.gateSimilarity`，默认 0.2）且词面匹配度不低于 0.15 的词面命中。这道门限只决定这次提问是否使用记忆；一旦通过，每条词面命中都按自身词面判断，与不开向量时相同。尚未生成向量的记录不受这道门限影响。显式设置的 `minQueryMatch` 仍逐条生效。
+- 与提问没有任何共同词的记录，相似度达到 `semantic.minSimilarity` 即可注入；
+- 只有至少一条记录满足以下任一条件时，才会注入记忆：语义相近（达到 `minSimilarity`）、包含精确标识符、或是处在提问语义近邻中（相似度高于 `semantic.gateSimilarity`）且词面匹配度不低于 0.15 的词面命中。这道门限只决定这次提问是否使用记忆；一旦通过，每条词面命中都按自身词面判断，与不开向量时相同。尚未生成向量的记录不受这道门限影响。显式设置的 `minQueryMatch` 仍逐条生效。
 
-两个阈值都与模型相关，目前在 `all-minilm` 上校准；换模型时请用 `MNEMORA_EVAL_EMBED_MODEL=<模型>` 重跑 `npm run eval:longmemeval` 再调整。中文或中英混合的历史请使用多语言模型（例如 `bge-m3`）。向量服务不可用时不会影响记录和召回，自动退回纯词面召回。
+两个阈值都与嵌入模型有关。未显式设置时，Mnemora 按所配置的模型名使用已校准的值（忽略 Ollama 的 `:tag` 和 `vendor/` 前缀）：
+
+| 模型 | `minSimilarity` | `gateSimilarity` | 校准数据 |
+|---|---:|---:|---|
+| `all-minilm`（all-MiniLM-L6-v2），仅英文 | 0.45 | 0.2 | LongMemEval_S 英文 |
+| `paraphrase-multilingual-MiniLM-L12-v2` | 0.65 | 0.3 | LongMemEval_S 中文 |
+| `bge-small-zh-v1.5` | 0.6 | 0.45 | LongMemEval_S 中文 |
+| `paraphrase-multilingual`（Ollama；mpnet-base-v2） | 0.65 | 0.35 | LongMemEval_S 中文，24 题（暂定） |
+| 其他模型 | 0.45 | 0.2 | 未校准 |
+
+`all-minilm` 只适用于英文：在中文历史上，答案轮次的中位排名是第 42，闲聊提问也全部注入了记忆，比纯词面召回更差。因此用它时，含中文、日文、韩文等非拉丁文字的提问会跳过语义召回，表现与不开向量时相同。中文或中英混合的历史请使用多语言模型；在已测的模型中，`bge-small-zh-v1.5` 召回最好。表中没有的模型，可以用自己的数据校准：
+
+```bash
+MNEMORA_CAL_EMBED_MODEL=<模型> npm run eval:calibrate-semantic -- run <longmemeval.json[.gz]> 0:50 cal.jsonl
+npm run eval:calibrate-semantic -- report cal.jsonl
+```
+
+选一个能让借来的题目和闲聊提问很少通过的 `minSimilarity`，再用 `npm run eval:longmemeval`（`MNEMORA_EVAL_EMBED_MODEL`、`MNEMORA_EVAL_MIN_SIMILARITY`、`MNEMORA_EVAL_GATE_SIMILARITY`）核对这组阈值。显式设置的值始终优先。向量服务不可用时不会影响记录和召回，自动退回纯词面召回。
 
 在已有数据库上开启 embeddings 后，先一次性补齐历史向量：
 

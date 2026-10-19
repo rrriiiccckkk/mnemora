@@ -15,6 +15,7 @@
 import { appendFileSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createTempDir } from "../tests/helpers/temp.mjs";
 import { join } from "node:path";
+import { gunzipSync } from "node:zlib";
 import { DatabaseSync } from "node:sqlite";
 import { MnemoraContextEngine } from "../dist/context-engine/engine.js";
 import { normalizeConfig } from "../dist/config.js";
@@ -22,14 +23,20 @@ import { Mnemora } from "../dist/tools.js";
 
 const [datasetPath, rangeArgument, outPath] = process.argv.slice(2);
 if (!datasetPath) throw new Error("usage: evaluate-longmemeval.mjs <longmemeval_s_cleaned.json> [limit|start:end] [out.jsonl]");
-const all = JSON.parse(readFileSync(datasetPath, "utf8"));
+const raw = readFileSync(datasetPath);
+// Plain or gzip-compressed JSON (the Chinese LongMemEval translations ship as .json.gz).
+const all = JSON.parse((datasetPath.endsWith(".gz") ? gunzipSync(raw) : raw).toString("utf8"));
 const [rangeStart, rangeEnd] = String(rangeArgument ?? "").includes(":") ? String(rangeArgument).split(":").map(Number) : [0, Number(rangeArgument ?? Infinity) || all.length];
 const data = all.slice(rangeStart, rangeEnd);
 // Negative probes measure false attachment: a question taken from another
 // item (its evidence is absent from this haystack) and an unrelated task.
 // Optional semantic recall: MNEMORA_EVAL_EMBED_MODEL=<ollama model> [MNEMORA_EVAL_EMBED_URL=http://127.0.0.1:11434]
 const EMBEDDINGS = process.env.MNEMORA_EVAL_EMBED_MODEL ? { embeddings: { enabled: true, provider: "ollama", baseURL: process.env.MNEMORA_EVAL_EMBED_URL ?? "http://127.0.0.1:11434", model: process.env.MNEMORA_EVAL_EMBED_MODEL, timeoutMs: 120000, batchSize: 32 } } : {};
+// Threshold overrides for calibration: MNEMORA_EVAL_MIN_SIMILARITY, MNEMORA_EVAL_GATE_SIMILARITY.
+const SEMANTIC_THRESHOLDS = { ...(process.env.MNEMORA_EVAL_MIN_SIMILARITY ? { minSimilarity: Number(process.env.MNEMORA_EVAL_MIN_SIMILARITY) } : {}), ...(process.env.MNEMORA_EVAL_GATE_SIMILARITY ? { gateSimilarity: Number(process.env.MNEMORA_EVAL_GATE_SIMILARITY) } : {}) };
 const OFF_TOPIC = ["Write a Python function that reverses a linked list.", "What's the capital of Australia?", "Fix the failing unit test in the payment service.", "hello", "Translate this paragraph into French for me.", "Explain how TCP congestion control works.", "Draft a polite email declining a meeting invitation.", "What is 17 times 23?", "Summarize the main ideas of stoicism.", "Generate a regex that matches IPv4 addresses.", "Can you refactor this function to be async?", "Give me three name ideas for a coffee shop.", "How do I center a div in CSS?", "Write a haiku about autumn."];
+// Off-topic prompts in the dataset's language: Chinese when the question has Han characters.
+const OFF_TOPIC_ZH = ["写一个反转链表的 Python 函数。", "澳大利亚的首都是哪里？", "修复支付服务里失败的单元测试。", "你好", "把这段话翻译成法语。", "解释一下 TCP 拥塞控制是怎么工作的。", "帮我写一封礼貌拒绝会议邀请的邮件。", "17 乘以 23 等于多少？", "总结一下斯多葛主义的主要思想。", "写一个匹配邮箱地址的正则表达式。"];
 if (outPath) writeFileSync(outPath, "");
 const BUDGET = 800, MAX_ITEMS = 8;
 const STOP = new Set("a an the and or but if of to in on at for with from by about as is are was were be been being do does did have has had i me my mine you your we our they them their it its this that these those what which who whom when where why how can could would should will shall may might must there here so than too very just also any some all not no yes up down out over under again then once into onto".split(" "));
@@ -56,7 +63,7 @@ const totals = { questions: 0, answerable: 0, abstention: 0, mnemora: { sessionH
 for (const [offset, question] of data.entries()) {
   const index = rangeStart + offset;
   const directory = createTempDir("mnemora-lme-");
-  const config = normalizeConfig({ dbPath: join(directory, "m.db"), mode: "standalone", ...EMBEDDINGS, conversationJournal: { enabled: true }, contextEngine: { enabled: true }, episodicMemory: { enabled: true }, unifiedRetrieval: { enabled: true, shadowMode: false, tokenBudget: BUDGET, maxItems: MAX_ITEMS, diversityLambda: .75, ...(EMBEDDINGS.embeddings ? { semantic: { embedPerTurn: 1000 } } : {}) } });
+  const config = normalizeConfig({ dbPath: join(directory, "m.db"), mode: "standalone", ...EMBEDDINGS, conversationJournal: { enabled: true }, contextEngine: { enabled: true }, episodicMemory: { enabled: true }, unifiedRetrieval: { enabled: true, shadowMode: false, tokenBudget: BUDGET, maxItems: MAX_ITEMS, diversityLambda: .75, ...(EMBEDDINGS.embeddings ? { semantic: { embedPerTurn: 1000, ...SEMANTIC_THRESHOLDS } } : {}) } });
   const graph = new Mnemora({ config });
   const shared = new Proxy(graph, { get: (target, property) => property === "close" ? () => undefined : Reflect.get(target, property, target) });
   try {
@@ -65,7 +72,8 @@ for (const [offset, question] of data.entries()) {
     const ask = async prompt => (await engine.assemble({ sessionId: "query-session", prompt, messages: [{ role: "user", content: prompt }], tokenBudget: 16000 })).systemPromptAddition ?? "";
     const rendered = await ask(question.question);
     const foreignInjected = Boolean(await ask(all[(index + 167) % all.length].question));
-    const offTopicInjected = Boolean(await ask(OFF_TOPIC[index % OFF_TOPIC.length]));
+    const offTopics = /\p{Script=Han}/u.test(question.question) ? OFF_TOPIC_ZH : OFF_TOPIC;
+    const offTopicInjected = Boolean(await ask(offTopics[index % offTopics.length]));
     totals.mnemora.foreignQuestionInjected += Number(foreignInjected);
     totals.mnemora.offTopicInjected += Number(offTopicInjected);
     const rows = graph.store.db.prepare("SELECT id, session_id FROM mnemora_conversation_events ORDER BY session_id, sequence").all();

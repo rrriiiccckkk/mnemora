@@ -1,4 +1,5 @@
 import { journalScopeHasEmbeddings } from "../journal/search-index.js";
+import { outsideModelLanguage, semanticThresholds } from "../retrieval/semantic-thresholds.js";
 import { OperationFailureReporter, type OperationName } from "../operations/failure-ledger.js";
 import { recordAssemblyDiagnostic, type DiagnosticSegment } from "./assembly-diagnostics.js";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -294,6 +295,12 @@ export class MnemoraContextEngine implements ContextEngine {
     try { this.failures.report(operation, error, own?.store.db, options); } finally { try { own?.close(); } catch { /* fail open */ } }
   }
 
+  /** Thresholds for the configured model; explicit settings win (src/retrieval/semantic-thresholds.ts). */
+  private semanticThresholds() {
+    const semantic = this.config.unifiedRetrieval?.semantic;
+    return semanticThresholds(this.config.embeddings?.model, { minSimilarity: semantic?.minSimilarity, gateSimilarity: semantic?.gateSimilarity });
+  }
+
   private semanticJournalEnabled(): boolean {
     return this.config.embeddings?.enabled === true && this.config.unifiedRetrieval?.semantic?.enabled !== false;
   }
@@ -312,9 +319,13 @@ export class MnemoraContextEngine implements ContextEngine {
     // Without any vector in this scope there is no semantic evidence to use;
     // skip the provider call and keep lexical-only behaviour (and floor).
     const embeddingConfig = this.config.embeddings!;
+    const thresholds = this.semanticThresholds();
+    // An English-only model's vectors carry no meaning for a Chinese prompt
+    // and only add noise: such a prompt keeps lexical-only behaviour.
+    if (outsideModelLanguage(thresholds, query)) return undefined;
     if (!journalScopeHasEmbeddings(graph.store.db, this.scope(), { provider: embeddingConfig.provider ?? "ollama", model: embeddingConfig.model ?? "" })) return undefined;
     const result = await graph.journalQueryVector(query);
-    return result ? { identity: result.identity, vector: result.vector, minSimilarity: Math.min(semantic.gateSimilarity ?? .2, semantic.minSimilarity ?? .45), maxScan: semantic.maxScanChunks ?? 50000 } : undefined;
+    return result ? { identity: result.identity, vector: result.vector, minSimilarity: Math.min(thresholds.gateSimilarity, thresholds.minSimilarity), maxScan: semantic.maxScanChunks ?? 50000 } : undefined;
   }
 
   /** Commit exactly the host-admitted message range. This is deliberately not
@@ -410,7 +421,7 @@ export class MnemoraContextEngine implements ContextEngine {
           // costs more recall than it saves (docs/recall-quality.md).
           minQueryMatch: this.config.unifiedRetrieval.minQueryMatch ?? 0,
           ...(semantic ? { gateQueryMatch: .15 } : {}),
-          ...(semantic ? { minSemanticSimilarity: this.config.unifiedRetrieval.semantic?.minSimilarity ?? .45 } : {})
+          ...(semantic ? { minSemanticSimilarity: this.semanticThresholds().minSimilarity } : {})
         });
         const result = { ...rawResult, candidates: localSelection.candidates, empty: localSelection.candidates.length === 0 };
         // P0 relevance is advisory, after deterministic authorization/selection,

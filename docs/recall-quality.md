@@ -293,6 +293,76 @@ precision and for indirectly phrased questions.
 The evaluation embedding service cached vectors by text, so repeated runs
 over the same histories only embedded the prompts.
 
+## Chinese and multilingual calibration (1.36)
+
+Semantic thresholds are cosine values, and cosine distributions differ a lot
+between models. Calibration used two community Chinese translations of
+LongMemEval_S ([longmemeval-zh](https://github.com/Sanderhoff-alt/longmemeval-zh),
+MIT): 48 questions translated by an LLM (8 per type) for calibration, and 48
+other answerable questions from the full machine translation (Argos) for
+validation. `npm run eval:calibrate-semantic` embeds each history the way
+Mnemora does and records the best cosine of three prompts: the question
+against its own evidence turns, a borrowed foreign question, and an
+off-topic prompt (Chinese prompts for Chinese data).
+
+Best-match cosine, 25th / 50th / 75th percentile:
+
+| Model, data | Evidence | Foreign question | Off-topic | Evidence rank, median |
+|---|---|---|---|---:|
+| `all-minilm`, English (same 48) | 0.35 / 0.47 / 0.57 | 0.31 / 0.36 / 0.42 | 0.24 / 0.29 / 0.36 | 3 |
+| `all-minilm`, Chinese | 0.58 / 0.68 / 0.75 | 0.76 / 0.78 / 0.82 | 0.71 / 0.75 / 0.84 | 42 |
+| `paraphrase-multilingual-MiniLM-L12-v2`, Chinese | 0.49 / 0.61 / 0.70 | 0.43 / 0.49 / 0.55 | 0.37 / 0.45 / 0.50 | 1 |
+| `bge-small-zh-v1.5`, Chinese | 0.53 / 0.61 / 0.69 | 0.52 / 0.56 / 0.59 | 0.50 / 0.54 / 0.56 | 2 |
+| `paraphrase-multilingual` (mpnet), Chinese, 24 questions | 0.58 / 0.68 / 0.73 | 0.52 / 0.55 / 0.58 | 0.45 / 0.50 / 0.54 | 1 |
+
+- The English model is meaningless on Chinese: unrelated prompts score above
+  the evidence. Prompts in non-Latin script now skip semantic recall with it
+  (an English-only flag in the model table).
+- Both Chinese-capable models rank the evidence first or second, but on a
+  higher baseline: at the English default of 0.45, two thirds of foreign
+  questions (multilingual MiniLM) or nearly all (bge) pass `minSimilarity`.
+  At 0.6, foreign questions pass for 12% (multilingual MiniLM) and 23% (bge)
+  against 17% for English at 0.45, and 54% and 56% of evidence is above the
+  threshold against 52% for English.
+- The final pairs were chosen on the retrieval eval, to match the foreign
+  and off-topic attachment of English with `all-minilm` (55% and 33% on
+  indices 70–232): multilingual MiniLM needed 0.65 for that, bge 0.6.
+
+Retrieval eval, 800-token budget (calibration set / validation set):
+
+| | Session hit | Evidence-turn hit | Foreign attaches | Off-topic attaches |
+|---|---|---|---|---|
+| Lexical only | 93.8% / 91.7% | 72.9% / 70.8% | 97.9% / 95.8% | 81.2% / 77.1% |
+| `all-minilm`, 0.45 / 0.2, before 1.36 | 93.8% / – | 68.8% / – | 95.8% / – | 100% / – |
+| `all-minilm`, 1.36 (skips Chinese prompts) | 93.8% / – | 72.9% / – | 97.9% / – | 81.2% / – |
+| multilingual MiniLM, 0.45 / 0.2 | 97.9% / 95.8% | 85.4% / 77.1% | 81.2% / 85.4% | 58.3% / 54.2% |
+| multilingual MiniLM, **0.65 / 0.3** | 93.8% / 91.7% | 79.2% / 75.0% | 56.2% / 50.0% | 31.2% / 27.1% |
+| `bge-small-zh-v1.5`, 0.45 / 0.2 | 100% / 95.8% | 87.5% / 79.2% | 95.8% / 97.9% | 87.5% / 89.6% |
+| `bge-small-zh-v1.5`, **0.6 / 0.45** | 97.9% / 95.8% | 83.3% / 79.2% | 56.2% / 58.3% | 27.1% / 31.2% |
+
+The calibrated pairs (bold) are now the defaults for those models when the
+thresholds are not set. On the validation set they hold: bge keeps all of
+its recall while foreign and off-topic attachment fall from 98% and 90% to
+58% and 31%. Other grid points on the calibration set, multilingual MiniLM:
+0.6 / 0.3 gave 79.2% evidence-turn hit with 56.2% / 37.5% attachment, and
+0.6 / 0.4 gave 75.0% with 41.7% / 20.8%; bge 0.65 / 0.5 gave 72.9% with
+41.7% / 20.8%.
+
+`paraphrase-multilingual` (Ollama's mpnet-base-v2) embeds about four times
+slower on CPU and was calibrated on 24 of the questions only, without the
+validation set. On those 24, with the same retrieval eval: lexical 75.0%
+evidence-turn hit with 100% / 87.5% foreign / off-topic attachment;
+multilingual MiniLM 87.5% with 50.0% / 37.5%; bge 83.3% with 62.5% / 37.5%;
+mpnet at **0.65 / 0.35** 83.3% with 50.0% / 33.3% (0.6 / 0.35 gave the same
+recall with 54.2% / 33.3%; 0.65 / 0.3 87.5% with 54.2% / 45.8%). Its pair is
+provisional.
+
+Limits: 48 questions per set (one question is about 2 points); the
+validation questions are machine translated and read less naturally; no
+end-to-end QA run in Chinese yet; `bge-m3`, the most common multilingual
+model on Ollama, was too slow to embed on the evaluation machine (CPU only)
+and is not calibrated.
+
 The recognition patterns were tuned on LongMemEval_S. They match 54 of its
 56 assistant questions and none of the other 444, but they are English and
 Chinese phrasings only and may miss other wordings.

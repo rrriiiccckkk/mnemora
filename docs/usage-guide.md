@@ -385,20 +385,45 @@ local Ollama model after each turn (`unifiedRetrieval.semantic.embedPerTurn`
 chunks, default 128) and automatic recall fuses bm25 with cosine similarity:
 
 - a record that shares no word with the prompt is attached when its similarity
-  reaches `semantic.minSimilarity` (default 0.45);
+  reaches `semantic.minSimilarity`;
 - memory is attached only if at least one record is semantically close
   (`minSimilarity`), carries an exact identifier, or is a lexical hit that is
   among the prompt's nearest embedded records above `semantic.gateSimilarity`
-  (default 0.2) and matches at least 0.15 of the prompt's terms. This gate
+  and matches at least 0.15 of the prompt's terms. This gate
   decides whether the prompt is answered from memory at all; once it opens,
   every lexical hit is judged on its own words, as without embeddings.
   Records without a vector yet are never judged by the gate. An explicit
   `minQueryMatch` still applies to each record.
 
-Both thresholds are model-specific and were calibrated on `all-minilm`; for
-another model, rerun `npm run eval:longmemeval` with
-`MNEMORA_EVAL_EMBED_MODEL=<model>` and adjust. For Chinese or mixed-language
-history use a multilingual model (for example `bge-m3`). An unavailable
+Both thresholds depend on the embedding model. When they are unset, Mnemora
+uses the values calibrated for the configured model (matched by name, with
+any Ollama `:tag` or `vendor/` prefix ignored):
+
+| Model | `minSimilarity` | `gateSimilarity` | Calibrated on |
+|---|---:|---:|---|
+| `all-minilm` (all-MiniLM-L6-v2), English only | 0.45 | 0.2 | LongMemEval_S, English |
+| `paraphrase-multilingual-MiniLM-L12-v2` | 0.65 | 0.3 | LongMemEval_S, Chinese |
+| `bge-small-zh-v1.5` | 0.6 | 0.45 | LongMemEval_S, Chinese |
+| `paraphrase-multilingual` (Ollama; mpnet-base-v2) | 0.65 | 0.35 | LongMemEval_S, Chinese, 24 questions (provisional) |
+| any other model | 0.45 | 0.2 | not calibrated |
+
+`all-minilm` is English only: on Chinese history it ranks the evidence 42nd at
+the median and attached memory to every off-topic prompt, which is worse
+than lexical recall alone. Prompts with Chinese, Japanese, Korean or other
+non-Latin text therefore skip semantic recall with it and behave as without
+embeddings. For Chinese or mixed-language history use a multilingual model;
+of those measured, `bge-small-zh-v1.5` recalled most. For a model that is not
+in the table, calibrate on your own data:
+
+```bash
+MNEMORA_CAL_EMBED_MODEL=<model> npm run eval:calibrate-semantic -- run <longmemeval.json[.gz]> 0:50 cal.jsonl
+npm run eval:calibrate-semantic -- report cal.jsonl
+```
+
+then pick a `minSimilarity` at which foreign and off-topic prompts rarely
+pass and check the pair with `npm run eval:longmemeval`
+(`MNEMORA_EVAL_EMBED_MODEL`, `MNEMORA_EVAL_MIN_SIMILARITY`,
+`MNEMORA_EVAL_GATE_SIMILARITY`). Explicit settings always win. An unavailable
 provider never blocks capture or recall; recall falls back to lexical.
 
 After enabling embeddings on an existing database, embed the backlog once:

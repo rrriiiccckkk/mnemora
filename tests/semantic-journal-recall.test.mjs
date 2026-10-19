@@ -20,12 +20,12 @@ function vectorFor(text) {
   for (const word of String(text).toLowerCase().match(/[a-z]+/g) ?? []) CONCEPTS.forEach((words, axis) => { if (words.includes(word)) vector[axis] += 1; });
   return vector;
 }
-function fakeEmbedder(calls = { count: 0 }, fail = false) {
-  return { calls, async embed(inputs) { calls.count += inputs.length; if (fail) throw new Error("provider down"); return { identity: { provider: "ollama", model: "concepts", dimensions: CONCEPTS.length + 1 }, vectors: inputs.map(vectorFor).map(vector => { const norm = Math.hypot(...vector); return vector.map(value => value / norm); }) }; } };
+function fakeEmbedder(calls = { count: 0 }, fail = false, model = "concepts") {
+  return { calls, async embed(inputs) { calls.count += inputs.length; if (fail) throw new Error("provider down"); return { identity: { provider: "ollama", model, dimensions: CONCEPTS.length + 1 }, vectors: inputs.map(vectorFor).map(vector => { const norm = Math.hypot(...vector); return vector.map(value => value / norm); }) }; } };
 }
-function setup({ embeddings = true, embedder = fakeEmbedder(), semantic = {} } = {}) {
+function setup({ embeddings = true, model = "concepts", embedder = fakeEmbedder(undefined, false, model), semantic = {} } = {}) {
   const directory = createTempDir("semantic-journal-");
-  const config = normalizeConfig({ dbPath: join(directory, "m.db"), mode: "standalone", conversationJournal: { enabled: true }, contextEngine: { enabled: true }, embeddings: { enabled: embeddings, provider: "ollama", model: "concepts" }, unifiedRetrieval: { enabled: true, shadowMode: false, tokenBudget: 800, maxItems: 8, semantic: { minSimilarity: .8, ...semantic } } });
+  const config = normalizeConfig({ dbPath: join(directory, "m.db"), mode: "standalone", conversationJournal: { enabled: true }, contextEngine: { enabled: true }, embeddings: { enabled: embeddings, provider: "ollama", model }, unifiedRetrieval: { enabled: true, shadowMode: false, tokenBudget: 800, maxItems: 8, semantic: { minSimilarity: .8, ...semantic } } });
   const graph = new Mnemora({ config, embedder });
   const shared = new Proxy(graph, { get: (target, property) => property === "close" ? () => undefined : Reflect.get(target, property, target) });
   return { graph, config, engine: new MnemoraContextEngine(config, () => shared), close: () => graph.close() };
@@ -35,7 +35,7 @@ const identity = { provider: "ollama", model: "concepts", dimensions: CONCEPTS.l
 
 test("semantic recall defaults: on with embeddings, bounded scan and per-turn work", () => {
   const { semantic } = normalizeConfig({}).unifiedRetrieval;
-  assert.deepEqual(semantic, { enabled: true, minSimilarity: .45, gateSimilarity: .2, maxScanChunks: 50000, embedPerTurn: 128 });
+  assert.deepEqual(semantic, { enabled: true, maxScanChunks: 50000, embedPerTurn: 128 });
   assert.equal(normalizeConfig({ unifiedRetrieval: { semantic: { maxScanChunks: 1, embedPerTurn: 99999 } } }).unifiedRetrieval.semantic.maxScanChunks, 100);
   assert.equal(normalizeConfig({ unifiedRetrieval: { semantic: { embedPerTurn: 99999 } } }).unifiedRetrieval.semantic.embedPerTurn, 1000);
 });
@@ -132,5 +132,20 @@ test("journal embed CLI requires a model and rejects unknown options", async () 
     const result = run(...args);
     assert.notEqual(result.status, 0);
     assert.match(result.stdout + result.stderr, /invalid_arguments/u);
+  }
+});
+
+test("an English-only model sits out prompts in other scripts; other models still embed them", async () => {
+  for (const [model, embedsChinesePrompt] of [["all-minilm:latest", false], ["concepts", true]]) {
+    const { graph, engine, close } = setup({ model });
+    const queries = [], queryVector = graph.journalQueryVector.bind(graph);
+    graph.journalQueryVector = async (query, signal) => { queries.push(query); return queryVector(query, signal); };
+    try {
+      await engine.ingestBatch({ sessionId: "pref", messages: [{ role: "user", content: "I really love hiking on mountain trails." }] });
+      assert.match(await ask(engine, "Any suggestions for this weekend outdoors?"), /hiking/u, model);
+      queries.length = 0;
+      await ask(engine, "这个周末有什么户外活动建议？");
+      assert.equal(queries.length > 0, embedsChinesePrompt, model);
+    } finally { close(); }
   }
 });
