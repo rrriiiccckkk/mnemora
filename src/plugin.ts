@@ -86,6 +86,7 @@ const configSchema = Type.Object({
     maxContextTokens: Type.Optional(Type.Integer({ default: 8000, minimum: 256, maximum: 64000 })),
     maxSummaryChars: Type.Optional(Type.Integer({ default: 8000, minimum: 256, maximum: 32000 })),
     protectedRecentEvents: Type.Optional(Type.Integer({ default: 6, minimum: 2, maximum: 50 })),
+    recallPlacement: Type.Optional(Type.Union([Type.Literal("user"), Type.Literal("system")])),
     compaction: Type.Optional(Type.Object({
       enabled: Type.Optional(Type.Boolean({ default: false })),
       minEvents: Type.Optional(Type.Integer({ default: 4, minimum: 2, maximum: 50 })),

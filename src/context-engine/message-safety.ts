@@ -39,6 +39,36 @@ export function messageText(message: HostMessage, maxChars = 16000): string {
   return value.slice(0, Math.max(0, maxChars));
 }
 
+const RECALL_PACKET = /<(?:mnemora_graph_context|mnemora_memory)\b[^>]*>[\s\S]*?<\/(?:mnemora_graph_context|mnemora_memory)>\s*/gi;
+
+/** Remove recall packets that Mnemora itself attached, so a turn that carries
+ * one is never captured, fingerprinted or queried as the user's own words.
+ * Packet content cannot close the envelope early: rendering neutralizes
+ * reserved Mnemora tags inside records. */
+export function stripRecallPackets(text: string): string {
+  return text.includes("<") ? text.replace(RECALL_PACKET, "") : text;
+}
+
+/** Place the recall packet just before the active (newest) user message.
+ * Returns undefined when there is no user message or its content shape is
+ * unknown; the caller then falls back to the system prompt addition. Host
+ * message objects are copied, never mutated. */
+export function placeRecallBeforeUserMessage<T extends HostMessage>(messages: readonly T[], packet: string): T[] | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!;
+    if (contextDomain(message) !== "user_chat" || String(message.role ?? "").toLowerCase() !== "user") continue;
+    const content = message.content;
+    let placed: unknown;
+    if (typeof content === "string") placed = `${packet}\n\n${content}`;
+    else if (Array.isArray(content)) placed = [{ type: "text", text: packet }, ...content];
+    else return undefined;
+    const copy = messages.slice();
+    copy[index] = { ...message, content: placed };
+    return copy;
+  }
+  return undefined;
+}
+
 export function estimateMessageTokens(message: HostMessage): number {
   // `messageText` is intentionally capped for journal derivatives. Prompt
   // accounting, however, must measure the original host message: returning

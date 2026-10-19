@@ -44,15 +44,15 @@ Chosen after comparing open-source agent memory (2026-10-19, see
 [Comparison with other memory systems](#comparison-with-other-memory-systems)).
 Each item targets a measured weakness.
 
-1. **Preference recall.** Stated preferences ("I don't eat spicy food") and
-   later requests ("recommend a restaurant") share few words, so lexical recall
-   misses them. Profile-style memory (Memobase profile slots, OpenClaw
-   `USER.md`) addresses the same need, but here the recall stays the user's own
-   first-person statements with their sources, never a model-written profile.
-   Check first how this overlaps with `USER.md` when memory-core is active, so
-   the same preference is not injected twice. Analyse the failing questions
-   before choosing the mechanism. Target: preference session hit at least
-   bm25's 70%, answer accuracy clearly above 43.3%.
+1. **Preference recall (done on main).** Retrieval was not the bottleneck:
+   lexical recall already matched bm25's session hit (21/30) and semantic
+   recall found 23 of 30 evidence turns, but readers ignored memory in the
+   system prompt. The recall packet now sits at the start of the active user
+   message by default (`contextEngine.recallPlacement`); preference answers
+   with semantic recall rose from 8 to 16 of 30 (`mimo-v2.6-pro`) and 5 to 18
+   (`mimo-v2.6-flash`), with abstention and other types unchanged. Capture
+   strips the packet so it is never re-recorded as user speech. See
+   [Recall quality](recall-quality.md).
 2. **Event-time normalization.** Records carry when they were recorded, not
    when the event happened. At capture, resolve relative dates ("last
    Tuesday", "next month") against the message date and show the absolute date

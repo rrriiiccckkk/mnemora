@@ -136,7 +136,7 @@ attached history:
 - **none**: no history.
 - **bm25**: the same-budget SQLite FTS5 baseline (800 tokens, 8 items, whole
   messages, speaker and time per item).
-- **Mnemora**: the `systemPromptAddition` from `assemble()`, README
+- **Mnemora**: the recall packet from `assemble()` (then a `systemPromptAddition`), README
   configuration, lexical only (no embedding model).
 
 Sessions are ingested with their dataset timestamps, and each question runs
@@ -433,3 +433,58 @@ budget. Mnemora attached memory to all 90.
   from 7.6% to 72.6% (1.35, 500 questions) at the cost of about one in five
   abstentions. With 30 questions per arm one question is 3.3 points, and a
   few verdicts are judge noise.
+
+## Preference questions and recall placement (1.37)
+
+The 30 single-session-preference questions of LongMemEval_S ask for advice or
+recommendations ("Can you suggest accessories for my photography setup?"); the
+evidence is always an earlier user turn ("as a Sony camera user..."), often
+with no shared words.
+
+Retrieval, 800-token budget (session hit / evidence-turn hit, of 30):
+
+| | Session | Evidence turn |
+|---|---:|---:|
+| bm25 | 21 | 14 |
+| Lexical (default) | 21 | 17 |
+| Semantic, `all-minilm` | 26 | 23 |
+
+With an 8,000-token budget and 40 items, lexical reaches 19 evidence turns,
+bm25 22 and semantic 24, and lowering `minSimilarity` to 0.35 changed nothing:
+retrieval is near its ceiling for this type.
+
+Answers, host-agent prompt (`MNEMORA_QA_PROMPT=agent`: memory in the system
+message, bare question), judged by `mimo-v2.6-pro`:
+
+| Reader | No memory | Lexical | Semantic |
+|---|---:|---:|---:|
+| `mimo-v2.6-pro` | 0/30 | 8/30 | 8/30 |
+| `mimo-v2.6-flash` | 1/30 | 7/30 | 5/30 |
+
+The extra evidence turns did not turn into answers. With the evidence attached,
+the readers still answered generically in 15 cases, some asking the user for
+the very detail the memory held. Changing the packet did not help (within ±2
+of 30 for both readers, in no consistent direction): a header sentence saying
+that `role=user` records are the user's own statements and should tailor
+advice; keeping only user records; and both.
+
+Moving the same packet to the start of the user message
+(`MNEMORA_QA_PROMPT=agent-user`) did:
+
+| Reader | Lexical: system → user | Semantic: system → user |
+|---|---:|---:|
+| `mimo-v2.6-pro` | 8 → 11 | 8 → 16 |
+| `mimo-v2.6-flash` | 7 → 14 | 5 → 18 |
+
+On the 1.36 abstention set (30 abstention and 60 answerable questions, 10 per
+type, lexical), placement in the user message changed abstention from 22 to 21
+(`pro`) and 21 to 20 (`flash`), and answerable questions from 43 to 45 (+2 / −0)
+and 41 to 46 (+7 / −2). The gain is in preference questions (3 → 5, 1 → 7);
+every other type moved by at most one question.
+
+Decision: the packet is placed at the start of the active user message by
+default (`contextEngine.recallPlacement`, `"system"` restores the earlier
+behaviour). No preference-specific retrieval was added; with placement fixed,
+semantic recall is what lifts this type, which is why the next item reuses the
+host's embedding provider. Limits: 30 preference questions; two readers from
+one vendor; one judge.

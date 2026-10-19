@@ -13,6 +13,7 @@ import { ContextCompactionService } from "../dist/context-engine/compaction-serv
 import { DeepSeekExtractor } from "../dist/extractor.js";
 import { Mnemora } from "../dist/index.js";
 import { createMnemoraContextRef } from "../dist/context/context-ref.js";
+import { recallText, withoutRecall } from "./helpers/recall.mjs";
 
 const { payloads } = JSON.parse(readFileSync(new URL("./fixtures/memory-poisoning.json", import.meta.url), "utf8"));
 const policy = { maxInlineChars: 16000, maxEventBytes: 262144, sensitiveContentPolicy: "redact" };
@@ -73,8 +74,8 @@ for (const payload of payloads) {
     const engine = new MnemoraContextEngine(config, open);
     await engine.ingest({ sessionId: "source", message: { role: "user", content: payload.text } });
     const result = await engine.assemble({ sessionId: "later", prompt: "Useful migration note", messages: [{ role: "user", content: "Useful migration note" }], tokenBudget: 2048 });
-    assertReferenceBody(result.systemPromptAddition ?? "", "MNEMORA_MEMORY");
-    assert.deepEqual(result.messages, [{ role: "user", content: "Useful migration note" }]);
+    assertReferenceBody(recallText(result) ?? "", "MNEMORA_MEMORY");
+    assert.deepEqual(result.messages.map(withoutRecall), [{ role: "user", content: "Useful migration note" }]);
     const audit = open();
     try { assert.equal(new ConversationEventRepository(audit.store.db, policy).search("default", "Useful migration")[0].normalizedText, payload.text); }
     finally { audit.close(); }
@@ -92,9 +93,9 @@ for (const payload of payloads) {
       assert.equal(pending.status, "pending");
       const engine = new MnemoraContextEngine(config, open);
       const request = { sessionId: "url-recall", prompt: "Canary", messages: [{ role: "user", content: "Canary" }], tokenBudget: 2048 };
-      assert.doesNotMatch((await engine.assemble(request)).systemPromptAddition ?? "", /POISON_CANARY/);
+      assert.doesNotMatch(recallText(await engine.assemble(request)) ?? "", /POISON_CANARY/);
       graph.kg_verify({ operation: "transition", verification_id: pending.id, status: "verified", support_type: "direct", confirm: true });
-      assertReferenceBody((await engine.assemble(request)).systemPromptAddition ?? "", "MNEMORA_MEMORY");
+      assertReferenceBody(recallText(await engine.assemble(request)) ?? "", "MNEMORA_MEMORY");
       assert.equal(graph.store.db.prepare("SELECT quote FROM kg_observations WHERE id=?").get(pending.claim_id).quote, payload.text);
     } finally { graph.close(); }
   });

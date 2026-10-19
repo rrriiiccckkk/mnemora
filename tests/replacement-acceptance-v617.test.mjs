@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import test from "node:test";
 import { MnemoraContextEngine, Mnemora, PROVIDER_ADAPTER_CONTRACT_V1, normalizeConfig } from "../dist/index.js";
+import { recallText, withoutRecall } from "./helpers/recall.mjs";
 
 const capabilities = { searchSources: false, resolveRawSource: false, resolveSummaryLineage: false, stableExternalIds: true, returnsContentHash: false, returnsScores: false, supportsAbortSignal: true };
 
@@ -48,7 +49,7 @@ test("v6.17 standalone acceptance works without legacy plugins: public migration
     assert.equal((await restarted.bootstrap({ sessionId: "replacement" })).reason, "journal_session_reconciled");
     const assembled = await restarted.assemble({ sessionId: "replacement", prompt: "Which project language is preferred?", messages, tokenBudget: 600 });
     assert.match(JSON.stringify(assembled.messages), /MNEMORA_COMPACTION/);
-    assert.match(assembled.systemPromptAddition ?? "", /TypeScript/);
+    assert.match(recallText(assembled) ?? "", /TypeScript/);
     const verify = open();
     try {
       assert.equal(verify.store.db.prepare("SELECT COUNT(*) AS n FROM mnemora_compaction_runs WHERE scope='default' AND status='succeeded'").get().n > 0, true);

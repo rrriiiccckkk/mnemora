@@ -11,7 +11,7 @@ import type { MnemoraConfig } from "../index.js";
 import { ConversationEventRepository } from "../journal/repository.js";
 import type { JournalDerivedTaskKind, JournalEventInput, JournalEventKind, JournalRole, JournalTurnReceipt } from "../journal/types.js";
 import type { CompletedTurn, ContextAssemblyInput } from "./lifecycle.js";
-import { contextDomain, estimateMessageTokens, messageText, selectBoundHostMessages, type HostMessage } from "./message-safety.js";
+import { contextDomain, estimateMessageTokens, messageText, stripRecallPackets, placeRecallBeforeUserMessage, selectBoundHostMessages, type HostMessage } from "./message-safety.js";
 import { UnifiedRetrievalService } from "../retrieval/service.js";
 import { sanitizeMemoryForContext } from "../retrieval/context-safety.js";
 import { ProjectionEvidenceReader, renderProjectionEvidence, limitProjectionEvidence } from "../retrieval/projection-evidence.js";
@@ -529,7 +529,11 @@ export class MnemoraContextEngine implements ContextEngine {
         recordAssemblyDiagnostic(this.config.contextEngine.assemblyDiagnostics, { scope: this.scope(), sessionId: params.sessionId, estimatedTokens: total, segments: diagnosticSegments });
       } catch { /* diagnostics cannot change host assembly availability */ }
     }
-    return { messages, estimatedTokens: total, promptAuthority: boundedMessages.overBudget || total > budget ? "preassembly_may_overflow" as const : "assembled" as const, ...(addition ? { systemPromptAddition: addition } : {}) };
+    // Recall sits just before the active user message by default: readers
+    // used it there and ignored it in the system prompt (docs/recall-quality.md,
+    // 1.37). The text and its token cost are the same either way.
+    const placed = addition && this.config.contextEngine?.recallPlacement !== "system" ? placeRecallBeforeUserMessage(projectedMessages, addition) as unknown as typeof params.messages | undefined : undefined;
+    return { messages: placed ?? messages, estimatedTokens: total, promptAuthority: boundedMessages.overBudget || total > budget ? "preassembly_may_overflow" as const : "assembled" as const, ...(addition && !placed ? { systemPromptAddition: addition } : {}) };
     });
   }
 
@@ -699,7 +703,7 @@ export class MnemoraContextEngine implements ContextEngine {
       try {
         const texts = messages.flatMap(message => {
           const host = asHostMessage(message);
-          return contextDomain(host) === "user_chat" && String(host.role ?? "").toLowerCase() === "user" ? [messageText(host, 16_384)] : [];
+          return contextDomain(host) === "user_chat" && String(host.role ?? "").toLowerCase() === "user" ? [stripRecallPackets(messageText(host, 16_384))] : [];
         });
         new FirstUseVerificationRepository(db).recordCapture({ scope: this.scope(), sessionId, texts });
       } catch (error) { this.fail("first_use_observation", error); /* never changes durable capture */ }
@@ -775,10 +779,10 @@ export class MnemoraContextEngine implements ContextEngine {
       const host = asHostMessage(message);
       if (contextDomain(host) !== "user_chat") continue;
       const role = typeof host.role === "string" ? host.role.toLowerCase() : "";
-      const text = messageText(host).trim();
+      const text = stripRecallPackets(messageText(host)).trim();
       if (!text) continue;
       if (role === "user") { userText = text; assistantText = undefined; agentId = this.publicAgentId(host); }
-      else if (role === "assistant") assistantText = text.replace(/<(?:mnemora_graph_context|mnemora_memory)\b[^>]*>[\s\S]*?<\/(?:mnemora_graph_context|mnemora_memory)>/gi, "").trim() || undefined;
+      else if (role === "assistant") assistantText = text;
     }
     const completedAgentId = trustedAgentId ?? agentId;
     return userText && assistantText ? { sessionId, userText, assistantText, ...(completedAgentId ? { agentId: completedAgentId } : {}), ...(runtimeLlm ? { runtimeLlm } : {}), ...(signal ? { signal } : {}) } : undefined;
@@ -818,7 +822,7 @@ export class MnemoraContextEngine implements ContextEngine {
   private compatibilityFingerprint(messages: readonly RuntimeMessage[]): string {
     return digest(JSON.stringify(messages.map(message => {
       const host = asHostMessage(message), timestamp = typeof host.timestamp === "number" && Number.isFinite(host.timestamp) ? Math.floor(host.timestamp) : null;
-      return { role: typeof host.role === "string" ? host.role.toLowerCase() : "", domain: contextDomain(host), text: messageText(host), timestamp };
+      return { role: typeof host.role === "string" ? host.role.toLowerCase() : "", domain: contextDomain(host), text: stripRecallPackets(messageText(host)), timestamp };
     })));
   }
 
@@ -834,7 +838,7 @@ export class MnemoraContextEngine implements ContextEngine {
       kind,
       role,
       contextDomain: domain,
-      parts: [{ type: "text", text: messageText(host) }],
+      parts: [{ type: "text", text: stripRecallPackets(messageText(host)) }],
       hostCorrelation: this.correlation(sessionId, host, ordinal, options.source),
       identityOrigin: "host",
       ...(hostTimestamp(host.timestamp) !== undefined ? { createdAt: hostTimestamp(host.timestamp) } : {})

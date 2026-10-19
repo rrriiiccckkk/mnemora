@@ -252,6 +252,8 @@ export interface MnemoraConfig {
     maxContextTokens?: number;
     maxSummaryChars?: number;
     protectedRecentEvents?: number;
+    /** Where the recall packet goes: before the active user message (default) or the system prompt addition. */
+    recallPlacement?: "user" | "system";
     /** Explicit local model compaction. Disabled by default; otherwise OpenClaw remains the compactor. */
     compaction?: {
       enabled?: boolean;
@@ -401,7 +403,7 @@ export const defaultConfig: MnemoraConfig = {
     replayFloodThresholdExternal: 24,
     replayFloodThresholdInternal: 8
   },
-  contextEngine: { enabled: false, maxContextTokens: 8000, maxSummaryChars: 8000, protectedRecentEvents: 6, compaction: { enabled: false, minEvents: 4, maxInputChars: 12000, maxOutputChars: 4000, timeoutMs: 15000, maxRunsPerHour: 4, maxDailyTokens: 32000, circuitCooldownMs: 3600000, summaryMaxCallsPerWindow: 24, summaryCallWindowMs: 600000, summarySpendBackoffMs: 1800000, contextThreshold: .75, freshTailCount: 8, leafChunkTokens: 3000, maxChunksPerRun: 4, condensedMinFanout: 4, deadlineMs: 45000 } },
+  contextEngine: { enabled: false, maxContextTokens: 8000, maxSummaryChars: 8000, protectedRecentEvents: 6, recallPlacement: "user", compaction: { enabled: false, minEvents: 4, maxInputChars: 12000, maxOutputChars: 4000, timeoutMs: 15000, maxRunsPerHour: 4, maxDailyTokens: 32000, circuitCooldownMs: 3600000, summaryMaxCallsPerWindow: 24, summaryCallWindowMs: 600000, summarySpendBackoffMs: 1800000, contextThreshold: .75, freshTailCount: 8, leafChunkTokens: 3000, maxChunksPerRun: 4, condensedMinFanout: 4, deadlineMs: 45000 } },
   artifacts: { enabled: false, inlineThresholdChars: 12000, maxArtifactBytes: 262144, toolPayloads: { enabled: false } },
   corpus: { enabled: false, workspaceRoot: "", syncOnSearch: true, syncIntervalMs: 60000, maxFileBytes: 1048576, maxFiles: 500, maxSessionFilesPerAgent: 25, maxChunkChars: 4000, maxChunkLines: 80, includeSessions: false, includeDreamingArtifacts: false },
   workspaceBoundary: { userMdExclusive: { enabled: false } },

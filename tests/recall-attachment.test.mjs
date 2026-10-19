@@ -6,6 +6,7 @@ import { createTempDir } from "./helpers/temp.mjs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import plugin from "../dist/plugin.js";
+import { recallText, withoutRecall } from "./helpers/recall.mjs";
 
 function fixture() {
   const store = new api.GraphologyStore(":memory:");
@@ -79,8 +80,8 @@ for (const mode of ["enabled", "disabled", "stateless", "budget", "ignored", "ex
   try { document = graph.kg_memory({ operation: "store", title: "Release policy", content: "Use a preview before production release." }); } finally { graph.close(); }
   const engine = new MnemoraContextEngine(config, open);
   const result = await engine.assemble({ sessionId: mode, prompt: "production release", messages: [{ role: "user", content: "Prepare production release", ...(mode === "excluded" ? { agentId: "skip:agent" } : {}) }], tokenBudget: mode === "budget" ? 32 : 512 });
-  if (mode !== "budget" && mode !== "excluded") assert.match(result.systemPromptAddition ?? "", /Release|release/);
-  if (mode === "excluded") assert.equal(result.systemPromptAddition, undefined);
+  if (mode !== "budget" && mode !== "excluded") assert.match(recallText(result) ?? "", /Release|release/);
+  if (mode === "excluded") assert.equal(recallText(result), undefined);
   const verify = open();
   try {
     const targetRef = api.createMnemoraContextRef({ scope: "default", kind: "memory-document", id: document.id });

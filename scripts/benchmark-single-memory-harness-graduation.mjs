@@ -8,6 +8,7 @@ import { MnemoraContextEngine } from "../dist/context-engine/engine.js";
 import { UnifiedRetrievalService } from "../dist/retrieval/service.js";
 import { normalizeConfig } from "../dist/config.js";
 import { PluginRuntime } from "../dist/plugin-runtime.js";
+import { recallText } from "../tests/helpers/recall.mjs";
 
 if (process.argv.includes("--worker")) {
   if (!process.env.MNEMORA_TEST_TEMP_ROOT) throw new Error("managed_test_worker_required");
@@ -58,7 +59,7 @@ try {
     contextEngine: engine, sessionId: "graduation", sessionKey, agentId: "main", messages: [{ id: "g-3", role: "user", content: "Help me code in TypeScript", timestamp: 3 }],
     prompt: "TypeScript coding", tokenBudget: 512, modelId: "graduation-fixture"
   }));
-  assert.match(assemble.value?.systemPromptAddition ?? "", /MNEMORA_MEMORY/);
+  assert.match(recallText(assemble.value) ?? "", /MNEMORA_MEMORY/);
 
   const graph = open();
   try {

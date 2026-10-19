@@ -12,6 +12,7 @@ import { Mnemora } from "../dist/tools.js";
 import { ConversationEventRepository } from "../dist/journal/repository.js";
 import { GraphologyStore } from "../dist/store.js";
 import { SUPPORTED_SCHEMA_VERSION } from "../dist/schema.js";
+import { recallText, withoutRecall } from "./helpers/recall.mjs";
 
 test("standalone is the only lifecycle, blocks incomplete ownership, and reports only declared public topology", () => {
   assert.equal(normalizeConfig({}).mode, "standalone");
@@ -116,7 +117,7 @@ test("standalone ContextEngine retains committed long-session source events acro
       assert.equal(journal.diagnostics(true).events, 80);
       assert.equal((await restarted.bootstrap({ sessionId: "long-session", sessionFile: "session.jsonl" })).reason, "journal_session_reconciled");
       const assembled = await restarted.assemble({ sessionId: "long-session", messages: [{ role: "user", content: "latest" }] });
-      assert.equal("systemPromptAddition" in assembled, false);
+      assert.equal((recallText(assembled) !== undefined), false);
     } finally { graph.close(); }
   } finally { /* The root owner removes this fixture after the native worker exits. */ }
 });

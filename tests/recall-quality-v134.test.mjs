@@ -7,6 +7,7 @@ import { normalizeConfig } from "../dist/config.js";
 import { Mnemora } from "../dist/tools.js";
 import { contentTerms, ftsMatchExpression, joinHanSingles, lightStem, matchedTerms, weightedCoverage } from "../dist/retrieval/lexical.js";
 import { selectInjectionCandidates } from "../dist/retrieval/injection-policy.js";
+import { recallText, withoutRecall } from "./helpers/recall.mjs";
 
 function engine(unifiedRetrieval = {}) {
   const directory = createTempDir("recall-v134-");
@@ -16,7 +17,7 @@ function engine(unifiedRetrieval = {}) {
   return { engine: new MnemoraContextEngine(config, () => shared), graph, close: () => graph.close() };
 }
 async function ask(target, prompt) {
-  return (await target.assemble({ sessionId: "query-session", prompt, messages: [{ role: "user", content: prompt }], tokenBudget: 16000 })).systemPromptAddition ?? "";
+  return recallText(await target.assemble({ sessionId: "query-session", prompt, messages: [{ role: "user", content: prompt }], tokenBudget: 16000 })) ?? "";
 }
 const candidate = (id, excerpt, queryMatch, score = 1) => ({ contextRef: `mnemora://v1/scope/default/conversation-event/${id}`, kind: "conversation-event", scope: "default", title: "user_message", excerpt, estimatedTokens: 10, bytes: excerpt.length, score, sourceIds: [id], sourceRefs: [], authority: "user_explicit", confidence: 1, freshness: 1, selectionReason: "lexical_match", queryMatch });
 

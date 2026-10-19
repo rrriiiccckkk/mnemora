@@ -16,6 +16,7 @@ import { EpisodeRepository } from "../dist/episodes/repository.js";
 import { normalizeConfig } from "../dist/config.js";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
+import { recallText, withoutRecall } from "./helpers/recall.mjs";
 
 const policy = { maxInlineChars: 16000, maxEventBytes: 262144, sensitiveContentPolicy: "redact" };
 const event = (repo, input) => repo.append({ scope: "project-a", sessionId: "session-a", role: "user", kind: "user_message", parts: [{ type: "text", text: input }] });
@@ -536,7 +537,7 @@ test("ContextEngine preserves the current user message verbatim and never emits 
   const assembled = await engine.assemble({ sessionId: "s", messages: [{ role: "system", content: "safety" }, { role: "user", content: "old".repeat(2000) }, quoted], tokenBudget: 256 });
   assert.equal(assembled.messages.includes(quoted), true);
   assert.deepEqual(assembled.messages.find(message => message.id === "current"), quoted);
-  assert.equal("systemPromptAddition" in assembled, false);
+  assert.equal((recallText(assembled) !== undefined), false);
 });
 
 test("standalone ContextEngine is the single opt-in unified-memory prompt producer", async () => {
@@ -547,7 +548,7 @@ test("standalone ContextEngine is the single opt-in unified-memory prompt produc
   try { new ConversationEventRepository(graph.store.db, policy).append({ scope: "default", sessionId: "old", kind: "user_message", role: "user", parts: [{ type: "text", text: "The user prefers TypeScript for coding projects" }] }); } finally { graph.close(); }
   const engine = new MnemoraContextEngine(config, open), current = { id: "current", role: "user", content: "Help me with TypeScript coding" };
   const assembled = await engine.assemble({ sessionId: "new", prompt: "TypeScript coding", messages: [{ role: "system", content: "host policy" }, current], tokenBudget: 512 });
-  assert.equal(assembled.messages.at(-1), current); assert.match(assembled.systemPromptAddition ?? "", /MNEMORA_MEMORY/); assert.match(assembled.systemPromptAddition ?? "", /non_authoritative/);
+  assert.deepEqual(withoutRecall(assembled.messages.at(-1)), current); assert.equal(current.content, "Help me with TypeScript coding"); assert.match(recallText(assembled) ?? "", /MNEMORA_MEMORY/); assert.match(recallText(assembled) ?? "", /non_authoritative/);
 });
 
 test("ContextEngine records lifecycle use only after a bounded memory attachment and renders its provenance", async () => {
@@ -560,7 +561,7 @@ test("ContextEngine records lifecycle use only after a bounded memory attachment
   const engine = new MnemoraContextEngine(config, open);
   try {
     const assembled = await engine.assemble({ sessionId: "usage", prompt: "production release", messages: [{ role: "user", content: "Prepare a production release" }], tokenBudget: 512 });
-    assert.match(assembled.systemPromptAddition ?? "", /ref=mnemora:\/\/v1\/scope\/default\/memory-document\//);
+    assert.match(recallText(assembled) ?? "", /ref=mnemora:\/\/v1\/scope\/default\/memory-document\//);
     const verify = open();
     try {
       const ref = createMnemoraContextRef({ scope: "default", kind: "memory-document", id: document.id });
@@ -580,8 +581,8 @@ test("ContextEngine excludes only an explicit public agent identity from automat
   try {
     const excluded = await engine.assemble({ sessionId: "excluded", prompt: "TypeScript coding", messages: [{ role: "user", agentId: "Background:Worker", content: "Help me with TypeScript coding" }], tokenBudget: 512 });
     const ordinary = await engine.assemble({ sessionId: "ordinary", prompt: "TypeScript coding", messages: [{ role: "user", content: "Help me with TypeScript coding" }], tokenBudget: 512 });
-    assert.equal(excluded.systemPromptAddition, undefined);
-    assert.match(ordinary.systemPromptAddition ?? "", /MNEMORA_MEMORY/);
+    assert.equal(recallText(excluded), undefined);
+    assert.match(recallText(ordinary) ?? "", /MNEMORA_MEMORY/);
     await engine.afterTurn({ sessionId: "excluded", prePromptMessageCount: 0, messages: [{ id: "excluded-user", role: "user", agentId: "Background:Worker", content: "Do not persist this" }, { id: "excluded-assistant", role: "assistant", content: "This response must not be captured" }] });
     const verify = open(); try { assert.equal(verify.store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_conversation_events WHERE session_id='excluded'").get().value, 0); } finally { verify.close(); }
   } finally { try { rmSync(directory, { recursive: true, force: true }); } catch {} }
@@ -599,7 +600,7 @@ test("ContextEngine honors tag routing in unified retrieval and fails open on ho
   const engine = new MnemoraContextEngine(config, open);
   try {
     const assembled = await engine.assemble({ sessionId: "tags", prompt: "tag:research", messages: [{ role: "user", content: "Find the research notes" }], tokenBudget: 800 });
-    assert.match(assembled.systemPromptAddition ?? "", /tagged retrieval/); assert.doesNotMatch(assembled.systemPromptAddition ?? "", /personal result/);
+    assert.match(recallText(assembled) ?? "", /tagged retrieval/); assert.doesNotMatch(recallText(assembled) ?? "", /personal result/);
     await assert.doesNotReject(() => engine.afterTurn({ sessionId: "hostile", prePromptMessageCount: 0, messages: Array.from({ length: 513 }, (_value, index) => ({ id: `m${index}`, role: "user", content: "host input" })) }));
     await assert.doesNotReject(() => engine.ingest({ sessionId: "s".repeat(513), message: { role: "user", content: "host input" } }));
     const verify = open(); try { assert.equal(verify.store.db.prepare("SELECT COUNT(*) AS value FROM mnemora_conversation_events WHERE session_id='hostile'").get().value, 0); } finally { verify.close(); }
@@ -618,10 +619,10 @@ test("ContextEngine forwards exact prefix constraints and never supplements a co
   const engine = new MnemoraContextEngine(config, open);
   try {
     const constrained = await engine.assemble({ sessionId: "prefix", prompt: "proj:AIF env:prod deployment", messages: [{ role: "user", content: "Find the deployment runbook" }], tokenBudget: 800 });
-    assert.match(constrained.systemPromptAddition ?? "", /bounded AIF deployment runbook/);
-    assert.doesNotMatch(constrained.systemPromptAddition ?? "", /unrelated deployment note|Graph evidence expansion/);
+    assert.match(recallText(constrained) ?? "", /bounded AIF deployment runbook/);
+    assert.doesNotMatch(recallText(constrained) ?? "", /unrelated deployment note|Graph evidence expansion/);
     const mismatch = await engine.assemble({ sessionId: "scope", prompt: "scope:project:other deployment", messages: [{ role: "user", content: "Find deployment" }], tokenBudget: 800 });
-    assert.equal(mismatch.systemPromptAddition, undefined);
+    assert.equal(recallText(mismatch), undefined);
   } finally { try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
 
@@ -637,9 +638,9 @@ test("standalone ContextEngine adds bounded semantic recall inside its one attac
   } finally { graph.close(); }
   const engine = new MnemoraContextEngine(config, open);
   const assembled = await engine.assemble({ sessionId: "semantic", prompt: "semiconductor supply chain", messages: [{ role: "user", content: "Help with the semiconductor supply chain" }], tokenBudget: 800 });
-  assert.match(assembled.systemPromptAddition ?? "", /Graph evidence expansion/);
-  assert.match(assembled.systemPromptAddition ?? "", /Packaging constraint/);
-  assert.equal((assembled.systemPromptAddition?.match(/<MNEMORA_MEMORY/g) ?? []).length, 1);
+  assert.match(recallText(assembled) ?? "", /Graph evidence expansion/);
+  assert.match(recallText(assembled) ?? "", /Packaging constraint/);
+  assert.equal((recallText(assembled)?.match(/<MNEMORA_MEMORY/g) ?? []).length, 1);
 });
 
 test("ContextEngine suppresses a generic graph match and records redacted injection telemetry", async () => {
@@ -653,7 +654,7 @@ test("ContextEngine suppresses a generic graph match and records redacted inject
   const engine = new MnemoraContextEngine(config, open);
   try {
     const assembled = await engine.assemble({ sessionId: "precision", prompt: "How does the Mnemora memory system work?", messages: [{ role: "user", content: "How does the Mnemora memory system work?" }], tokenBudget: 800 });
-    assert.doesNotMatch(assembled.systemPromptAddition ?? "", /Micron Technology|semiconductor memory company|memory chips/i);
+    assert.doesNotMatch(recallText(assembled) ?? "", /Micron Technology|semiconductor memory company|memory chips/i);
     const verification = open();
     try {
       const metrics = verification.kg_recall_metrics().unified;
@@ -763,8 +764,8 @@ test("public OpenClaw lifecycle bootstraps, assembles, restarts, and delegates s
   assert.equal((await lifecycle.finalizeHarnessContextEngineTurn(finalization)).postTurnFinalizationSucceeded, true);
   assert.equal((await lifecycle.finalizeHarnessContextEngineTurn(finalization)).postTurnFinalizationSucceeded, true);
   const assembled = await lifecycle.assembleHarnessContextEngine({ contextEngine: engine, sessionId: "graduation-session", sessionKey, agentId: "main", messages: [{ id: "current", role: "user", content: "Help me write TypeScript", timestamp: 5 }], prompt: "TypeScript coding", tokenBudget: 512, modelId: "fixture" });
-  assert.match(assembled?.systemPromptAddition ?? "", /MNEMORA_MEMORY/);
-  assert.match(assembled?.systemPromptAddition ?? "", /\] ref=mnemora:\/\//);
+  assert.match(recallText(assembled) ?? "", /MNEMORA_MEMORY/);
+  assert.match(recallText(assembled) ?? "", /\] ref=mnemora:\/\//);
   const compacted = await lifecycle.compactContextEngineWithSafetyTimeout(engine, { sessionId: "graduation-session", sessionKey, sessionFile: "session.jsonl", currentTokenCount: 100 }, 1_000);
   assert.equal(compacted.ok, true); assert.equal(compacted.compacted, true); assert.equal(delegated, 1);
   const restarted = new MnemoraContextEngine(config, open);

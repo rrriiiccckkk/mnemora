@@ -6,6 +6,7 @@ import { Mnemora, normalizeConfig, createMnemoraContextRef, RecallAttachmentEvid
 import { MnemoraContextEngine } from "../dist/context-engine/engine.js";
 import { RecallUsageRepository } from "../dist/recall-lifecycle/repository.js";
 import { FirstUseVerificationRepository } from "../dist/standalone/first-use-repository.js";
+import { recallText, withoutRecall } from "./helpers/recall.mjs";
 
 for (const [mode, embeddings] of [["lexical", false], ["hybrid", false], ["hybrid", true], ["semantic", true]]) {
   test(`kg_context recordAccess=false preserves ${mode} recall (embeddings=${embeddings}) without reinforcement`, async () => {
@@ -55,8 +56,8 @@ for (const sessionId of ["writable", "stateless", "ignored", "", "   "]) {
       assert.equal(baseline.acceptance.state, "awaiting_cross_session_attachment");
     } finally { graph.close(); }
     const result = await new MnemoraContextEngine(config, open).assemble({ sessionId, prompt: `Production release ${marker}`, messages: [{ role: "user", content: "Prepare production release" }], tokenBudget: 1200 });
-    assert.match(result.systemPromptAddition ?? "", /Production release requires a reviewed preview/);
-    assert.match(result.systemPromptAddition, new RegExp(marker));
+    assert.match(recallText(result) ?? "", /Production release requires a reviewed preview/);
+    assert.match(recallText(result), new RegExp(marker));
     const verify = open();
     try {
       const after = read(verify);
@@ -85,8 +86,8 @@ for (const sessionId of ["stateless", "ignored"]) {
       graph.store.ingest([{ name: "Production release", type: "concept", confidence: .9, evidence_span: "Production release requires signed approval." }], [], "manual:fixture");
     } finally { graph.close(); }
     const result = await new MnemoraContextEngine(config, open).assemble({ sessionId, prompt: "Production release", messages: [{ role: "user", content: "Prepare production release" }], tokenBudget: 1200 });
-    assert.match(result.systemPromptAddition ?? "", /Graph evidence expansion/);
-    assert.match(result.systemPromptAddition, /Production release/);
+    assert.match(recallText(result) ?? "", /Graph evidence expansion/);
+    assert.match(recallText(result), /Production release/);
     const verify = open();
     try {
       assert.equal(verify.kg_recall_metrics().unified.summary.total_runs, 0);

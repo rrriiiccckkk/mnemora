@@ -9,6 +9,7 @@ import { normalizeConfig } from "../dist/config.js";
 import { GraphologyStore } from "../dist/store.js";
 import { ConversationEventRepository } from "../dist/journal/repository.js";
 import { SummaryRepository } from "../dist/context-engine/summary-repository.js";
+import { recallText, withoutRecall } from "./helpers/recall.mjs";
 const NOW = 1000;
 const ref = (id, scope = "default", kind = "conversation-event") => `mnemora://v1/scope/${scope}/${kind}/${id}`;
 function fixture() { const directory = createTempDir("diagnostic-"); chmodSync(directory, 0o700); return { directory, enabled: true, scopes: ["default"], expiresAt: NOW + 1000 }; }
@@ -59,7 +60,7 @@ function engineFixture(extra={}) {
   return {output,config,open,params,engine:new MnemoraContextEngine(config,open)};
 }
 test("real assemble writes only packed candidates and preserves the returned context byte for byte", {skip:process.platform === "win32"},async()=>{
-  const f=engineFixture(),result=await f.engine.assemble(f.params); const [record]=records(f.output); assert.ok(record); assert.equal(record.segments[0].renderedBytes,Buffer.byteLength(result.systemPromptAddition));
+  const f=engineFixture(),result=await f.engine.assemble(f.params); const [record]=records(f.output); assert.ok(record); assert.equal(record.segments[0].renderedBytes,Buffer.byteLength(recallText(result)));
   assert.ok(record.segments[0].candidates.some(item=>item.kind==="summary")); assert.equal(JSON.stringify(record).includes("PRIVATE_"),false);
   const disabled=new MnemoraContextEngine({...f.config,contextEngine:{...f.config.contextEngine,assemblyDiagnostics:{enabled:false}}},f.open); assert.deepEqual(await disabled.assemble(f.params),result);
   const failed=new MnemoraContextEngine({...f.config,contextEngine:{...f.config.contextEngine,assemblyDiagnostics:{...f.config.contextEngine.assemblyDiagnostics,directory:"relative"}}},f.open); assert.deepEqual(await failed.assemble(f.params),result);
@@ -78,11 +79,11 @@ test("packing omissions never become attached candidate entries", {skip:process.
   const f=engineFixture();
   const constrained=new MnemoraContextEngine({...f.config,unifiedRetrieval:{...f.config.unifiedRetrieval,tokenBudget:128,maxItems:1}},f.open);
   const result=await constrained.assemble(f.params),record=records(f.output)[0];
-  if(result.systemPromptAddition) for(const item of record.segments.find(s=>s.kind==="unified_retrieval").candidates) assert.ok(result.systemPromptAddition.includes(item.contextRef));
+  if(recallText(result)) for(const item of record.segments.find(s=>s.kind==="unified_retrieval").candidates) assert.ok(recallText(result).includes(item.contextRef));
   assert.equal(record.segments.filter(s=>s.kind==="unified_retrieval").flatMap(s=>s.candidates).length<=1,true);
   const empty=await constrained.assemble({...f.params,prompt:"completely-unrelated-query"});
   const emptyRecord=records(f.output).find(r=>r.id!==record.id);
-  assert.equal(empty.systemPromptAddition,undefined); assert.deepEqual(emptyRecord.segments,[]);
+  assert.equal(recallText(empty),undefined); assert.deepEqual(emptyRecord.segments,[]);
 });
 test("plugin compaction projection records its final returned envelope", {skip:process.platform === "win32"},async()=>{
   const f=engineFixture({contextEngine:{enabled:true,maxContextTokens:800,maxSummaryChars:300,protectedRecentEvents:2,compaction:{enabled:true,freshTailCount:2}}});

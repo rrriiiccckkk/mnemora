@@ -6,6 +6,7 @@ import { MnemoraContextEngine } from "../dist/context-engine/engine.js";
 import { normalizeConfig } from "../dist/config.js";
 import { Mnemora } from "../dist/tools.js";
 import { journalEmbeddingCoverage, searchJournalSemantic } from "../dist/journal/search-index.js";
+import { recallText, withoutRecall } from "./helpers/recall.mjs";
 
 // Deterministic concept embedder: words map onto a few concept axes, so
 // "hiking trails" and "weekend outdoors" are close without sharing a word.
@@ -30,7 +31,7 @@ function setup({ embeddings = true, model = "concepts", embedder = fakeEmbedder(
   const shared = new Proxy(graph, { get: (target, property) => property === "close" ? () => undefined : Reflect.get(target, property, target) });
   return { graph, config, engine: new MnemoraContextEngine(config, () => shared), close: () => graph.close() };
 }
-const ask = async (engine, prompt) => (await engine.assemble({ sessionId: "query-session", prompt, messages: [{ role: "user", content: prompt }], tokenBudget: 16000 })).systemPromptAddition ?? "";
+const ask = async (engine, prompt) => recallText(await engine.assemble({ sessionId: "query-session", prompt, messages: [{ role: "user", content: prompt }], tokenBudget: 16000 })) ?? "";
 const identity = { provider: "ollama", model: "concepts", dimensions: CONCEPTS.length + 1 };
 
 test("semantic recall defaults: on with embeddings, bounded scan and per-turn work", () => {

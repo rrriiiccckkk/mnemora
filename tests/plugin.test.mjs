@@ -11,6 +11,7 @@ import { ResearchOperationError } from "../dist/query/errors.js";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
+import { recallText, withoutRecall } from "./helpers/recall.mjs";
 
 const configs = [
   ["defaults", {}, ["gateway_stop"]],
@@ -102,11 +103,11 @@ test("first-use verification confirms the selected lifecycle, persisted capture,
       { id: "answer", role: "assistant", content: `I will remember ${marker}.` }
     ] });
     const sameSession = await engine.assemble({ sessionId: "first-use-note", prompt: `What is ${marker}?`, messages: [{ role: "user", content: `What is ${marker}?` }], tokenBudget: 800 });
-    assert.equal("systemPromptAddition" in sameSession, true);
+    assert.equal((recallText(sameSession) !== undefined), true);
     const awaitingCrossSession = await result.commands[0].handler({ args: "verify" });
     assert.match(awaitingCrossSession.text, /2\/4 checks complete/i);
     const assembled = await engine.assemble({ sessionId: "first-use-recall", prompt: `What is ${marker}?`, messages: [{ role: "user", content: `What is ${marker}?` }], tokenBudget: 800 });
-    assert.equal("systemPromptAddition" in assembled, true);
+    assert.equal((recallText(assembled) !== undefined), true);
     await engine.afterTurn({ sessionId: "first-use-recall", prePromptMessageCount: 0, messages: [
       { id: "query", role: "user", content: `What is ${marker}?` },
       { id: "response", role: "assistant", content: "It is your first-use marker." }

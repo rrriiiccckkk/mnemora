@@ -20,6 +20,7 @@ import { DatabaseSync } from "node:sqlite";
 import { MnemoraContextEngine } from "../dist/context-engine/engine.js";
 import { normalizeConfig } from "../dist/config.js";
 import { Mnemora } from "../dist/tools.js";
+import { recallText } from "../tests/helpers/recall.mjs";
 
 const [datasetPath, rangeArgument, outPath] = process.argv.slice(2);
 if (!datasetPath) throw new Error("usage: evaluate-longmemeval.mjs <longmemeval_s_cleaned.json> [limit|start:end] [out.jsonl]");
@@ -69,7 +70,7 @@ for (const [offset, question] of data.entries()) {
   try {
     const engine = new MnemoraContextEngine(config, () => shared);
     for (let index = 0; index < question.haystack_sessions.length; index++) await engine.ingestBatch({ sessionId: question.haystack_session_ids[index], messages: question.haystack_sessions[index].map(message => ({ role: message.role, content: message.content })) });
-    const ask = async prompt => (await engine.assemble({ sessionId: "query-session", prompt, messages: [{ role: "user", content: prompt }], tokenBudget: 16000 })).systemPromptAddition ?? "";
+    const ask = async prompt => recallText(await engine.assemble({ sessionId: "query-session", prompt, messages: [{ role: "user", content: prompt }], tokenBudget: 16000 })) ?? "";
     const rendered = await ask(question.question);
     const foreignInjected = Boolean(await ask(all[(index + 167) % all.length].question));
     const offTopics = /\p{Script=Han}/u.test(question.question) ? OFF_TOPIC_ZH : OFF_TOPIC;

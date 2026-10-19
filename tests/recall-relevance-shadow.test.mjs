@@ -12,6 +12,7 @@ import { RecallRelevanceShadow } from "../dist/retrieval/relevance-shadow.js";
 import { UnifiedRetrievalService } from "../dist/retrieval/service.js";
 import { UnifiedRecallShadowRepository } from "../dist/retrieval/unified-recall-shadow.js";
 import { createTempDir } from "./helpers/temp.mjs";
+import { recallText, withoutRecall } from "./helpers/recall.mjs";
 
 const config = { enabled: true, endpoint: "http://127.0.0.1:8080/v1/systemone", model: "decision", timeoutMs: 100 };
 const candidate = (id, scope = "default") => ({ contextRef: `mnemora://v1/scope/${scope}/memory-document/${id}`, kind: "memory-document", scope, title: "Mnemora design", excerpt: `Mnemora retrieval bounded ${id}`, score: .7, confidence: .9, authority: "user_explicit", estimatedTokens: 15, bytes: 40, sourceIds: [], sourceRefs: [], freshness: Date.now(), selectionReason: "lexical_match" });
@@ -139,7 +140,7 @@ test("real ContextEngine shadow keeps actual prompt byte-identical and does not 
     return engine.assemble({ sessionId: "current", prompt: "Mnemora design", messages: [{ role: "user", content: "Mnemora design" }], tokenBudget: 1000 });
   };
   const baseline = await assemble(false), shadow = await assemble(true);
-  assert.match(baseline.systemPromptAddition ?? "", /MNEMORA_MEMORY/);
+  assert.match(recallText(baseline) ?? "", /MNEMORA_MEMORY/);
   assert.deepEqual(shadow, baseline);
   assert.equal(calls, 1);
   assert.deepEqual(bodyCounts, [1]);

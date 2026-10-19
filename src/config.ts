@@ -201,6 +201,7 @@ export function normalizeConfig(input: Partial<MnemoraConfig> = {}): MnemoraConf
       maxContextTokens: clamp(input.contextEngine?.maxContextTokens, 8000, 256, 64000),
       maxSummaryChars: clamp(input.contextEngine?.maxSummaryChars, 8000, 256, 32000),
       protectedRecentEvents: clamp(input.contextEngine?.protectedRecentEvents, 6, 2, 50),
+      recallPlacement: input.contextEngine?.recallPlacement === "system" ? "system" : "user",
       compaction: {
         enabled: input.contextEngine?.compaction?.enabled === true,
         minEvents: clamp(input.contextEngine?.compaction?.minEvents, 4, 2, 50),

@@ -10,6 +10,7 @@ import { agentScope, agentIdFromSessionKey } from "../dist/scope.js";
 import { agentScopedToolFactory } from "../dist/openclaw.js";
 import { chunkText, contentTerms, excerptAround } from "../dist/retrieval/lexical.js";
 import { sanitizeMemoryForContext } from "../dist/retrieval/context-safety.js";
+import { recallText, withoutRecall } from "./helpers/recall.mjs";
 
 function engine(extra = {}) {
   const directory = createTempDir("recall-v133-");
@@ -20,7 +21,7 @@ function engine(extra = {}) {
 }
 async function ask(target, prompt, sessionId = "query-session", sessionKey) {
   const result = await target.assemble({ sessionId, ...(sessionKey ? { sessionKey } : {}), prompt, messages: [{ role: "user", content: prompt }], tokenBudget: 16000 });
-  return result.systemPromptAddition ?? "";
+  return recallText(result) ?? "";
 }
 
 test("ranked recall prefers the matching record over newer records that only share function words", async () => {

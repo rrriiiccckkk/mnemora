@@ -292,6 +292,7 @@
           "maxContextTokens": { "type": "integer", "default": 8000, "minimum": 256, "maximum": 64000 },
           "maxSummaryChars": { "type": "integer", "default": 8000, "minimum": 256, "maximum": 32000 },
           "protectedRecentEvents": { "type": "integer", "default": 6, "minimum": 2, "maximum": 50 },
+          "recallPlacement": { "anyOf": [{ "const": "user", "type": "string" }, { "const": "system", "type": "string" }], "description": "Where automatic recall is attached: before the active user message (default) or as a system prompt addition." },
           "compaction": {
             "type": "object",
             "additionalProperties": false,

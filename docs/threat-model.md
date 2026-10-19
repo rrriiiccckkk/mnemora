@@ -29,8 +29,16 @@ messages retain their host-supplied role; this guard concerns stored projections
 | Presentation → host actions | Reference envelopes are non-authoritative. Oversized reasoning presentations fail the existing UTF-8 byte contract without emitting a partial envelope; governed delivery tries smaller candidate prefixes and audits budget withholding if none fits. Canonical identifiers remain complete. Host permissions and action approvals must remain independent of retrieved text. |
 
 Summary assembly and transcript rewrite use system-role messages for host
-compatibility; ordinary recall is a system-prompt addition. We therefore do not
-claim that memory is absent from a provider's system transport slot. The
+compatibility. Ordinary recall is placed at the start of the active user message
+by default (`contextEngine.recallPlacement: "user"`, since 1.37) or, with
+`"system"`, as a system-prompt addition. We therefore do not claim that memory is
+absent from a provider's system or user transport slot. In the user slot the
+envelope carries no more authority than the user's own turn, and less than the
+system slot; it stays non-authoritative reference. Capture, fingerprinting and
+query extraction strip Mnemora's own envelopes from a turn first, so a placed
+packet cannot be re-recorded as user speech; stripping is safe against hostile
+records because rendering neutralizes reserved tags inside them, and
+`tests/recall-placement.test.mjs` checks it with the poisoning fixtures. The
 structural invariant is that source text cannot create Mnemora-owned envelopes
 or provider message roles, and remains inside the generated reference region.
 An operator-confirmed procedure is still reference content, not host policy.

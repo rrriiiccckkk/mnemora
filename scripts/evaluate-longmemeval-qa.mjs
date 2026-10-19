@@ -22,6 +22,7 @@ import { createTempDir } from "../tests/helpers/temp.mjs";
 import { MnemoraContextEngine } from "../dist/context-engine/engine.js";
 import { normalizeConfig } from "../dist/config.js";
 import { Mnemora } from "../dist/tools.js";
+import { recallText } from "../tests/helpers/recall.mjs";
 
 const BUDGET = 800, MAX_ITEMS = 8;
 // Optional semantic recall: MNEMORA_QA_EMBED_MODEL=<ollama model> [MNEMORA_QA_EMBED_URL=http://127.0.0.1:11434]
@@ -79,7 +80,7 @@ async function contexts([datasetPath, range, outPath]) {
         const at = datasetTime(question.haystack_dates[index]);
         await engine.ingestBatch({ sessionId: question.haystack_session_ids[index], messages: question.haystack_sessions[index].map((message, turn) => ({ role: message.role, content: message.content, timestamp: at + turn * 1000 })) });
       }
-      const mnemora = (await engine.assemble({ sessionId: "query-session", prompt: question.question, messages: [{ role: "user", content: question.question }], tokenBudget: 16000 })).systemPromptAddition ?? "";
+      const mnemora = recallText(await engine.assemble({ sessionId: "query-session", prompt: question.question, messages: [{ role: "user", content: question.question }], tokenBudget: 16000 })) ?? "";
       appendFileSync(outPath, `${JSON.stringify({ qid: question.question_id, type: question.question_type, abstention: question.question_id.endsWith("_abs"), question: question.question, question_date: question.question_date, answer: String(question.answer), contexts: { none: "", bm25: bm25Context(question), mnemora } })}\n`);
     } finally {
       graph.close(); globalThis.gc?.(); await new Promise(resolve => setTimeout(resolve, 10));
@@ -94,6 +95,11 @@ async function contexts([datasetPath, range, outPath]) {
 // memory in a system message, as a host agent does, and sends the bare
 // question with no instruction about missing information.
 function readerPrompt(row, arm) {
+  if (process.env.MNEMORA_QA_PROMPT === "agent-user") {
+    // Same, but the memory sits just before the question in the user turn.
+    const memory = row.contexts[arm];
+    return [{ role: "system", content: `You are a helpful personal assistant in an ongoing conversation with the user. Current date: ${row.question_date}.` }, { role: "user", content: memory ? `${memory}\n\n${row.question}` : row.question }];
+  }
   if (process.env.MNEMORA_QA_PROMPT === "agent") {
     const memory = row.contexts[arm];
     return [{ role: "system", content: `You are a helpful personal assistant in an ongoing conversation with the user. Current date: ${row.question_date}.${memory ? `\n\n${memory}` : ""}` }, { role: "user", content: row.question }];
@@ -168,7 +174,7 @@ function report([answersPath]) {
     }
   }
   for (const group of Object.values(result)) for (const [arm, cell] of Object.entries(group)) group[arm] = { n: cell.n, accuracyPct: Math.round(1000 * cell.correct / cell.n) / 10, meanContextTokens: Math.round(cell.tokens / cell.n) };
-  console.log(JSON.stringify({ benchmark: "longmemeval-s-qa-v1", reader: MODEL || undefined, prompt: process.env.MNEMORA_QA_PROMPT === "agent" ? "agent" : "longmemeval", budgetTokens: BUDGET, maxItems: MAX_ITEMS, result }, null, 2));
+  console.log(JSON.stringify({ benchmark: "longmemeval-s-qa-v1", reader: MODEL || undefined, prompt: ["agent", "agent-user"].includes(process.env.MNEMORA_QA_PROMPT) ? process.env.MNEMORA_QA_PROMPT : "longmemeval", budgetTokens: BUDGET, maxItems: MAX_ITEMS, result }, null, 2));
 }
 
 if (mode === "contexts") await contexts(args);

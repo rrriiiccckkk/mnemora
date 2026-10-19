@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import plugin from "../dist/plugin.js";
 import { Mnemora, createInspectorApplication, startInspector } from "../dist/index.js";
+import { recallText } from "../tests/helpers/recall.mjs";
 export async function runSmoke() {
   const status = await runInTempProcess([fileURLToPath(import.meta.url), "--worker"]);
   if (status !== 0) throw Object.assign(new Error(`smoke worker failed (${status})`), { operationExitCode: status });
@@ -68,7 +69,7 @@ export async function runSmokeScenario({ registerPlugin = api => plugin.register
       if (!related.semantic_labels.some((label) => label.source.name === "Murata" && label.predicate === "supplies_product"))
         throw new Error("expected Murata supplier label");
       const recall = await engine.assemble({ sessionId: "smoke", prompt: "Who supplies MLCC?", messages: [{ role: "user", content: "Who supplies MLCC?" }], tokenBudget: 800 });
-      if (!recall.systemPromptAddition?.includes("Murata"))
+      if (!recallText(recall)?.includes("Murata"))
         throw new Error("expected seeded graph recall");
       const messages = [{ id: "user", role: "user", content: "Murata supplies MLCC to Huawei" }, { id: "assistant", role: "assistant", content: "Recorded." }];
       await engine.afterTurn({ sessionId: "smoke", prePromptMessageCount: 0, messages });

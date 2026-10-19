@@ -9,6 +9,7 @@ import { normalizeConfig } from "../dist/config.js";
 import { Mnemora } from "../dist/index.js";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
+import { recallText, withoutRecall } from "./helpers/recall.mjs";
 
 test("ContextEngine uses one CJK and astral-aware estimator for messages and additions", async () => {
   assert.equal(estimateTextTokens("中文摘要"), 4);
@@ -23,8 +24,8 @@ test("ContextEngine uses one CJK and astral-aware estimator for messages and add
   try {
     await engine.ingestBatch({ sessionId: "earlier", messages: [{ role: "user", content: "当前任务是整理中文摘要😀和𠀀字表" }] });
     const assembled = await engine.assemble({ sessionId: "s", prompt: "当前任务是什么", messages: [{ role: "user", content: "当前任务是什么" }], tokenBudget: 2000 });
-    assert.match(assembled.systemPromptAddition ?? "", /中文摘要😀/u);
-    assert.equal(assembled.estimatedTokens, estimateTextTokens("当前任务是什么") + estimateTextTokens(assembled.systemPromptAddition));
+    assert.match(recallText(assembled) ?? "", /中文摘要😀/u);
+    assert.equal(assembled.estimatedTokens, estimateTextTokens("当前任务是什么") + estimateTextTokens(recallText(assembled)));
     assert.equal(assembled.promptAuthority, "assembled");
   } finally { graph.close(); }
 });
@@ -40,8 +41,8 @@ test("ContextEngine never attaches a rejected graph claim through either automat
     graph.kg_verify({ operation: "transition", verification_id: verification.id, status: "rejected", support_type: "none", confirm: true });
     const engine = new MnemoraContextEngine(config, () => new Mnemora({ config, extractor: { extract: async () => extraction } }));
     const assembled = await engine.assemble({ sessionId: "recall", prompt: "What does Acme supply?", messages: [{ role: "user", content: "What does Acme supply?" }], tokenBudget: 1000 });
-    assert.doesNotMatch(assembled.systemPromptAddition ?? "", /rejected packaging|Acme/i);
-    assert.equal(assembled.systemPromptAddition, undefined);
+    assert.doesNotMatch(recallText(assembled) ?? "", /rejected packaging|Acme/i);
+    assert.equal(recallText(assembled), undefined);
   } finally { graph.close(); try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
 

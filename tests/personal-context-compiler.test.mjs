@@ -7,6 +7,7 @@ import { FormationService } from "../dist/cognition/service.js";
 import { GraphologyStore } from "../dist/store.js";
 import { MnemoraContextEngine } from "../dist/context-engine/engine.js";
 import { normalizeConfig } from "../dist/config.js";
+import { recallText, withoutRecall } from "./helpers/recall.mjs";
 
 test("Personal Context Compiler is scoped, provenance-linked, bounded, and read-only", () => {
   let now = 10_000;
@@ -52,7 +53,7 @@ test("ContextEngine preserves the public host result contract and never turns co
   const current = { role: "user", content: "What did I choose for storage?" };
   const assembled = await engine.assemble({ sessionId: "session", messages: [{ role: "system", content: "host policy" }, current] });
   assert.deepEqual(assembled.messages, [{ role: "system", content: "host policy" }, current]);
-  assert.equal("systemPromptAddition" in assembled, false);
+  assert.equal((recallText(assembled) !== undefined), false);
   assert.equal("personalContext" in assembled, false);
   assert.equal(JSON.stringify(assembled.messages).includes("Decision:"), false);
 });

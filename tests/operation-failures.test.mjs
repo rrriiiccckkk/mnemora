@@ -8,6 +8,7 @@ import { MnemoraContextEngine } from "../dist/context-engine/engine.js";
 import { normalizeConfig } from "../dist/config.js";
 import { Mnemora } from "../dist/tools.js";
 import { OperationFailureReporter, failureCategory, operationFailureSummary, recordOperationFailure } from "../dist/operations/failure-ledger.js";
+import { recallText, withoutRecall } from "./helpers/recall.mjs";
 
 const SECRET = "user-secret-7f3a do not persist";
 function setup({ lifecycle = {}, graphOverride } = {}) {
@@ -99,7 +100,7 @@ test("a recall failure keeps host messages and is counted as recall_assemble", a
     const messages = [{ role: "user", content: "Where is my bike?" }];
     const result = await engine.assemble({ sessionId: "b", prompt: "Where is my bike?", messages, tokenBudget: 4000 });
     assert.equal(result.messages.at(-1).content, "Where is my bike?");
-    assert.equal(result.systemPromptAddition ?? "", "");
+    assert.equal(recallText(result) ?? "", "");
     assert.deepEqual(rows(graph.store.db), [{ operation: "recall_assemble", category: "error", count: 1 }]);
   } finally { close(); }
 });

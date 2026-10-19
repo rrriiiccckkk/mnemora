@@ -197,6 +197,28 @@ Inspector first shows bounded downstream impact counts, then accepts one
 short-lived confirmation. It never overwrites the original evidence or exposes
 dependent IDs; affected decisions become review-only.
 
+### Where recall is attached
+
+Automatic recall is one `<MNEMORA_MEMORY authority="non_authoritative">` block.
+Since 1.37 it is placed at the start of the active (newest) user message,
+followed by a blank line and the user's own text. Reading models used it there
+and largely ignored it as a system prompt addition: on LongMemEval preference
+questions, answer accuracy rose from 8/30 to 16/30 (`mimo-v2.6-pro`) and from
+5/30 to 18/30 (`mimo-v2.6-flash`) with semantic recall, with abstention and the
+other question types unchanged ([Recall quality](recall-quality.md)). The text
+and its token cost are the same in both places.
+
+- `contextEngine.recallPlacement`: `"user"` (default) or `"system"` for the
+  earlier system prompt addition.
+- Host message objects are copied, never changed. When there is no user
+  message, or its content has an unknown shape, the block falls back to the
+  system prompt addition.
+- A turn that carries the block is captured, fingerprinted and used for
+  queries without it, so recall never returns as the user's own words.
+- The block is still non-authoritative reference: records are sanitized, and
+  reserved tags and role lines inside them are neutralized as before
+  ([threat model](threat-model.md)).
+
 ### Automatic-recall precision
 
 Manual search may return broad candidates for exploration. Automatic context is

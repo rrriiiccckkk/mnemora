@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { MnemoraContextEngine } from "../dist/context-engine/engine.js";
 import { normalizeConfig } from "../dist/config.js";
 import { Mnemora } from "../dist/tools.js";
+import { recallText } from "../tests/helpers/recall.mjs";
 
 // Fixed, fictional recall probes for regressions found in the 1.33 review:
 // Chinese recall under noise, facts deep inside long messages, prompt
@@ -16,7 +17,7 @@ function engine(extra = {}) {
   const shared = new Proxy(graph, { get: (target, property) => property === "close" ? () => undefined : Reflect.get(target, property, target) });
   return new MnemoraContextEngine(config, () => shared);
 }
-const ask = async (target, prompt, sessionId = "query-session") => (await target.assemble({ sessionId, prompt, messages: [{ role: "user", content: prompt }], tokenBudget: 16000 })).systemPromptAddition ?? "";
+const ask = async (target, prompt, sessionId = "query-session") => recallText(await target.assemble({ sessionId, prompt, messages: [{ role: "user", content: prompt }], tokenBudget: 16000 })) ?? "";
 const results = {};
 const started = performance.now();
 try {
