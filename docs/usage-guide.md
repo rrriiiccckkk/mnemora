@@ -459,6 +459,47 @@ optional; the command is resumable and changes nothing but the vector table.
 Vectors are removed with their records on forget, tombstone, redaction and
 restore.
 
+### Reusing OpenClaw's embedding provider
+
+Instead of a separate Ollama model, semantic recall can use the embedding
+provider that OpenClaw already configures for its own memory search
+(`memory.search.provider`, `model` and `remote`; OpenAI
+`text-embedding-3-small` by default, or Gemini, Ollama, Voyage, Mistral and
+the other adapters OpenClaw ships):
+
+```json
+{ "embeddings": { "enabled": true, "provider": "host" } }
+```
+
+- OpenClaw resolves the provider and holds the credentials; Mnemora never
+  reads an API key. `baseURL` and `model` in Mnemora's own `embeddings`
+  block are ignored with `provider: "host"`.
+- Vectors are stored as `host:<provider>` plus the model, so they are never
+  compared with vectors from Ollama or from another host model. Changing
+  `memory.search.provider` or `model` starts a fresh index; the old vectors are kept, unused, and are removed
+  with their records.
+- The selection uses `scope.defaultAgentId` (default `main`); per-agent
+  `memorySearch` overrides for other agents are not applied.
+- If memory search is disabled, its provider is `none`, or the provider is
+  unknown, Mnemora logs `host embeddings unavailable` with the reason and
+  recall stays lexical. A provider that fails at run time (for example a
+  missing API key) counts as an embedding failure: recall falls back to
+  lexical for that turn and creation is retried at most once a minute.
+- History captured before embeddings were enabled is embedded gradually, up
+  to `semantic.embedPerTurn` chunks per turn. `journal embed` on the command
+  line talks to Ollama directly and cannot use the host provider.
+- Every captured turn is sent to that provider. With a hosted provider this
+  is a new flow of conversation text to a third party and is billed by it,
+  which is why `provider: "host"` is opt-in.
+- Hosted models such as `text-embedding-3-small` are not in the threshold
+  table above and use the uncalibrated defaults; set `semantic.minSimilarity`
+  and `gateSimilarity` after calibrating on your own data.
+
+With OpenClaw's Ollama adapter pointed at the same `all-minilm` model, the
+host path returned the same vectors as the direct Ollama path (90 texts from
+the 30 LongMemEval_S preference questions, minimum cosine 1.0), so recall is
+the same.
+
 ### Relevance floor and knowledge updates
 
 `unifiedRetrieval.minQueryMatch` is the minimum rarity-weighted share of prompt

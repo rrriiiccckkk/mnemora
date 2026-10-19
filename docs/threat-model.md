@@ -43,6 +43,16 @@ structural invariant is that source text cannot create Mnemora-owned envelopes
 or provider message roles, and remains inside the generated reference region.
 An operator-confirmed procedure is still reference content, not host policy.
 
+## Embedding data egress
+
+With `embeddings.enabled`, the text of every captured turn and every recall
+query is sent to the embedding provider. The default Ollama provider stays on
+the configured local endpoint. `embeddings.provider: "host"` sends the same
+text to whatever provider OpenClaw memory search uses, which is OpenAI unless
+configured otherwise; it is off by default and enabled only explicitly.
+Credentials stay with OpenClaw, and vectors from different providers or models
+are kept apart by identity, so a changed provider cannot mix rankings.
+
 ## Adversarial regression evidence
 
 `tests/fixtures/memory-poisoning.json` carries inert canaries for nested wrapper

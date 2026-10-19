@@ -12,7 +12,8 @@ import type { HarnessContextEngine as ContextEngine } from "openclaw/plugin-sdk/
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import { ConsolidationService } from "./consolidation/service.js";
 import { ReflectionService } from "./cognition/reflection.js";
-import { createEmbedder } from "./embeddings.js";
+import type { Embedder } from "./embeddings.js";
+import { HostEmbedder, selectHostEmbedding } from "./host-embeddings.js";
 import type { CompletedTurn, ContextAssemblyInput } from "./context-engine/lifecycle.js";
 import { sessionWriteDisposition } from "./journal/session-policy.js";
 import { GraphHygieneService } from "./hygiene/service.js";
@@ -79,9 +80,24 @@ export class PluginRuntime {
   private stopped = false;
   private readonly shutdown = new AbortController();
 
-  constructor(input: Partial<MnemoraConfig> | undefined, logger: SdkLogger) {
-    this.config = normalizeConfig(input);
+  /** Set when `embeddings.provider` is `host` and OpenClaw memory search has a provider. */
+  private readonly hostEmbedder?: Embedder;
+
+  constructor(input: Partial<MnemoraConfig> | undefined, logger: SdkLogger, hostConfig?: unknown) {
+    const config = normalizeConfig(input);
     const safe = safeLogger(logger);
+    if (config.embeddings?.enabled && config.embeddings.provider === "host") {
+      const selection = selectHostEmbedding(hostConfig, config.scope?.defaultAgentId ?? "main");
+      if (selection.ok) {
+        config.embeddings = { ...config.embeddings, provider: selection.provider as `host:${string}`, model: selection.model };
+        this.hostEmbedder = new HostEmbedder(selection);
+        safe.info?.("embeddings use the OpenClaw memory-search provider", { provider: selection.provider, model: selection.model });
+      } else {
+        config.embeddings = { ...config.embeddings, enabled: false };
+        safe.warn?.("host embeddings unavailable; recall stays lexical", { reason: selection.reason });
+      }
+    }
+    this.config = config;
     this.logger = safe;
     this.failures = new OperationFailureReporter({ warn: (message, fields) => safe.warn?.(message, fields) });
     this.explainer = new InsightExplainer(this.config, fetch, this.shutdown.signal);
@@ -147,6 +163,7 @@ export class PluginRuntime {
     if (this.stopped) throw new RuntimeStoppedError("Mnemora runtime stopped");
     return new Mnemora({
       config: this.config,
+      ...(this.hostEmbedder ? { embedder: this.hostEmbedder } : {}),
       signal: this.shutdown.signal,
       failures: this.failures,
       onRecallEvaluationFailure: (event) => this.logger.warn?.("recall evaluation failed", event),
@@ -180,7 +197,7 @@ export class PluginRuntime {
   }
 
   private openGraphForAdmitted(): Mnemora {
-    return new Mnemora({ config: this.config, signal: this.shutdown.signal, failures: this.failures, onSemanticClassification: (event) => this.logger.info?.("semantic classification observed", { ...event }) });
+    return new Mnemora({ config: this.config, ...(this.hostEmbedder ? { embedder: this.hostEmbedder } : {}), signal: this.shutdown.signal, failures: this.failures, onSemanticClassification: (event) => this.logger.info?.("semantic classification observed", { ...event }) });
   }
 
   runConsolidation(): void {

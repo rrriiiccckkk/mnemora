@@ -60,12 +60,16 @@ Each item targets a measured weakness.
    (1.34 already links them). Deterministic, no model calls. Temporal reasoning
    is the largest type (127 questions, 68.5%); first read about 30 failures to
    confirm they are retrieval misses rather than reader arithmetic.
-3. **Hybrid recall without extra setup.** Semantic recall today needs a
-   separately configured Ollama model, so most installs run lexical only.
-   Reuse the embedding provider the host already configures for memory
-   (OpenAI by default; Gemini, Ollama and other OpenAI-compatible endpoints),
-   keep lexical fallback, and calibrate thresholds for the common hosted
-   models with `npm run eval:calibrate-semantic`.
+3. **Hybrid recall without extra setup (done on main, opt-in).**
+   `embeddings: { enabled: true, provider: "host" }` reuses the embedding
+   provider of OpenClaw memory search through its SDK; OpenClaw holds the
+   credentials, vectors are keyed `host:<provider>` plus model, and recall
+   falls back to lexical when the provider is missing or failing. Through
+   OpenClaw's Ollama adapter the vectors equal the direct path (90 texts,
+   minimum cosine 1.0). Open: whether to turn it on by default, which sends
+   conversation text to a hosted provider; and thresholds for hosted models
+   such as `text-embedding-3-small`, which need a key to calibrate with
+   `npm run eval:calibrate-semantic`.
 4. **Retrieval regression gate in CI.** A fixed small question set, lexical
    recall only, no model calls; CI fails when evidence recall or wrong
    attachment moves beyond a tolerance. First check the dataset's size and

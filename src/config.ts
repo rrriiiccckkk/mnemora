@@ -75,6 +75,13 @@ function optionalSimilarity<K extends string>(key: K, value: unknown): Partial<R
   return typeof value === "number" && Number.isFinite(value) ? { [key]: Math.max(-1, Math.min(1, value)) } as Record<K, number> : {};
 }
 
+/** `host` is the configured form; `host:<provider>` is what PluginRuntime resolves it to, and survives renormalization. */
+function embeddingProvider(value: unknown): NonNullable<MnemoraConfig["embeddings"]>["provider"] | undefined {
+  if (value === "ollama" || value === "host") return value;
+  if (typeof value === "string" && /^host:[A-Za-z0-9._-]{1,64}$/u.test(value)) return value as `host:${string}`;
+  return undefined;
+}
+
 export function normalizeConfig(input: Partial<MnemoraConfig> = {}): MnemoraConfig {
   rejectBindOverrides(input);
   const edgeTypeMinConfidence = Object.fromEntries(Object.entries(input.quality?.edgeTypeMinConfidence ?? {})
@@ -104,7 +111,7 @@ export function normalizeConfig(input: Partial<MnemoraConfig> = {}): MnemoraConf
       ...input.embeddings,
       // Ollama is the only shipped embedding transport.  Keep an invalid
       // programmatic value from being silently advertised as supported.
-      provider: input.embeddings?.provider === "ollama" ? "ollama" : defaultConfig.embeddings!.provider!,
+      provider: embeddingProvider(input.embeddings?.provider) ?? defaultConfig.embeddings!.provider!,
       baseURL: normalizeBaseURL(input.embeddings?.baseURL, defaultConfig.embeddings!.baseURL!),
       timeoutMs: clamp(input.embeddings?.timeoutMs, 10000, 1000, 120000),
       batchSize: clamp(input.embeddings?.batchSize, 16, 1, 128),

@@ -309,6 +309,24 @@ MNEMORA_DB=~/.openclaw/mnemora.db node dist/cli.js journal embed --model all-min
 
 `--scope`、`--base-url`（默认 `http://127.0.0.1:11434`）和 `--limit` 均可选；命令可断点续跑，只写向量表。记录被遗忘、墓碑化、脱敏或从备份恢复时，对应向量会一并删除。
 
+### 复用 OpenClaw 的嵌入服务
+
+语义召回可以不另配 Ollama 模型，直接使用 OpenClaw 自身记忆搜索已经配置好的嵌入服务（`memory.search.provider`、`model` 和 `remote`；默认是 OpenAI `text-embedding-3-small`，也可以是 Gemini、Ollama、Voyage、Mistral 等 OpenClaw 自带的适配器）：
+
+```json
+{ "embeddings": { "enabled": true, "provider": "host" } }
+```
+
+- 服务由 OpenClaw 解析，凭据也由它持有；Mnemora 不读取任何 API key。`provider: "host"` 时，Mnemora 自身 `embeddings` 里的 `baseURL` 和 `model` 不生效。
+- 向量以 `host:<服务名>` 加模型名作为标识存储，不会与 Ollama 或其他宿主模型的向量混用。修改 `memory.search.provider` 或 `model` 会从新索引开始；旧向量保留但不再使用，随对应记录一起删除。
+- 选择依据 `scope.defaultAgentId`（默认 `main`）；其他 agent 的 `memorySearch` 覆盖项不生效。
+- 若记忆搜索被关闭、服务为 `none` 或服务未知，Mnemora 记录 `host embeddings unavailable` 及原因，召回保持纯词面。运行时失败（例如缺少 API key）按嵌入失败处理：该轮退回词面召回，创建最多每分钟重试一次。
+- 开启前已记录的历史会逐步补齐向量，每轮最多 `semantic.embedPerTurn` 个分块。命令行的 `journal embed` 直连 Ollama，不能使用宿主服务。
+- 每轮记录的对话都会发给该服务。使用云端服务时，这是对话文本流向第三方的新通道，并由该服务计费，因此 `provider: "host"` 需要显式开启。
+- `text-embedding-3-small` 等云端模型不在上面的阈值表中，使用未校准的默认值；建议用自己的数据校准后设置 `semantic.minSimilarity` 和 `gateSimilarity`。
+
+把 OpenClaw 的 Ollama 适配器指向同一个 `all-minilm` 模型时，宿主路径与直连 Ollama 返回的向量完全一致（LongMemEval_S 30 道偏好题的 90 段文本，最小余弦 1.0），召回结果相同。
+
 ### 相关度下限与知识更新
 
 `unifiedRetrieval.minQueryMatch` 是自动注入时，记录必须覆盖的提问词比例（按稀有度加权）。语义召回生效时默认 0.15，否则默认 0：只有词面证据时，这个下限损失的召回比减少的误注入更多（见[召回质量](recall-quality.md)）。手动检索不受下限影响，`TASK_4821` 这类精确标识符始终放行。

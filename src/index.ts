@@ -79,7 +79,9 @@ export type SearchMode = "lexical" | "semantic" | "hybrid";
 
 export interface EmbeddingConfig {
   enabled: boolean;
-  provider: "ollama";
+  /** `host` reuses OpenClaw's memory-search embedding provider; at runtime it
+   * resolves to `host:<provider>` with that provider's model. */
+  provider: "ollama" | "host" | `host:${string}`;
   baseURL: string;
   model: string;
   timeoutMs: number;

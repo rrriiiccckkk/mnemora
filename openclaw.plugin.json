@@ -413,7 +413,7 @@
         "additionalProperties": false,
         "properties": {
           "enabled": { "type": "boolean", "default": false },
-          "provider": { "type": "string", "const": "ollama", "default": "ollama" },
+          "provider": { "anyOf": [{ "const": "ollama", "type": "string" }, { "const": "host", "type": "string" }], "default": "ollama", "description": "ollama (default) uses baseURL and model; host reuses the embedding provider of OpenClaw memory search (memory.search.provider, model and remote), with OpenClaw holding the credentials." },
           "baseURL": { "type": "string", "default": "http://127.0.0.1:11434" },
           "model": { "type": "string", "default": "qwen3-embedding:4b" },
           "timeoutMs": { "type": "number", "default": 10000, "minimum": 1000, "maximum": 120000 },

@@ -29,10 +29,11 @@ test("plugin and manifest schemas publish matching embedding defaults", () => {
   const defaults = manifest.configSchema.properties.embeddings.properties;
   assert.equal(defaults.enabled.default, false);
   assert.equal(defaults.provider.default, "ollama");
-  assert.equal(defaults.provider.const, "ollama");
+  assert.deepEqual(defaults.provider.anyOf.map(option => option.const), ["ollama", "host"]);
   assert.equal(defaults.baseURL.default, "http://127.0.0.1:11434");
   assert.equal(defaults.model.default, "qwen3-embedding:4b");
   assert.equal(plugin.configSchema.safeParse({ embeddings: { enabled: false, provider: "ollama", baseURL: "http://127.0.0.1:11434", model: "qwen3-embedding:4b" } }).success, true);
+  assert.equal(plugin.configSchema.safeParse({ embeddings: { enabled: true, provider: "host" } }).success, true);
   assert.equal(plugin.configSchema.safeParse({ embeddings: { provider: "unsupported" } }).success, false);
 });
 
