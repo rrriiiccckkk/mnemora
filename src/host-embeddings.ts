@@ -1,6 +1,25 @@
-import { resolveMemorySearchConfig } from "openclaw/plugin-sdk/memory-core-host-engine-foundation";
-import { getMemoryEmbeddingProvider } from "openclaw/plugin-sdk/memory-core-host-engine-embeddings";
+import { createRequire } from "node:module";
+import type { resolveMemorySearchConfig as ResolveMemorySearchConfig } from "openclaw/plugin-sdk/memory-core-host-engine-foundation";
+import type { getMemoryEmbeddingProvider as GetMemoryEmbeddingProvider } from "openclaw/plugin-sdk/memory-core-host-engine-embeddings";
 import { normalizeEmbeddingVector, type Embedder, type EmbeddingResult } from "./embeddings.js";
+
+interface HostSdk { resolveMemorySearchConfig: typeof ResolveMemorySearchConfig; getMemoryEmbeddingProvider: typeof GetMemoryEmbeddingProvider }
+let hostSdk: HostSdk | undefined;
+/**
+ * The memory-core SDK is loaded only when `provider: "host"` is configured.
+ * Loading it has process-wide side effects (it replaces the global fetch
+ * dispatcher, so HTTPS_PROXY stops applying), which must not happen merely
+ * because Mnemora's entry point was imported.
+ */
+function loadHostSdk(): HostSdk {
+  if (!hostSdk) {
+    const load = createRequire(import.meta.url);
+    const foundation = load("openclaw/plugin-sdk/memory-core-host-engine-foundation") as { resolveMemorySearchConfig: typeof ResolveMemorySearchConfig };
+    const embeddings = load("openclaw/plugin-sdk/memory-core-host-engine-embeddings") as { getMemoryEmbeddingProvider: typeof GetMemoryEmbeddingProvider };
+    hostSdk = { resolveMemorySearchConfig: foundation.resolveMemorySearchConfig, getMemoryEmbeddingProvider: embeddings.getMemoryEmbeddingProvider };
+  }
+  return hostSdk;
+}
 
 /** The subset of an OpenClaw embedding provider instance that Mnemora calls. */
 interface HostEmbeddingInstance {
@@ -23,14 +42,16 @@ export type HostEmbeddingSelection =
  */
 export function selectHostEmbedding(hostConfig: unknown, agentId: string): HostEmbeddingSelection {
   if (!hostConfig || typeof hostConfig !== "object") return { ok: false, reason: "host_unavailable" };
-  let resolved: ReturnType<typeof resolveMemorySearchConfig>;
-  try { resolved = resolveMemorySearchConfig(hostConfig as never, agentId); }
+  let sdk: HostSdk;
+  try { sdk = loadHostSdk(); } catch { return { ok: false, reason: "host_unavailable" }; }
+  let resolved: ReturnType<typeof ResolveMemorySearchConfig>;
+  try { resolved = sdk.resolveMemorySearchConfig(hostConfig as never, agentId); }
   catch { return { ok: false, reason: "host_unavailable" }; }
   if (!resolved) return { ok: false, reason: "memory_search_disabled" };
   const provider = String(resolved.provider ?? "").trim();
   if (!provider || provider === "none") return { ok: false, reason: "provider_none" };
-  let adapter: ReturnType<typeof getMemoryEmbeddingProvider>;
-  try { adapter = getMemoryEmbeddingProvider(provider, hostConfig as never); }
+  let adapter: ReturnType<typeof GetMemoryEmbeddingProvider>;
+  try { adapter = sdk.getMemoryEmbeddingProvider(provider, hostConfig as never); }
   catch { return { ok: false, reason: "host_unavailable" }; }
   if (!adapter) return { ok: false, reason: "provider_unknown" };
   const model = String(resolved.model || adapter.defaultModel || "").trim();
