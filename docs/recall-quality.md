@@ -488,3 +488,47 @@ behaviour). No preference-specific retrieval was added; with placement fixed,
 semantic recall is what lifts this type, which is why the next item reuses the
 host's embedding provider. Limits: 30 preference questions; two readers from
 one vendor; one judge.
+
+## Time phrases and relative dates (1.37)
+
+Of the 41 temporal-reasoning questions the 1.35 configuration answered wrong
+(MiMo V2.6 Pro), 16 had no evidence in the packet, 9 part of it and 16 all of
+it. 13 of the 16 misses locate the evidence by time alone ("What kitchen
+appliance did I buy 10 days ago?", the evidence names a smoker); about 7 of
+the 16 with full evidence failed on resolving relative dates ("last Thursday"
+against "two weeks ago"). `unifiedRetrieval.timeAnchors` (default on)
+addresses both: the prompt's time phrase becomes a window of dates whose words
+are not matched, records recorded in it or mentioning an event in it win near
+ties (score ×1.5), and relative dates in recalled records are resolved in the
+header (`dates=three weeks ago≈2023-05-04`).
+
+LongMemEval_S, lexical recall, 800 tokens, standard LongMemEval reader
+prompt, same contexts for both readers:
+
+| | Pro | Flash |
+|---|---|---|
+| Temporal reasoning (133), before | 93 (69.9%) | 77 (57.9%) |
+| Temporal reasoning (133), after | 97 (72.9%) | 84 (63.2%) |
+| Changed answers | +6 / −2 | +15 / −8 |
+| Other questions with a time phrase (9), before → after | 6 → 6 | — |
+
+Retrieval over all 500 questions: questions with all evidence in the packet
+362 → 362; temporal reasoning 101 → 102. In LongMemEval only temporal
+questions have dates consistent with their time phrases; "last weekend" in a
+single-session question points at an arbitrary session, which is why the two
+such questions that lost evidence are not counted as a defect.
+
+Variants measured on the same 133 questions:
+
+| Variant | Pro | Flash |
+|---|---|---|
+| Relevance floor 0.5 in the window, recording time only | 97 | 85 |
+| Score ×3, recording or event time | 95 | 82 |
+| Score ×1.5, recording or event time (shipped) | 97 | 84 |
+
+A multiplier strong enough to override any closer match answered fewer
+questions: a busy day holds many unrelated records. The shipped multiplier
+settles near ties, which the relevance floor did not (a record from "10 days
+ago" lost to a newer, shorter record with the same words). With `all-minilm`
+semantic recall the window is also searched by nearest neighbours; questions
+with all evidence 99 → 102 of 133 (measured with the relevance-floor variant).

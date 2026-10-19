@@ -53,21 +53,22 @@ Each item targets a measured weakness.
    (`mimo-v2.6-flash`), with abstention and other types unchanged. Capture
    strips the packet so it is never re-recorded as user speech. See
    [Recall quality](recall-quality.md).
-2. **Event-time normalization.** Records carry when they were recorded, not
-   when the event happened. At capture, resolve relative dates ("last
-   Tuesday", "next month") against the message date and show the absolute date
-   in the packet; mark facts superseded by a newer related record as such
-   (1.34 already links them). Deterministic, no model calls. Temporal reasoning
-   is the largest type (127 questions, 68.5%); first read about 30 failures to
-   confirm they are retrieval misses rather than reader arithmetic.
+2. **Event-time normalization (done on main).** `unifiedRetrieval.timeAnchors`,
+   on by default: a time phrase in the prompt ("10 days ago", "上周六") becomes
+   a window of dates; records recorded in it or mentioning an event in it win
+   near ties; relative dates in recalled records are resolved in the packet
+   header. Reading the 41 temporal failures showed most misses locate evidence
+   by time alone. Temporal reasoning: Pro 93 → 97, Flash 77 → 84 of 133;
+   retrieval over 500 questions unchanged (see recall-quality). Not done:
+   marking superseded facts beyond the 1.34 `newer_related` links.
 3. **Hybrid recall without extra setup (done on main, opt-in).**
    `embeddings: { enabled: true, provider: "host" }` reuses the embedding
    provider of OpenClaw memory search through its SDK; OpenClaw holds the
    credentials, vectors are keyed `host:<provider>` plus model, and recall
    falls back to lexical when the provider is missing or failing. Through
    OpenClaw's Ollama adapter the vectors equal the direct path (90 texts,
-   minimum cosine 1.0). Open: whether to turn it on by default, which sends
-   conversation text to a hosted provider; and thresholds for hosted models
+   minimum cosine 1.0). Decided: stays opt-in, because it sends
+   conversation text to a hosted provider. Open: thresholds for hosted models
    such as `text-embedding-3-small`, which need a key to calibrate with
    `npm run eval:calibrate-semantic`.
 4. **Retrieval regression gate in CI.** A fixed small question set, lexical

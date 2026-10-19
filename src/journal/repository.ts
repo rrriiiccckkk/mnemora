@@ -313,10 +313,11 @@ export class ConversationEventRepository {
   }
 
   /** bm25-ranked recall over the chunked journal index (schema v86). */
-  searchRanked(scope: string, query: string, limit = 20, recordedBefore?: number, terms?: readonly string[]): Array<RankedJournalHit & { event: JournalEvent }> {
+  searchRanked(scope: string, query: string, limit = 20, recordedBefore?: number, terms?: readonly string[], recordedAfter?: number): Array<RankedJournalHit & { event: JournalEvent }> {
     if (recordedBefore !== undefined && (!Number.isSafeInteger(recordedBefore) || recordedBefore < 0)) throw new Error("invalid_history_cutoff");
+    if (recordedAfter !== undefined && (!Number.isSafeInteger(recordedAfter) || recordedAfter < 0)) throw new Error("invalid_history_cutoff");
     const normalized = normalizeScope(scope);
-    return searchJournalRanked(this.db, { scope: normalized, query: query.slice(0, 2048), limit, ...(recordedBefore === undefined ? {} : { recordedBefore }), ...(terms ? { terms } : {}) })
+    return searchJournalRanked(this.db, { scope: normalized, query: query.slice(0, 2048), limit, ...(recordedBefore === undefined ? {} : { recordedBefore }), ...(recordedAfter === undefined ? {} : { recordedAfter }), ...(terms ? { terms } : {}) })
       .flatMap(hit => { const event = this.get(hit.eventId, normalized); return event ? [{ ...hit, event }] : []; });
   }
 

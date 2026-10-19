@@ -16,11 +16,21 @@ export interface SemanticRecallInput { identity: JournalEmbeddingIdentity; vecto
 import { RecallFeedbackRepository } from "../cognition/reflection.js";
 import type { MemoryDocumentLifecycleService } from "../memory-lifecycle/service.js";
 import { estimateTextTokens } from "../token-estimate.js";
+import { parseTimeAnchor, recordInWindow, relativeDateNotes, withoutTimeAnchor, type TimeAnchor } from "./time-anchor.js";
 import { ProjectionEvidenceReader, limitProjectionEvidence, renderProjectionEvidence } from "./projection-evidence.js";
 
 const bounded = (value: unknown, fallback: number, min: number, max: number) => Number.isFinite(Number(value)) ? Math.min(max, Math.max(min, Math.trunc(Number(value)))) : fallback;
 const score = (base: number, confidence: number, freshness: number, authority: RetrievalAuthority) => base * (.55 + confidence * .3 + freshness * .15) * authorityWeight(authority);
 const authorityWeight = (value: RetrievalAuthority) => value === "user_correction" ? 1 : value === "user_explicit" || value === "operator_confirmed" ? .98 : value === "source_linked" ? .92 : value === "tool_observation" || value === "external_source" ? .82 : value === "assistant_inference" ? .55 : value === "derived_projection" ? .5 : .45;
+/**
+ * Score multiplier of a journal record from the prompt's time window (recorded
+ * in it or mentioning an event in it). It settles near ties in favour of the
+ * time the prompt names, but a much closer match from another day still ranks
+ * first: a busy day holds many unrelated records, and on LongMemEval_S
+ * temporal questions a multiplier strong enough to override any match
+ * answered fewer questions (pro 95 vs 97, flash 82 vs 85 of 133).
+ */
+const TIME_WINDOW_BOOST = 1.5;
 const freshness = (time: number, now: number) => Math.max(.1, Math.exp(-(Math.max(0, now - time) / 86_400_000) / 365));
 /** Excerpt width for an assistant turn the prompt asks about ("what did you recommend"). */
 const WIDE_EXCERPT = 2400;
@@ -177,11 +187,15 @@ export class UnifiedRetrievalService {
   private termWeights: ReadonlyMap<string, number> = new Map();
   private semantic?: SemanticRecallInput;
   private semanticDone = false;
+  /** Recording-time window named by the prompt ("10 days ago"), if any. */
+  private timeAnchor?: TimeAnchor;
+  /** Whether rendered journal records carry resolved relative dates. */
+  private dateNotes = true;
   private assistantRecall = false;
   private aggregate = false;
   constructor(private readonly db: DatabaseSyncInstance, private readonly policy: JournalCapturePolicy, private readonly now: () => number = Date.now, private readonly memoryLifecycle?: MemoryDocumentLifecycleService) {}
 
-  find(input: { scope: string; query: string; alternates?: string[]; tags?: string[]; metadataFilters?: RecallMetadataFilter[]; mustContain?: string[]; lexicalOnly?: boolean; scopeConstraint?: string; intent?: RetrievalIntent; intentCategory?: RetrievalIntentCategory; limit?: number; tokenBudget?: number; minConfidence?: number; hardMinScore?: number; maxStalenessDays?: number; recordedBefore?: number; signal?: AbortSignal; semantic?: SemanticRecallInput }): UnifiedFindResult {
+  find(input: { /** Resolve time phrases and relative dates; default true. */ timeAnchors?: boolean; scope: string; query: string; alternates?: string[]; tags?: string[]; metadataFilters?: RecallMetadataFilter[]; mustContain?: string[]; lexicalOnly?: boolean; scopeConstraint?: string; intent?: RetrievalIntent; intentCategory?: RetrievalIntentCategory; limit?: number; tokenBudget?: number; minConfidence?: number; hardMinScore?: number; maxStalenessDays?: number; recordedBefore?: number; signal?: AbortSignal; semantic?: SemanticRecallInput }): UnifiedFindResult {
     if (input.signal?.aborted) throw input.signal.reason ?? new Error("aborted");
     if (input.recordedBefore !== undefined && (input.intent !== "exact_history" || !Number.isSafeInteger(input.recordedBefore) || input.recordedBefore < 0 || input.lexicalOnly || input.tags?.length || input.metadataFilters?.length || input.mustContain?.length)) throw new Error("invalid_history_cutoff");
     const scope = normalizeScope(input.scope), query = input.query.trim().slice(0, 512), tags = boundedValues(input.tags, 4, 64), metadataFilters = [...new Map((input.metadataFilters ?? []).filter(value => value && (value.prefix === "proj" || value.prefix === "env" || value.prefix === "team") && typeof value.value === "string").map(value => [`${value.prefix}:${value.value.trim().toLocaleLowerCase().slice(0, 64)}`, { prefix: value.prefix, value: value.value.trim().toLocaleLowerCase().slice(0, 64) }])).values()].slice(0, 4), mustContain = boundedValues(input.mustContain, 4, 64), intent = input.intent ?? "general", intentCategory = input.intentCategory, limit = bounded(input.limit, 8, 0, 20), budget = bounded(input.tokenBudget, 800, 64, 8000), floor = clamp01(input.minConfidence, 0), hardMinScore = clamp01(input.hardMinScore, defaultAdmissionFloor(input.query)), oldest = Math.max(1, bounded(input.maxStalenessDays, 36500, 1, 36500)) * 86_400_000, now = this.now();
@@ -191,13 +205,21 @@ export class UnifiedRetrievalService {
     if (scopeConstraint && scopeConstraint !== scope) return { version: "unified-find-v2", intent, scope, candidates: [], excluded: { duplicate: 0, budget: 0, lowConfidence: 0, stale: 0 }, empty: true };
     if ((!query && !tags.length && !metadataFilters.length && !mustContain.length && input.lexicalOnly !== true) || !limit) return { version: "unified-find-v2", intent, scope, candidates: [], excluded: { duplicate: 0, budget: 0, lowConfidence: 0, stale: 0 }, empty: true };
     const raw: RetrievalCandidate[] = [];
-    this.rankTerms = contentTerms([query, ...(input.alternates ?? [])].join(" "));
+    // A time phrase locates evidence by when it was recorded; its words
+    // ("days", "ago", "saturday") are not topic and would match any record
+    // that mentions a date. Rank and search on the rest of the prompt.
+    this.dateNotes = input.timeAnchors !== false;
+    const anchor = input.timeAnchors !== false && input.recordedBefore === undefined && intent !== "artifact" ? parseTimeAnchor(query, this.now()) : undefined;
+    const topical = withoutTimeAnchor(query, anchor);
+    this.timeAnchor = anchor && contentTerms(topical).length ? anchor : undefined;
+    const searchQuery = this.timeAnchor ? topical : query;
+    this.rankTerms = contentTerms([searchQuery, ...(input.alternates ?? [])].join(" "));
     this.termWeights = journalTermWeights(this.db, this.rankTerms);
     this.semantic = input.semantic && input.semantic.vector.length === input.semantic.identity.dimensions ? input.semantic : undefined;
     this.semanticDone = false;
     this.assistantRecall = asksAboutAssistant(query);
     this.aggregate = !this.assistantRecall && asksForAggregate(query);
-    const queries = query ? [...new Set([query, ...(input.alternates ?? []).map(value => value.trim().slice(0, 512)).filter(Boolean)])].slice(0, 4) : [""];
+    const queries = query ? [...new Set([searchQuery, ...(input.alternates ?? []).map(value => value.trim().slice(0, 512)).filter(Boolean)])].slice(0, 4) : [""];
     const collectionLimit = Math.min(20, limit * intentDepth(intentCategory));
     for (const candidateQuery of queries) {
       // Memory documents are stored as a title/body corpus, not an FTS query
@@ -366,6 +388,10 @@ export class UnifiedRetrievalService {
     // both candidate selection and final packing through this shared renderer.
     const validity = item.validity ? `; valid_from=${item.validity.validFrom ?? "unknown"}; valid_to=${item.validity.validTo ?? "open"}` : "";
     const chronology = item.kind === "conversation-event" && Number.isSafeInteger(item.freshness) && item.freshness >= 0 ? `; recorded_at=${new Date(item.freshness).toISOString()}` : "";
+    // Relative dates in the quoted text, resolved against its recording time;
+    // metadata only, the quote itself is never rewritten.
+    const notes = chronology && this.dateNotes ? relativeDateNotes(item.excerpt, item.freshness) : [];
+    const dates = notes.length ? `; dates=${sanitizeMemoryForContext(notes.join(", "), 240)}` : "";
     const related = newer.length ? `; newer_related=${newer.join(",")}` : "";
     // A conversation turn's kind is in its ref, and its authority and
     // confidence follow from who spoke; spell them out only when they differ
@@ -374,7 +400,7 @@ export class UnifiedRetrievalService {
     const kind = role ? "" : `; kind=${item.kind}`;
     const authority = turnDefault?.authority === item.authority ? "" : `; authority=${item.authority}`;
     const confidence = turnDefault && turnDefault.confidence === item.confidence.toFixed(2) ? "" : `; confidence=${item.confidence.toFixed(2)}`;
-    return `[${index}] ref=${sanitizeMemoryForContext(item.contextRef, 320)}${kind}${role}${authority}${confidence}${chronology}${related}${validity}${origin}\n${sanitizeMemoryForContext(item.excerpt, WIDE_EXCERPT)}${extraProvenance}${projection}`;
+    return `[${index}] ref=${sanitizeMemoryForContext(item.contextRef, 320)}${kind}${role}${authority}${confidence}${chronology}${dates}${related}${validity}${origin}\n${sanitizeMemoryForContext(item.excerpt, WIDE_EXCERPT)}${extraProvenance}${projection}`;
   }
 
   private renderPrompt(scope: string, items: readonly RetrievalCandidate[], supplement: string): string | undefined {
@@ -432,13 +458,23 @@ export class UnifiedRetrievalService {
       ? searchJournalSemantic(this.db, { scope, identity: this.semantic.identity, vector: this.semantic.vector, limit: limit * 2, maxScan: this.semantic.maxScan, minSimilarity: this.semantic.minSimilarity })
       : [];
     const semanticRan = Boolean(this.semantic && !this.semanticDone && recordedBefore === undefined);
+    // The prompt's time window gets its own nearest neighbours: a record from
+    // that day may be far from the prompt in a long history's global ranking.
+    if (semanticRan && this.timeAnchor) {
+      const seen = new Set(semantic.map(hit => hit.eventId));
+      for (const hit of searchJournalSemantic(this.db, { scope, identity: this.semantic!.identity, vector: this.semantic!.vector, limit, maxScan: this.semantic!.maxScan, minSimilarity: this.semantic!.minSimilarity, recordedAfter: this.timeAnchor.from, recordedBefore: this.timeAnchor.to - 1 })) if (!seen.has(hit.eventId)) semantic.push(hit);
+      semantic.sort((left, right) => right.similarity - left.similarity);
+    }
     this.semanticDone = true;
     const similarity = new Map(semantic.map(hit => [hit.eventId, hit]));
     const top = semantic[0]?.similarity ?? 1, floor = this.semantic?.minSimilarity ?? 0;
     const semanticRelevance = (value: number) => Math.max(0, Math.min(1, (value - floor) / Math.max(1e-6, top - floor)));
     let lexicalIds: Set<string> | undefined;
+    // Records from the window a time phrase names ("10 days ago") win near
+    // ties with records from other days; the prompt asked for that time.
+    const timeWindow = recordedBefore === undefined ? this.timeAnchor : undefined;
     const emit = (event: { id: string; kind: string; role?: string; normalizedText?: string; createdAt: number }, excerpt: string, relevance: number, similarity?: number) => {
-      this.push(raw, { scope, kind: "conversation-event", id: event.id, title: event.kind, excerpt, sourceIds: [event.id], speaker: event.role, authority: event.role === "user" ? "user_explicit" : "source_linked", confidence: event.role === "user" || (this.assistantRecall && event.role === "assistant") ? 1 : .8, ...(this.assistantRecall && event.role === "assistant" ? { maxExcerpt: WIDE_EXCERPT } : {}), updatedAt: event.createdAt, relevance });
+      this.push(raw, { ...(timeWindow && recordInWindow(timeWindow, event.createdAt, event.normalizedText ?? excerpt) ? { scoreMultiplier: TIME_WINDOW_BOOST } : {}), scope, kind: "conversation-event", id: event.id, title: event.kind, excerpt, sourceIds: [event.id], speaker: event.role, authority: event.role === "user" ? "user_explicit" : "source_linked", confidence: event.role === "user" || (this.assistantRecall && event.role === "assistant") ? 1 : .8, ...(this.assistantRecall && event.role === "assistant" ? { maxExcerpt: WIDE_EXCERPT } : {}), updatedAt: event.createdAt, relevance });
       const pushed = raw.at(-1);
       if (pushed?.sourceIds[0] !== event.id) return;
       if (similarity !== undefined) { pushed.semanticSimilarity = similarity; if (lexicalIds && !lexicalIds.has(event.id)) pushed.selectionReason = "semantic_match"; }
@@ -453,12 +489,23 @@ export class UnifiedRetrievalService {
       const value = event.normalizedText ?? "";
       return excerptAround(value, start, end, width(event));
     };
+    // The window is also searched on its own, so a long history cannot push
+    // its records out of the candidate limit.
+    const anchor = timeWindow;
     const ranked = journal.searchRanked(scope, query, limit * 2, recordedBefore);
     for (const hit of ranked) {
       const semanticHit = similarity.get(hit.event.id);
       emit(hit.event, excerptFor(hit.event, hit.start, hit.end), semanticHit ? Math.max(hit.relevance, semanticRelevance(semanticHit.similarity)) : hit.relevance, semanticHit?.similarity);
     }
-    lexicalIds = new Set(ranked.map(hit => hit.event.id));
+    const emitted = new Set(ranked.map(hit => hit.event.id));
+    const windowed = anchor ? journal.searchRanked(scope, query, limit, anchor.to - 1, undefined, anchor.from) : [];
+    for (const hit of windowed) {
+      if (emitted.has(hit.event.id)) continue;
+      emitted.add(hit.event.id);
+      const semanticHit = similarity.get(hit.event.id);
+      emit(hit.event, excerptFor(hit.event, hit.start, hit.end), semanticHit ? Math.max(hit.relevance, semanticRelevance(semanticHit.similarity)) : hit.relevance, semanticHit?.similarity);
+    }
+    lexicalIds = emitted;
     for (const hit of semantic) {
       if (lexicalIds.has(hit.eventId) || raw.some(candidate => candidate.kind === "conversation-event" && candidate.sourceIds[0] === hit.eventId)) continue;
       const event = journal.get(hit.eventId, scope);

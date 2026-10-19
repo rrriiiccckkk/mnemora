@@ -219,6 +219,28 @@ and its token cost are the same in both places.
   reserved tags and role lines inside them are neutralized as before
   ([threat model](threat-model.md)).
 
+### Time phrases and relative dates
+
+Records carry when they were recorded. Two local, deterministic aids connect
+that to the times people talk about (`unifiedRetrieval.timeAnchors`, on by
+default; set `false` to turn both off):
+
+- A time phrase in the prompt ("10 days ago", "last Saturday", "last
+  weekend", "last month", "上周六", "三天前") becomes a window of dates. Its
+  words are left out of matching, records from the window are also searched
+  on their own, and a record recorded in the window, or mentioning an event in
+  it ("I cleaned them last month", recorded today), wins near ties with
+  records from other days. A much closer match from another day still ranks
+  first: the window breaks ties, it does not filter. "How many days ago did
+  I…" asks for a count and is not a window.
+- Relative dates inside a recalled record are resolved against its recording
+  time and shown in its header, never by rewriting the quote:
+  `recorded_at=2023-05-25T…; dates=three weeks ago≈2023-05-04, yesterday≈2023-05-24`.
+  Only unambiguous forms are resolved: "next Saturday" and "a few weeks ago"
+  are left as written.
+
+Days are the local calendar days of the process running Mnemora.
+
 ### Automatic-recall precision
 
 Manual search may return broad candidates for exploration. Automatic context is

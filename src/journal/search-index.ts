@@ -60,12 +60,12 @@ export function journalTermWeights(db: DatabaseSyncInstance, terms: readonly str
  * bm25-ranked journal search over content-bearing terms. One row per event
  * (its best chunk), best first. Returns [] when the query has no content terms.
  */
-export function searchJournalRanked(db: DatabaseSyncInstance, input: { scope: string; query: string; limit: number; recordedBefore?: number; terms?: readonly string[] }): RankedJournalHit[] {
+export function searchJournalRanked(db: DatabaseSyncInstance, input: { scope: string; query: string; limit: number; recordedBefore?: number; recordedAfter?: number; terms?: readonly string[] }): RankedJournalHit[] {
   const terms = input.terms?.length ? [...input.terms] : contentTerms(input.query);
   const match = ftsMatchExpression(terms);
   if (!match) return [];
   const take = Math.min(200, Math.max(1, Math.trunc(input.limit)));
-  const cutoff = input.recordedBefore === undefined ? "" : " AND e.created_at<=?";
+  const cutoff = (input.recordedBefore === undefined ? "" : " AND e.created_at<=?") + (input.recordedAfter === undefined ? "" : " AND e.created_at>=?");
   let rows: Array<{ event_id: string; start_offset: number; end_offset: number; rank: number }>;
   try {
     rows = db.prepare(`SELECT c.event_id, c.start_offset, c.end_offset, bm25(mnemora_conversation_event_chunks_fts) AS rank
@@ -73,7 +73,7 @@ export function searchJournalRanked(db: DatabaseSyncInstance, input: { scope: st
       JOIN mnemora_conversation_event_chunks c ON c.id=mnemora_conversation_event_chunks_fts.rowid
       JOIN mnemora_conversation_events e ON e.id=c.event_id
       WHERE mnemora_conversation_event_chunks_fts MATCH ? AND c.scope=? AND e.scope=? AND e.deleted_at IS NULL${cutoff}
-      ORDER BY rank LIMIT ?`).all(match, input.scope, input.scope, ...(input.recordedBefore === undefined ? [] : [input.recordedBefore]), take * 3) as typeof rows;
+      ORDER BY rank LIMIT ?`).all(match, input.scope, input.scope, ...(input.recordedBefore === undefined ? [] : [input.recordedBefore]), ...(input.recordedAfter === undefined ? [] : [input.recordedAfter]), take * 3) as typeof rows;
   } catch (error) { recordOperationFailure(db, { operation: "journal_search", category: failureCategory(error) }); return []; }
   const best = new Map<string, RankedJournalHit>();
   for (const row of rows) {
@@ -131,13 +131,14 @@ export function journalEmbeddingCoverage(db: DatabaseSyncInstance, identity: Jou
  * query vector must be unit-length; stored vectors are normalised on read.
  * Returns the best chunk per event, highest similarity first.
  */
-export function searchJournalSemantic(db: DatabaseSyncInstance, input: { scope: string; identity: JournalEmbeddingIdentity; vector: readonly number[]; limit: number; maxScan: number; minSimilarity: number }): SemanticJournalHit[] {
+export function searchJournalSemantic(db: DatabaseSyncInstance, input: { scope: string; identity: JournalEmbeddingIdentity; vector: readonly number[]; limit: number; maxScan: number; minSimilarity: number; recordedAfter?: number; recordedBefore?: number }): SemanticJournalHit[] {
   if (input.vector.length !== input.identity.dimensions) return [];
+  const window = (input.recordedAfter === undefined ? "" : " AND e.created_at>=?") + (input.recordedBefore === undefined ? "" : " AND e.created_at<=?");
   const rows = db.prepare(`SELECT c.event_id, c.start_offset, c.end_offset, v.embedding
     FROM mnemora_conversation_event_chunks_embeddings v JOIN mnemora_conversation_event_chunks c ON c.id=v.chunk_id
     JOIN mnemora_conversation_events e ON e.id=c.event_id
-    WHERE v.scope=? AND v.provider=? AND v.model=? AND v.dimensions=? AND v.input_version=? AND e.deleted_at IS NULL
-    ORDER BY v.chunk_id DESC LIMIT ?`).all(input.scope, input.identity.provider, input.identity.model, input.identity.dimensions, JOURNAL_CHUNK_EMBEDDING_INPUT_VERSION, Math.max(1, Math.trunc(input.maxScan))) as Array<{ event_id: string; start_offset: number; end_offset: number; embedding: Uint8Array }>;
+    WHERE v.scope=? AND v.provider=? AND v.model=? AND v.dimensions=? AND v.input_version=? AND e.deleted_at IS NULL${window}
+    ORDER BY v.chunk_id DESC LIMIT ?`).all(input.scope, input.identity.provider, input.identity.model, input.identity.dimensions, JOURNAL_CHUNK_EMBEDDING_INPUT_VERSION, ...(input.recordedAfter === undefined ? [] : [input.recordedAfter]), ...(input.recordedBefore === undefined ? [] : [input.recordedBefore]), Math.max(1, Math.trunc(input.maxScan))) as Array<{ event_id: string; start_offset: number; end_offset: number; embedding: Uint8Array }>;
   const best = new Map<string, SemanticJournalHit>();
   const dims = input.identity.dimensions;
   for (const row of rows) {
