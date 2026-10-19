@@ -90,8 +90,14 @@ async function contexts([datasetPath, range, outPath]) {
 }
 
 // Reader prompt follows LongMemEval's generation template; the memory block is
-// the only difference between arms.
+// the only difference between arms. MNEMORA_QA_PROMPT=agent instead places the
+// memory in a system message, as a host agent does, and sends the bare
+// question with no instruction about missing information.
 function readerPrompt(row, arm) {
+  if (process.env.MNEMORA_QA_PROMPT === "agent") {
+    const memory = row.contexts[arm];
+    return [{ role: "system", content: `You are a helpful personal assistant in an ongoing conversation with the user. Current date: ${row.question_date}.${memory ? `\n\n${memory}` : ""}` }, { role: "user", content: row.question }];
+  }
   const memory = row.contexts[arm];
   const history = arm === "none" ? "(no chat history available)" : memory || "(nothing relevant was retrieved)";
   return `I will give you several history chats between you and a user. Please answer the question based on the relevant chat history. Answer concisely. If the history does not contain the information needed, say so.\n\n\nHistory Chats:\n\n${history}\n\nCurrent Date: ${row.question_date}\nQuestion: ${row.question}\nAnswer:`;
@@ -111,7 +117,7 @@ const MODEL = process.env.MNEMORA_QA_MODEL ?? "", JUDGE = process.env.MNEMORA_QA
 const usage = { prompt: 0, completion: 0, calls: 0 };
 async function chat(model, content, maxTokens) {
   const headers = { "content-type": "application/json", ...(process.env.MNEMORA_QA_API_KEY ? { authorization: `Bearer ${process.env.MNEMORA_QA_API_KEY}` } : {}) };
-  const body = JSON.stringify({ model, messages: [{ role: "user", content }], max_completion_tokens: maxTokens, temperature: 0, ...(process.env.MNEMORA_QA_THINKING === "enabled" ? {} : { thinking: { type: "disabled" } }) });
+  const body = JSON.stringify({ model, messages: Array.isArray(content) ? content : [{ role: "user", content }], max_completion_tokens: maxTokens, temperature: 0, ...(process.env.MNEMORA_QA_THINKING === "enabled" ? {} : { thinking: { type: "disabled" } }) });
   for (let attempt = 0; ; attempt++) {
     let status = 0;
     try {
@@ -162,7 +168,7 @@ function report([answersPath]) {
     }
   }
   for (const group of Object.values(result)) for (const [arm, cell] of Object.entries(group)) group[arm] = { n: cell.n, accuracyPct: Math.round(1000 * cell.correct / cell.n) / 10, meanContextTokens: Math.round(cell.tokens / cell.n) };
-  console.log(JSON.stringify({ benchmark: "longmemeval-s-qa-v1", reader: MODEL || undefined, budgetTokens: BUDGET, maxItems: MAX_ITEMS, result }, null, 2));
+  console.log(JSON.stringify({ benchmark: "longmemeval-s-qa-v1", reader: MODEL || undefined, prompt: process.env.MNEMORA_QA_PROMPT === "agent" ? "agent" : "longmemeval", budgetTokens: BUDGET, maxItems: MAX_ITEMS, result }, null, 2));
 }
 
 if (mode === "contexts") await contexts(args);

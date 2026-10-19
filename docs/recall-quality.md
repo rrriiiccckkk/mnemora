@@ -400,3 +400,36 @@ Chinese phrasings only and may miss other wordings.
   may rank the arms differently.
 - LongMemEval_S favours lexical retrieval; the bm25 baseline is a floor to
   beat, not a target.
+
+## Abstention with different reading models (1.36)
+
+A host agent does not keep one reading model, so a retrieval change was only
+acceptable if it helped more than one. Readers: `mimo-v2.6-pro` and the
+smaller `mimo-v2.6-flash`; judge: `mimo-v2.6-pro` with the official prompts.
+The prompt imitates a host agent (`MNEMORA_QA_PROMPT=agent`): the memory
+packet goes in a system message and the user message is the bare question,
+without LongMemEval's "if the history does not contain the information, say
+so". Questions: all 30 abstention questions of LongMemEval_S and 60
+answerable controls (10 per type), lexical recall at the default 800-token
+budget. Mnemora attached memory to all 90.
+
+| Reader | Abstention, no memory | Abstention, Mnemora | Abstention, with note | Answerable, Mnemora | Answerable, with note |
+|---|---:|---:|---:|---:|---:|
+| `mimo-v2.6-pro` | 28/30 | 22/30 | 26/30 | 43/60 | 38/60 |
+| `mimo-v2.6-flash` | 26/30 | 21/30 | 22/30 | 41/60 | 41/60 |
+
+- Attached memory costs both readers 5 to 6 of 30 abstentions. Typical
+  failures answer from a near miss (the question asks about a hamster, the
+  history has a cat), so the records are on topic; a relevance threshold or
+  the semantic gate would not separate them from answerable questions, and a
+  lexical floor was measured in 1.34 to cost more than it saves.
+- "With note" adds one sentence to the packet header: the records were
+  retrieved automatically and may not contain the answer; say you don't know
+  instead of guessing. It helped the larger model abstain (+4) but cost it 5
+  answerable questions, some of them now wrongly refused, and changed little
+  for the smaller one (+1 / 0). No net gain for either, so the header is
+  unchanged.
+- Decision: retrieval does not attach less. Memory raises answerable accuracy
+  from 7.6% to 72.6% (1.35, 500 questions) at the cost of about one in five
+  abstentions. With 30 questions per arm one question is 3.3 points, and a
+  few verdicts are judge noise.

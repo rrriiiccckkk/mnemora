@@ -47,9 +47,12 @@ outcomes were not inferred from lifecycle logs.
    prompts in non-Latin script, where it was worse than lexical.
    `npm run eval:calibrate-semantic` calibrates other models. See
    [Recall quality](recall-quality.md).
-3. **Abstention.** Measure whether a reading model refuses correctly when
-   attached memory does not answer the question, then decide whether retrieval
-   should attach less.
+3. **Abstention (measured, no change).** With two reading models
+   (`mimo-v2.6-pro`, `mimo-v2.6-flash`) and a host-agent prompt, attached memory
+   costs 5 to 6 of 30 abstentions; the failures answer from on-topic near
+   misses that no relevance threshold separates. A "may not contain the
+   answer" header note had no net gain for either model and was not adopted.
+   See [Recall quality](recall-quality.md).
 
 ### v1.34.0: semantic journal recall, relevance gating, knowledge-update links
 
