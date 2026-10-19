@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createServer } from "node:http";
 import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { createTempDir } from "./helpers/temp.mjs";
 import { recallText } from "./helpers/recall.mjs";
@@ -139,7 +138,8 @@ test("importing Mnemora does not load the memory-core SDK or replace the global 
   // The SDK swaps the undici global dispatcher on load, so HTTPS_PROXY stops
   // applying to every later fetch in the process. It may load only when
   // `provider: "host"` is configured.
-  const entry = fileURLToPath(new URL("../dist/index.js", import.meta.url));
+  // A file:// URL, not a path: Windows paths ("D:\\...") are not import specifiers.
+  const entry = new URL("../dist/index.js", import.meta.url).href;
   const script = `const key = Symbol.for("undici.globalDispatcher.1"); const before = globalThis[key]; await import(${JSON.stringify(entry)}); process.stdout.write(String(globalThis[key] === before));`;
   assert.equal(execFileSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8", env: { ...process.env, NODE_USE_ENV_PROXY: "1", HTTPS_PROXY: "http://127.0.0.1:9" } }), "true");
 });
