@@ -30,7 +30,7 @@ outcomes were not inferred from lifecycle logs.
    [Recall quality](recall-quality.md). Next for multi-session: semantic
    hits that add to lexical ones instead of gating them.
 
-### v1.36 (in progress)
+### v1.36.0: semantic recall that adds, per-model thresholds, abstention measured
 
 1. **Semantic gate on the packet (done on main).** With embeddings, the
    semantic neighbourhood and the 0.15 term floor now decide whether memory
