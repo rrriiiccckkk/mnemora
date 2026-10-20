@@ -129,7 +129,19 @@ function queryAnchors(queries: readonly string[]): string[] {
     const minimumLength = /\p{Script=Han}/u.test(value) ? 2 : 3;
     if (!genericTerms.has(value) && value.length >= minimumLength) values.add(value);
   }
-  return [...values].slice(0, 12);
+  const anchors = [...values].slice(0, 12);
+  // Anchors match as substrings, so "wedding" already finds "weddings" but a
+  // plural prompt ("how many weddings") would miss the singular record
+  // ("a friend's wedding"). Each plural anchor also matches its singular.
+  return [...new Set([...anchors, ...anchors.flatMap(singular)])];
+}
+
+/** Singular of a plain English plural ("babies" → "baby", "boxes" → "box"); none otherwise. */
+function singular(value: string): string[] {
+  if (!/^[a-z]{4,}$/u.test(value) || /(?:ss|us|is)$/u.test(value)) return [];
+  if (value.endsWith("ies")) return [`${value.slice(0, -3)}y`];
+  if (/(?:ches|shes|xes|zes|sses)$/u.test(value)) return [value.slice(0, -2)];
+  return value.endsWith("s") ? [value.slice(0, -1)] : [];
 }
 
 function words(value: string): string[] {

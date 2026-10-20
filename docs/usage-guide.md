@@ -241,6 +241,23 @@ default; set `false` to turn both off):
 
 Days are the local calendar days of the process running Mnemora.
 
+### Aggregate questions
+
+"How many weddings did I attend?", "total spent on luxury items" and other
+aggregate prompts collect facts from many sessions. For them:
+
+- a plural word in the prompt also matches its singular in a record
+  ("weddings" finds "my friend's wedding"; this applies to every prompt);
+- the assistant's replies are not recalled, since the facts are the user's
+  own and the replies are long. Asking what the assistant said ("what did you
+  suggest") is not aggregate, and "can you remind me … the average" keeps
+  them, demoted;
+- at an adaptive-fill budget (below) twice as many conversation records are
+  searched.
+
+LongMemEval_S multi-session questions with all evidence recalled: 52.9% →
+57.9% at the default budget, 71.1% → 76.0% at 4000 tokens (bm25 68.6%).
+
 ### Large recall budgets (adaptive fill)
 
 Records must clear an admission score (0.35; 0.25 for "how many / all"

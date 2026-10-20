@@ -193,6 +193,8 @@ export class UnifiedRetrievalService {
   private dateNotes = true;
   private assistantRecall = false;
   private aggregate = false;
+  private widePool = false;
+  private userFacts = false;
   constructor(private readonly db: DatabaseSyncInstance, private readonly policy: JournalCapturePolicy, private readonly now: () => number = Date.now, private readonly memoryLifecycle?: MemoryDocumentLifecycleService) {}
 
   find(input: { /** Resolve time phrases and relative dates; default true. */ timeAnchors?: boolean; scope: string; query: string; alternates?: string[]; tags?: string[]; metadataFilters?: RecallMetadataFilter[]; mustContain?: string[]; lexicalOnly?: boolean; scopeConstraint?: string; intent?: RetrievalIntent; intentCategory?: RetrievalIntentCategory; limit?: number; tokenBudget?: number; minConfidence?: number; hardMinScore?: number; /** Return up to this many records held back only by the admission floor (0–40, default 0). */ supplementLimit?: number; /** Held-back records must reach this fraction of the admission floor (0–1, default 0). */ supplementFloorRatio?: number; maxStalenessDays?: number; recordedBefore?: number; signal?: AbortSignal; semantic?: SemanticRecallInput }): UnifiedFindResult {
@@ -219,6 +221,13 @@ export class UnifiedRetrievalService {
     this.semanticDone = false;
     this.assistantRecall = asksAboutAssistant(query);
     this.aggregate = !this.assistantRecall && asksForAggregate(query);
+    // An aggregate prompt at a fill budget gathers twice the conversation
+    // records: each fact sits in a different session, and the budget left
+    // after the user's own turns can hold them.
+    this.widePool = this.aggregate && (input.supplementLimit ?? 0) > 0;
+    // "Can you remind me what the average was?" looks back at one exchange,
+    // whose answer may be the assistant's: its replies are kept, demoted.
+    this.userFacts = this.aggregate && !/\bremind me\b|提醒我/iu.test(query);
     const queries = query ? [...new Set([searchQuery, ...(input.alternates ?? []).map(value => value.trim().slice(0, 512)).filter(Boolean)])].slice(0, 4) : [""];
     const collectionLimit = Math.min(20, limit * intentDepth(intentCategory));
     for (const candidateQuery of queries) {
@@ -256,8 +265,6 @@ export class UnifiedRetrievalService {
       // For "what did you say" the answer is the assistant's turn: it is not
       // shortened by the length prior and outranks the question that led to it.
       const assistantTurn = this.assistantRecall && candidate.kind === "conversation-event" && candidate.speaker === "assistant";
-      // For an aggregate prompt the facts are the user's own; the assistant's
-      // long replies would spend the budget several facts need.
       const speakerWeight = candidate.kind !== "conversation-event" ? 1
         : this.assistantRecall && candidate.speaker === "user" ? .85
         : this.aggregate && candidate.speaker === "assistant" ? .85 : 1;
@@ -273,6 +280,11 @@ export class UnifiedRetrievalService {
       const key = [...candidate.sourceRefs, ...candidate.sourceIds].sort().join("|") || candidate.contextRef;
       if (seen.has(key)) { duplicate++; continue; }
       seen.add(key);
+      // For an aggregate prompt ("how many weddings", "total spent") the facts
+      // are the user's own; the assistant's long replies spent the budget
+      // several facts need (LongMemEval_S multi-session: 322 of 323 evidence
+      // turns are the user's). Asking what the assistant said is not aggregate.
+      if (this.userFacts && candidate.kind === "conversation-event" && candidate.speaker === "assistant") { lowConfidence++; continue; }
       if (candidate.confidence < floor) { lowConfidence++; continue; }
       if (now - candidate.freshness > oldest) { stale++; continue; }
       // Freshness and length rank but do not gate: an old or long record
@@ -500,7 +512,7 @@ export class UnifiedRetrievalService {
     // The window is also searched on its own, so a long history cannot push
     // its records out of the candidate limit.
     const anchor = timeWindow;
-    const ranked = journal.searchRanked(scope, query, limit * 2, recordedBefore);
+    const ranked = journal.searchRanked(scope, query, limit * (this.widePool ? 4 : 2), recordedBefore);
     for (const hit of ranked) {
       const semanticHit = similarity.get(hit.event.id);
       emit(hit.event, excerptFor(hit.event, hit.start, hit.end), semanticHit ? Math.max(hit.relevance, semanticRelevance(semanticHit.similarity)) : hit.relevance, semanticHit?.similarity);

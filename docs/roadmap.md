@@ -130,7 +130,12 @@ Proposed 2026-10-20 after the slimming, in order.
    `mimo-v2.6-pro`, 500 questions: Mnemora 79.6% with 3,127 context tokens,
    bm25 77.6% with 3,924; paired 32 vs 22 questions, p = 0.22. See
    recall-quality.
-3. **Multi-session aggregation.** Still the weakest type (71.1%).
+3. **Multi-session aggregation (done on main).** Plural anchors match their
+   singular, aggregate prompts recall the user's turns rather than the
+   assistant's replies, and a fill budget searches twice the records.
+   Multi-session all evidence 71.1% → 76.0% at 4000 tokens (bm25 68.6%),
+   52.9% → 57.9% at 800; the rest (two thirds of the misses) share no word
+   with the question and need semantic recall.
 4. **Preference recall at large budgets.** 66.7% against bm25 73.3%.
 5. **Fact supersession.** Validity windows beyond `newer_related`.
 6. **Performance baseline.** p50/p95 recall latency and memory at 100k records.

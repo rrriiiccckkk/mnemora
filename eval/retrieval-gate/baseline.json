@@ -118,11 +118,11 @@
     "c7cf7dfd"
   ],
   "totals": {
-    "allEvidence": 72,
+    "allEvidence": 73,
     "anyEvidence": 90,
-    "abstentionItems": 26,
-    "foreignItems": 416,
-    "offTopicItems": 286
+    "abstentionItems": 27,
+    "foreignItems": 408,
+    "offTopicItems": 290
   },
   "results": {
     "59524333": {
@@ -134,13 +134,13 @@
     "60159905": {
       "allEvidence": false,
       "anyEvidence": true,
-      "foreignItems": 2,
+      "foreignItems": 1,
       "offTopicItems": 2
     },
     "71017276": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 4,
+      "foreignItems": 1,
       "offTopicItems": 5
     },
     "e47becba": {
@@ -152,13 +152,13 @@
     "c5e8278d": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 5,
+      "foreignItems": 3,
       "offTopicItems": 1
     },
     "5d3d2817": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 6,
+      "foreignItems": 5,
       "offTopicItems": 2
     },
     "94f70d80": {
@@ -176,19 +176,19 @@
     "95bcc1c8": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 2,
+      "foreignItems": 0,
       "offTopicItems": 6
     },
     "b86304ba": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 6,
+      "foreignItems": 5,
       "offTopicItems": 3
     },
     "60d45044": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 2,
+      "foreignItems": 0,
       "offTopicItems": 2
     },
     "15745da0": {
@@ -200,19 +200,19 @@
     "b320f3f8": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 3,
+      "foreignItems": 2,
       "offTopicItems": 1
     },
     "76d63226": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 5,
+      "foreignItems": 6,
       "offTopicItems": 3
     },
     "4100d0a0": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 3,
+      "foreignItems": 2,
       "offTopicItems": 3
     },
     "c14c00dd": {
@@ -223,7 +223,7 @@
     },
     "15745da0_abs": {
       "abstentionItems": 5,
-      "foreignItems": 4,
+      "foreignItems": 2,
       "offTopicItems": 1
     },
     "0a995998": {
@@ -235,7 +235,7 @@
     "3a704032": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 4,
+      "foreignItems": 3,
       "offTopicItems": 2
     },
     "c4a1ceb8": {
@@ -251,7 +251,7 @@
       "offTopicItems": 8
     },
     "80ec1f4f": {
-      "allEvidence": false,
+      "allEvidence": true,
       "anyEvidence": true,
       "foreignItems": 7,
       "offTopicItems": 3
@@ -265,7 +265,7 @@
     "00ca467f": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 4,
+      "foreignItems": 6,
       "offTopicItems": 3
     },
     "60bf93ed": {
@@ -289,7 +289,7 @@
     "1a8a66a6": {
       "allEvidence": false,
       "anyEvidence": true,
-      "foreignItems": 6,
+      "foreignItems": 7,
       "offTopicItems": 3
     },
     "81507db6": {
@@ -299,7 +299,7 @@
       "offTopicItems": 3
     },
     "edced276_abs": {
-      "abstentionItems": 5,
+      "abstentionItems": 6,
       "foreignItems": 4,
       "offTopicItems": 2
     },
@@ -318,7 +318,7 @@
     "09d032c9": {
       "allEvidence": false,
       "anyEvidence": false,
-      "foreignItems": 5,
+      "foreignItems": 6,
       "offTopicItems": 2
     },
     "505af2f5": {
@@ -331,7 +331,7 @@
       "allEvidence": true,
       "anyEvidence": true,
       "foreignItems": 4,
-      "offTopicItems": 1
+      "offTopicItems": 2
     },
     "1c0ddc50": {
       "allEvidence": false,
@@ -384,7 +384,7 @@
     "0ea62687": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 5,
+      "foreignItems": 8,
       "offTopicItems": 2
     },
     "09ba9854": {
@@ -419,7 +419,7 @@
     "gpt4_4929293a": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 2,
+      "foreignItems": 6,
       "offTopicItems": 2
     },
     "0db4c65d": {
@@ -455,7 +455,7 @@
     "gpt4_8e165409": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 6,
+      "foreignItems": 4,
       "offTopicItems": 6
     },
     "gpt4_98f46fc6": {
@@ -498,7 +498,7 @@
       "allEvidence": false,
       "anyEvidence": true,
       "foreignItems": 2,
-      "offTopicItems": 1
+      "offTopicItems": 2
     },
     "0bb5a684": {
       "allEvidence": true,
@@ -545,7 +545,7 @@
     "gpt4_88806d6e": {
       "allEvidence": false,
       "anyEvidence": true,
-      "foreignItems": 3,
+      "foreignItems": 1,
       "offTopicItems": 0
     },
     "6613b389": {
@@ -561,7 +561,7 @@
       "offTopicItems": 4
     },
     "gpt4_70e84552_abs": {
-      "abstentionItems": 3,
+      "abstentionItems": 4,
       "foreignItems": 4,
       "offTopicItems": 3
     },
@@ -615,7 +615,7 @@
     "22d2cb42": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 2,
+      "foreignItems": 0,
       "offTopicItems": 3
     },
     "e66b632c": {
@@ -633,42 +633,42 @@
     "06db6396": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 3,
-      "offTopicItems": 3
+      "foreignItems": 2,
+      "offTopicItems": 5
     },
     "ba61f0b9": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 3,
+      "foreignItems": 1,
       "offTopicItems": 2
     },
     "0977f2af": {
       "allEvidence": false,
       "anyEvidence": true,
-      "foreignItems": 5,
+      "foreignItems": 6,
       "offTopicItems": 0
     },
     "0ddfec37_abs": {
-      "abstentionItems": 4,
-      "foreignItems": 7,
+      "abstentionItems": 3,
+      "foreignItems": 6,
       "offTopicItems": 2
     },
     "c4f10528": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 4,
+      "foreignItems": 5,
       "offTopicItems": 2
     },
     "7e00a6cb": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 2,
+      "foreignItems": 3,
       "offTopicItems": 5
     },
     "fea54f57": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 6,
+      "foreignItems": 8,
       "offTopicItems": 4
     },
     "58470ed2": {
@@ -716,7 +716,7 @@
     "c7cf7dfd": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 6,
+      "foreignItems": 8,
       "offTopicItems": 2
     }
   }

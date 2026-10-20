@@ -595,3 +595,39 @@ Mnemora alone correct on 32 questions, bm25 alone on 22 (exact two-sided
 binomial p = 0.22): ahead with 20% fewer tokens, not a significant margin.
 Multi-session stays the weakest type for both.
 
+## Multi-session aggregation (after 1.38)
+
+Multi-session was the weakest type in the QA run at 4000 tokens (61.2% for
+both arms). Of its 121 questions, 35 had only part of the evidence recalled
+(4 answered correctly) and 86 had all of it (70 correct), so recall came
+first. Of the 50 evidence sessions missed, 34 share no question word with the
+user's turn ("doctors" against "Dr. Patel", "ENT specialist"; lexical recall
+cannot reach them without semantic recall or expansion) and 16 matched but
+were not recalled. Tracing them showed three causes:
+
+1. Anchors match as substrings, so the plural prompt anchor "weddings" never
+   matched "wedding". Plural anchors now also match their singular.
+2. Aggregate packets were full of assistant replies: 322 of 323 evidence
+   turns in this type are the user's, but admitted assistant replies averaged
+   1,109 characters against 289, and the packet was at 3,763 of 4,000 tokens
+   before fill. Aggregate prompts no longer recall assistant replies (except
+   look-backs: "can you remind me … the average" keeps them, demoted).
+3. With that budget free, a wider pool helps: an aggregate prompt at a fill
+   budget searches 80 conversation records instead of 40 (160 adds nothing).
+
+LongMemEval_S, 500 questions, lexical; questions with all evidence recalled:
+
+| Budget | Before | After | Multi-session | Mean tokens |
+|---|---|---|---|---|
+| 800, 8 records | 73.8% | 75.1% | 52.9% → 57.9% | 635 → 600 |
+| 4000, 20 records | 81.7% | 83.0% | 71.1% → 76.0% | 2,915 → 1,980 |
+
+No other type changed. Retrieval gates (100 questions), before → after:
+
+| Gate | All evidence | Unanswerable | Other items | Unrelated tasks |
+|---|---|---|---|---|
+| 800 | 72 → 73 | 26 → 27 | 416 → 408 | 286 → 290 |
+| 4000 | 83 → 84 | 81 → 63 | 1,325 → 962 | 636 → 648 |
+
+Both baselines were updated to these results.
+

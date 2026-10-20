@@ -118,77 +118,77 @@
     "c7cf7dfd"
   ],
   "totals": {
-    "allEvidence": 83,
+    "allEvidence": 84,
     "anyEvidence": 93,
-    "abstentionItems": 81,
-    "foreignItems": 1325,
-    "offTopicItems": 636
+    "abstentionItems": 63,
+    "foreignItems": 962,
+    "offTopicItems": 648
   },
   "results": {
     "59524333": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 14,
+      "foreignItems": 4,
       "offTopicItems": 14
     },
     "60159905": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 12,
+      "foreignItems": 1,
       "offTopicItems": 11
     },
     "71017276": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 8,
+      "foreignItems": 1,
       "offTopicItems": 7
     },
     "e47becba": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 16,
+      "foreignItems": 8,
       "offTopicItems": 7
     },
     "c5e8278d": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 17,
+      "foreignItems": 3,
       "offTopicItems": 5
     },
     "5d3d2817": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 15,
+      "foreignItems": 5,
       "offTopicItems": 3
     },
     "94f70d80": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 11,
+      "foreignItems": 2,
       "offTopicItems": 0
     },
     "c8c3f81d": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 13,
+      "foreignItems": 3,
       "offTopicItems": 4
     },
     "95bcc1c8": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 12,
+      "foreignItems": 0,
       "offTopicItems": 10
     },
     "b86304ba": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 16,
+      "foreignItems": 5,
       "offTopicItems": 4
     },
     "60d45044": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 7,
+      "foreignItems": 0,
       "offTopicItems": 5
     },
     "15745da0": {
@@ -200,42 +200,42 @@
     "b320f3f8": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 13,
+      "foreignItems": 4,
       "offTopicItems": 1
     },
     "76d63226": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 16,
+      "foreignItems": 7,
       "offTopicItems": 4
     },
     "4100d0a0": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 13,
+      "foreignItems": 3,
       "offTopicItems": 6
     },
     "c14c00dd": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 14,
-      "offTopicItems": 18
+      "foreignItems": 5,
+      "offTopicItems": 19
     },
     "15745da0_abs": {
       "abstentionItems": 15,
-      "foreignItems": 14,
+      "foreignItems": 2,
       "offTopicItems": 4
     },
     "0a995998": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 18,
+      "foreignItems": 12,
       "offTopicItems": 1
     },
     "3a704032": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 7,
+      "foreignItems": 3,
       "offTopicItems": 3
     },
     "c4a1ceb8": {
@@ -247,13 +247,13 @@
     "28dc39ac": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 18,
+      "foreignItems": 9,
       "offTopicItems": 11
     },
     "80ec1f4f": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 18,
+      "foreignItems": 11,
       "offTopicItems": 4
     },
     "gpt4_5501fe77": {
@@ -265,23 +265,23 @@
     "00ca467f": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 13,
+      "foreignItems": 12,
       "offTopicItems": 5
     },
     "60bf93ed": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 14,
+      "foreignItems": 9,
       "offTopicItems": 0
     },
     "a9f6b44c": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 20,
+      "foreignItems": 16,
       "offTopicItems": 3
     },
     "gpt4_731e37d7": {
-      "allEvidence": false,
+      "allEvidence": true,
       "anyEvidence": true,
       "foreignItems": 3,
       "offTopicItems": 6
@@ -289,7 +289,7 @@
     "1a8a66a6": {
       "allEvidence": false,
       "anyEvidence": true,
-      "foreignItems": 19,
+      "foreignItems": 20,
       "offTopicItems": 7
     },
     "81507db6": {
@@ -299,7 +299,7 @@
       "offTopicItems": 7
     },
     "edced276_abs": {
-      "abstentionItems": 18,
+      "abstentionItems": 8,
       "foreignItems": 14,
       "offTopicItems": 9
     },
@@ -318,7 +318,7 @@
     "09d032c9": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 16,
+      "foreignItems": 14,
       "offTopicItems": 5
     },
     "505af2f5": {
@@ -331,7 +331,7 @@
       "allEvidence": true,
       "anyEvidence": true,
       "foreignItems": 17,
-      "offTopicItems": 3
+      "offTopicItems": 4
     },
     "1c0ddc50": {
       "allEvidence": true,
@@ -354,7 +354,7 @@
     "6456829e": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 14,
+      "foreignItems": 4,
       "offTopicItems": 11
     },
     "e25c3b8d": {
@@ -367,7 +367,7 @@
       "allEvidence": false,
       "anyEvidence": true,
       "foreignItems": 18,
-      "offTopicItems": 7
+      "offTopicItems": 10
     },
     "720133ac": {
       "allEvidence": true,
@@ -384,31 +384,31 @@
     "0ea62687": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 20,
+      "foreignItems": 14,
       "offTopicItems": 4
     },
     "09ba9854": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 19,
+      "foreignItems": 14,
       "offTopicItems": 19
     },
     "55241a1f": {
       "allEvidence": true,
       "anyEvidence": true,
       "foreignItems": 12,
-      "offTopicItems": 5
+      "offTopicItems": 6
     },
     "a346bb18": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 17,
+      "foreignItems": 9,
       "offTopicItems": 5
     },
     "efc3f7c2": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 17,
+      "foreignItems": 9,
       "offTopicItems": 2
     },
     "a96c20ee_abs": {
@@ -419,7 +419,7 @@
     "gpt4_4929293a": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 7,
+      "foreignItems": 6,
       "offTopicItems": 4
     },
     "0db4c65d": {
@@ -431,7 +431,7 @@
     "gpt4_18c2b244": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 18,
+      "foreignItems": 19,
       "offTopicItems": 2
     },
     "gpt4_7abb270c": {
@@ -449,20 +449,20 @@
     "gpt4_4ef30696": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 19,
+      "foreignItems": 10,
       "offTopicItems": 8
     },
     "gpt4_8e165409": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 16,
+      "foreignItems": 7,
       "offTopicItems": 14
     },
     "gpt4_98f46fc6": {
       "allEvidence": true,
       "anyEvidence": true,
       "foreignItems": 2,
-      "offTopicItems": 4
+      "offTopicItems": 5
     },
     "gpt4_85da3956": {
       "allEvidence": true,
@@ -498,7 +498,7 @@
       "allEvidence": false,
       "anyEvidence": true,
       "foreignItems": 4,
-      "offTopicItems": 1
+      "offTopicItems": 2
     },
     "0bb5a684": {
       "allEvidence": true,
@@ -545,7 +545,7 @@
     "gpt4_88806d6e": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 3,
+      "foreignItems": 1,
       "offTopicItems": 0
     },
     "6613b389": {
@@ -561,7 +561,7 @@
       "offTopicItems": 9
     },
     "gpt4_70e84552_abs": {
-      "abstentionItems": 11,
+      "abstentionItems": 12,
       "foreignItems": 7,
       "offTopicItems": 5
     },
@@ -591,7 +591,7 @@
     "2698e78f": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 17,
+      "foreignItems": 8,
       "offTopicItems": 9
     },
     "e493bb7c": {
@@ -604,7 +604,7 @@
       "allEvidence": true,
       "anyEvidence": true,
       "foreignItems": 11,
-      "offTopicItems": 8
+      "offTopicItems": 9
     },
     "e61a7584": {
       "allEvidence": true,
@@ -615,66 +615,66 @@
     "22d2cb42": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 12,
+      "foreignItems": 0,
       "offTopicItems": 4
     },
     "e66b632c": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 18,
+      "foreignItems": 20,
       "offTopicItems": 8
     },
     "69fee5aa": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 15,
+      "foreignItems": 5,
       "offTopicItems": 14
     },
     "06db6396": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 13,
-      "offTopicItems": 8
+      "foreignItems": 2,
+      "offTopicItems": 10
     },
     "ba61f0b9": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 17,
+      "foreignItems": 1,
       "offTopicItems": 6
     },
     "0977f2af": {
       "allEvidence": false,
       "anyEvidence": true,
-      "foreignItems": 17,
+      "foreignItems": 8,
       "offTopicItems": 0
     },
     "0ddfec37_abs": {
-      "abstentionItems": 16,
-      "foreignItems": 17,
+      "abstentionItems": 7,
+      "foreignItems": 7,
       "offTopicItems": 5
     },
     "c4f10528": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 14,
+      "foreignItems": 7,
       "offTopicItems": 2
     },
     "7e00a6cb": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 11,
+      "foreignItems": 3,
       "offTopicItems": 11
     },
     "fea54f57": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 17,
+      "foreignItems": 10,
       "offTopicItems": 8
     },
     "58470ed2": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 16,
+      "foreignItems": 6,
       "offTopicItems": 5
     },
     "71a3fd6b": {
@@ -705,7 +705,7 @@
       "allEvidence": true,
       "anyEvidence": true,
       "foreignItems": 19,
-      "offTopicItems": 8
+      "offTopicItems": 9
     },
     "ac031881": {
       "allEvidence": true,
@@ -716,7 +716,7 @@
     "c7cf7dfd": {
       "allEvidence": true,
       "anyEvidence": true,
-      "foreignItems": 13,
+      "foreignItems": 9,
       "offTopicItems": 3
     }
   }
