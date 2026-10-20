@@ -1,7 +1,6 @@
 # Mnemora Roadmap
 
-Updated 2026-10-20. Latest release: **v1.36.0** (`52c4381`); v1.37.0 is
-prepared on main and not yet tagged. Earlier plans and
+Updated 2026-10-20. Latest release: **v1.37.0** (`319c93e`). Earlier plans and
 per-version records are in [the roadmap history](roadmap-history.md); what
 each release changed is in [the release notes](releases/).
 
