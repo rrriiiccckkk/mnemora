@@ -1,6 +1,7 @@
 # Mnemora Roadmap
 
-Updated 2026-10-19. Latest release: **v1.36.0** (`52c4381`). Earlier plans and
+Updated 2026-10-20. Latest release: **v1.36.0** (`52c4381`); v1.37.0 is
+prepared on main and not yet tagged. Earlier plans and
 per-version records are in [the roadmap history](roadmap-history.md); what
 each release changed is in [the release notes](releases/).
 
@@ -38,7 +39,7 @@ single-session preference 43.3% / 40.0% (30 questions; retrieval session hit
 56.7% vs bm25 70%), multi-session 48.8% / 41.3% (56.2% with embeddings),
 temporal reasoning 68.5% / 63.0%. The other three types are above 90%.
 
-## Next: v1.37 (proposed)
+## v1.37.0: recall in the user message, time phrases, host embeddings, retrieval gate
 
 Chosen after comparing open-source agent memory (2026-10-19, see
 [Comparison with other memory systems](#comparison-with-other-memory-systems)).
@@ -78,7 +79,7 @@ Each item targets a measured weakness.
    `eval/retrieval-gate/baseline.json`. The dataset is MIT; the 277 MB file is
    downloaded at a pinned revision and sha256 and cached, not committed.
    Verified against 1.32.19 (fails: all evidence 72 → 3) and 1.36.0 (passes).
-5. **Comparable published number (optional).** One LongMemEval_S run at a
+5. **Comparable published number (optional, not in 1.37.0).** One LongMemEval_S run at a
    4k–7k token budget, the range other systems report at, so results can be
    read side by side (about 1,000 model calls).
 

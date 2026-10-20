@@ -162,7 +162,7 @@ node dist/cli.js resume "deployment task" --scope project-a
 - **召回**：[召回质量](docs/recall-quality.md)、[阈值评估](docs/recall-threshold-evaluation.md)、[注入回执](docs/recall-attachment-evidence.zh-CN.md)、[有用性边界](docs/recall-usefulness-review.zh-CN.md)、[相关度影子评估](docs/recall-relevance-shadow.md)和[相关度评估](docs/recall-relevance-evaluation.md)。
 - **任务续接**：[评估](docs/task-resume-evaluation.md)、[来源证据](docs/task-resume-source-evidence.zh-CN.md)、[一键回归](docs/task-resume-regression.zh-CN.md)和[正式三臂实验](docs/task-resume-experiment-runner.zh-CN.md)。
 - **可选分类器**：[语义准入分类器](docs/semantic-classifier.md)。
-- **规划**：[路线图](docs/roadmap.md)和[发布说明](docs/releases/v1.36.0.md)。
+- **规划**：[路线图](docs/roadmap.md)和[发布说明](docs/releases/v1.37.0.md)。
 
 ## 开发
 
