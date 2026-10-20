@@ -79,7 +79,10 @@ test("a v55 database with drift candidates and repairs still upgrades", () => {
     const columns = store.db.prepare("PRAGMA table_info(kg_schema_drift_candidates)").all().map(row => row.name);
     assert.ok(columns.includes("legacy_edge_id"));
     assert.ok(store.db.prepare("PRAGMA table_info(kg_schema_drift_repairs)").all().some(row => row.name === "retired_edge_id"));
-  } finally { store?.close(); rmSync(directory, { recursive: true, force: true }); }
+  } finally {
+    store?.close();
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); } catch (error) { if (process.platform !== "win32" || error?.code !== "EPERM") throw error; }
+  }
 });
 
 test("removed features' configuration keys still load", () => {
