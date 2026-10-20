@@ -126,8 +126,10 @@ Proposed 2026-10-20 after the slimming, in order.
    record opened the packet. LongMemEval_S at 4000 tokens: all evidence
    78.5% → 81.7% (bm25 81.1%) with 2,915 tokens against 3,687. Default
    budget unchanged; a second CI gate runs at 4000. See recall-quality.
-2. **Comparable QA run at 4000 tokens (pending, paid).** Mnemora against
-   bm25 with the same reader and judge.
+2. **Comparable QA run at 4000 tokens (done 2026-10-21).** Reader and judge
+   `mimo-v2.6-pro`, 500 questions: Mnemora 79.6% with 3,127 context tokens,
+   bm25 77.6% with 3,924; paired 32 vs 22 questions, p = 0.22. See
+   recall-quality.
 3. **Multi-session aggregation.** Still the weakest type (71.1%).
 4. **Preference recall at large budgets.** 66.7% against bm25 73.3%.
 5. **Fact supersession.** Validity windows beyond `newer_related`.

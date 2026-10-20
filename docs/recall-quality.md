@@ -577,3 +577,21 @@ the packet on generic words; their best admitted record has median query
 match 0.30 against 0.46 for real questions. The default budget gate is
 unchanged; `eval/retrieval-gate/baseline-4000.json` now also runs in CI.
 
+QA at 4000 tokens (2026-10-21; reader and judge `mimo-v2.6-pro`, official
+prompts, contexts from the shipped rule, up to 20 records):
+
+| Type | n | bm25 | Mnemora |
+|---|---|---|---|
+| All | 500 | 77.6% (3,924 tokens) | 79.6% (3,127) |
+| Single-session user | 64 | 95.3 | 95.3 |
+| Single-session assistant | 56 | 96.4 | 98.2 |
+| Preference | 30 | 60.0 | 63.3 |
+| Multi-session | 121 | 61.2 | 61.2 |
+| Temporal reasoning | 127 | 71.7 | 75.6 |
+| Knowledge update | 72 | 86.1 | 90.3 |
+| Abstention | 30 | 93.3 | 93.3 |
+
+Mnemora alone correct on 32 questions, bm25 alone on 22 (exact two-sided
+binomial p = 0.22): ahead with 20% fewer tokens, not a significant margin.
+Multi-session stays the weakest type for both.
+
