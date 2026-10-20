@@ -241,7 +241,7 @@ first-use checks, correction workflows and operating commands.
   [formal three-arm runner](docs/task-resume-experiment-runner.zh-CN.md).
 - **Optional classifiers:** [semantic admission classifier](docs/semantic-classifier.md).
 - **Planning:** [roadmap](docs/roadmap.md) and
-  [release notes](docs/releases/v1.37.0.md).
+  [release notes](docs/releases/v1.38.0.md).
 
 Some detailed guides are currently available in Chinese only.
 

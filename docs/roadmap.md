@@ -1,6 +1,7 @@
 # Mnemora Roadmap
 
-Updated 2026-10-20. Latest release: **v1.37.0** (`319c93e`). Earlier plans and
+Updated 2026-10-20. Latest release: **v1.37.0** (`319c93e`); v1.38.0 is
+prepared on main and not yet tagged. Earlier plans and
 per-version records are in [the roadmap history](roadmap-history.md); what
 each release changed is in [the release notes](releases/).
 
@@ -31,6 +32,7 @@ The way there is in three steps, each gated on measured evidence:
 | Agent isolation, injection safety | Released | Per-agent scopes by default; newlines preserved so injected role lines are quoted (1.33); threat model and poisoning tests (1.31.9) |
 | Explicit task resume (`resume`, Inspector) | Released | Accepted task state, coverage gaps and readable source excerpts (1.30–1.32) |
 | Task-resume value on real history | **Unproven** | Operator-reported, 4 cases: simple retrieval 4/4, Mnemora 2/4, no memory 0/4; only 2 held out (2026-09-24) |
+| Graph governance, research tools | **Removed (1.38)** | No evidence of benefit or use; about 282 KB of source. `kg_review` keeps four kinds, `research` equals `core`, tables and config keys stay |
 | ReasoningMemory | **Not in the product** | The experimental pipeline was removed in 1.33 (about 4.5k lines; its config keys are still accepted). A canary is gated on task-resume evidence |
 
 Weakest benchmark types (1.35 answer accuracy, Mnemora / bm25):
@@ -82,9 +84,9 @@ Each item targets a measured weakness.
    4k–7k token budget, the range other systems report at, so results can be
    read side by side (about 1,000 model calls).
 
-## Next: slimming (reviewed 2026-10-20, for v1.38.0)
+## v1.38.0: slimming (reviewed 2026-10-20)
 
-Status: batches A and B are removed on `main` for v1.38.0; C is deferred and
+Status: batches A and B are removed in v1.38.0; C is deferred and
 D is kept. Batch B leaves `toolSurface: "research"` as an alias of `core`; the
 query, watch, digest, and insight tables stay and the Inspector still shows
 their stored rows read-only, without live insight analysis. `kg_review` stayed,
