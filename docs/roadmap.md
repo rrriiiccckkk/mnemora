@@ -82,7 +82,14 @@ Each item targets a measured weakness.
    4k–7k token budget, the range other systems report at, so results can be
    read side by side (about 1,000 model calls).
 
-## Next: slimming (reviewed 2026-10-20, nothing deleted yet)
+## Next: slimming (reviewed 2026-10-20, for v1.38.0)
+
+Status: batch A is removed on `main`, batch B is next. `kg_review` stayed,
+reduced to `duplicates`, `anomalies`, `identity` and `semantic_patterns`,
+because every `kg_ingest` still writes duplicate candidates that only it
+reads; the removed kinds fail with `review_kind_removed`. Ingest no longer
+records schema-drift candidates; the endpoint mismatch stays as a soft flag
+on the edge.
 
 Candidates are code that never runs on the automatic recall path and has no
 measured benefit. Each was traced through imports, tools, CLI commands,

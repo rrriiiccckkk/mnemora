@@ -51,7 +51,6 @@ test("mismatched semantic evidence is soft-flagged and pattern promotion remains
     const edge = result.relations[0].edge;
     assert.deepEqual(edge.edge_props.semantics, { version: 1, layer: "semantic", predicate: "works_at", domain: "investment", endpoint_match: false });
     assert.equal(store.related("Widget", 1, ["works_at"], undefined, "work").semantic_labels[0].score, .675, "dictionary drift must lower label selection without changing evidence");
-    assert.equal(store.reviewSchemaDrift("work").items.length, 1);
 
     const [candidate] = store.reviewSemanticPatterns("work").items;
     assert.deepEqual({ status: candidate.status, count: candidate.occurrence_count, predicate: candidate.predicate }, { status: "pending", count: 1, predicate: "works_at" });

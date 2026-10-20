@@ -16,7 +16,6 @@ import type { Embedder } from "./embeddings.js";
 import { HostEmbedder, selectHostEmbedding } from "./host-embeddings.js";
 import type { CompletedTurn, ContextAssemblyInput } from "./context-engine/lifecycle.js";
 import { sessionWriteDisposition } from "./journal/session-policy.js";
-import { GraphHygieneService } from "./hygiene/service.js";
 
 type SdkLogger = Pick<OpenClawPluginApi["logger"], "debug" | "info" | "warn">;
 type UnknownRecord = Record<string, unknown>;
@@ -220,23 +219,6 @@ export class PluginRuntime {
     finally { graph.close(); }
   }
 
-  /** Opt-in review maintenance after a durable turn; no graph fact is ever changed here. */
-  runGraphHygiene(): void {
-    if (!this.config.quality?.hygiene?.enabled) return;
-    const graph = this.openGraph();
-    try {
-      const policy = this.config.quality.hygiene;
-      const result = new GraphHygieneService(graph.store).run({ scope: this.config.scope!.default!, policy: {
-        intervalHours: policy.intervalHours ?? 168,
-        maxDuplicateScanNodes: policy.maxDuplicateScanNodes ?? 100,
-        relatedToWarningRatio: policy.relatedToWarningRatio ?? .4,
-        relatedToWarningMinimumEdges: policy.relatedToWarningMinimumEdges ?? 20
-      } });
-      if (result.status !== "not_due") this.logger.info?.("graph hygiene completed", { status: result.status, duplicateCandidates: result.report.pending_duplicate_candidates, selfLinks: result.report.suspicious_self_links });
-    } catch { this.logger.warn?.("graph hygiene failed", { category: "operation_failed" }); }
-    finally { graph.close(); }
-  }
-
   async processCompletedTurn(turn: CompletedTurn, receipt: JournalTurnReceipt): Promise<void> {
     if (this.isExcludedAgent(turn.agentId)) {
       this.logger.debug?.("automatic turn processing skipped for excluded agent", { agentId: turn.agentId! });
@@ -260,7 +242,6 @@ export class PluginRuntime {
     }
     this.runConsolidation();
     this.runReflection();
-    this.runGraphHygiene();
   }
 
   private async handleContextCompletedTurn(turn: CompletedTurn, receipt: JournalTurnReceipt): Promise<void> {

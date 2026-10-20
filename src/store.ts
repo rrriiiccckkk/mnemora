@@ -35,9 +35,7 @@ import { mapEdge, mapNode, type EdgeRow, type NodeRow } from "./graph-records.js
 import { GraphSearchRepository } from "./retrieval/graph-search-repository.js";
 import { GraphTraversalRepository } from "./retrieval/graph-traversal-repository.js";
 import { memoryMatchesTags } from "./retrieval/query-routing.js";
-import { schemaDriftOptionalRestoreTables, schemaDriftSchemaSql } from "./schema-drift/schema.js";
-import { SchemaDriftRepository } from "./schema-drift/repository.js";
-import { SchemaDriftReviewRepository } from "./schema-drift/review.js";
+import { schemaDriftOptionalRestoreTables, schemaDriftSchemaSql } from "./legacy-schema/schema-drift.js";
 import { semanticOptionalRestoreTables, semanticSchemaSql } from "./semantics/schema.js";
 import { SemanticPatternRepository } from "./semantics/repository.js";
 import { recallAttachmentSchemaSql, recallLifecycleOptionalRestoreTables, recallLifecycleSchemaSql } from "./recall-lifecycle/schema.js";
@@ -45,13 +43,13 @@ import { corpusOptionalRestoreTables, corpusSchemaSql } from "./corpus/schema.js
 import { memoryLifecycleSchemaSql } from "./memory-lifecycle/schema.js";
 import { unifiedRecallShadowSchemaSql } from "./retrieval/schema.js";
 import { firstUseVerificationSchemaSql } from "./standalone/first-use-schema.js";
-import { relatedEdgeRefinementOptionalRestoreTables, relatedEdgeRefinementSchemaSql } from "./related-edge-refinement/schema.js";
-import { relatedEdgeSemanticOptionalRestoreTables, relatedEdgeSemanticSchemaSql } from "./related-edge-semantics/schema.js";
-import { graphReviewOptionalRestoreTables, graphReviewSchemaSql } from "./graph-review/schema.js";
-import { semanticVocabularyOptionalRestoreTables, semanticVocabularySchemaSql } from "./semantic-vocabulary/schema.js";
+import { relatedEdgeRefinementOptionalRestoreTables, relatedEdgeRefinementSchemaSql } from "./legacy-schema/related-edge-refinement.js";
+import { relatedEdgeSemanticOptionalRestoreTables, relatedEdgeSemanticSchemaSql } from "./legacy-schema/related-edge-semantics.js";
+import { graphReviewOptionalRestoreTables, graphReviewSchemaSql } from "./legacy-schema/graph-review.js";
+import { semanticVocabularyOptionalRestoreTables, semanticVocabularySchemaSql } from "./legacy-schema/semantic-vocabulary.js";
 import { openMnemoraDatabase } from "./sqlite.js";
 import { DatabaseRecoveryService } from "./operations/database-recovery.js";
-import type { AutoRunClaim, AutoRunFinishStatus, CommunitySummary, ConflictCandidate, ConflictCandidateStatus, DuplicateCandidate, DuplicateCandidateStatus, DuplicateScanResult, EvidenceSummary, ExtractedEntity, ExtractedRelation, InsightKind, KgContextResult, KgEdge, KgForgetResult, KgInsight, KgMemoryChunk, KgMemoryDocument, KgMemoryExpiryReview, KgMemoryLifecycleAudit, KgMemoryLifecycleConfirm, KgMemoryLifecyclePreview, KgMemorySearchResult, KgNode, KgObservation, KgRelatedResult, KgScopeSummary, KgSearchResult, KgSourceSummary, KgStatsResult, LegacyIdentityAuditResult, MemoryLifecycleAction, MergeResult, MergeUndoResult, NodeType, QualityCleanupResult, QualityEvidenceSummary, RankedNode, RelationshipAnomaly, SchemaDriftCandidate, SchemaDriftRepairResult, SchemaDriftScanResult, SemanticPatternCandidate, SemanticPatternReviewResult, StoredEmbedding } from "./types.js";
+import type { AutoRunClaim, AutoRunFinishStatus, CommunitySummary, ConflictCandidate, ConflictCandidateStatus, DuplicateCandidate, DuplicateCandidateStatus, DuplicateScanResult, EvidenceSummary, ExtractedEntity, ExtractedRelation, InsightKind, KgContextResult, KgEdge, KgForgetResult, KgInsight, KgMemoryChunk, KgMemoryDocument, KgMemoryExpiryReview, KgMemoryLifecycleAudit, KgMemoryLifecycleConfirm, KgMemoryLifecyclePreview, KgMemorySearchResult, KgNode, KgObservation, KgRelatedResult, KgScopeSummary, KgSearchResult, KgSourceSummary, KgStatsResult, LegacyIdentityAuditResult, MemoryLifecycleAction, MergeResult, MergeUndoResult, NodeType, QualityCleanupResult, QualityEvidenceSummary, RankedNode, RelationshipAnomaly, SemanticPatternCandidate, SemanticPatternReviewResult, StoredEmbedding } from "./types.js";
 import type { GraphProjection, InsightSnapshot } from "./insights/types.js";
 import type { QueryPlanV1 } from "./query/types.js";
 import type { DigestClaim, KgDigestResult, KgWatch, WatchScheduleHint } from "./query/watch.js";
@@ -86,8 +84,6 @@ export type { NewQueryRunRecord, QueryRunRecord } from "./query/repository.js";
 export class GraphologyStore {
   db: DatabaseSyncInstance;
   readonly entities: EntityRepository;
-  readonly schemaDrift: SchemaDriftRepository;
-  readonly schemaDriftReviews: SchemaDriftReviewRepository;
   readonly semanticPatterns: SemanticPatternRepository;
   private readonly graphSearch: GraphSearchRepository;
   private readonly graphTraversal: GraphTraversalRepository;
@@ -104,8 +100,6 @@ export class GraphologyStore {
     this.graphSearch = new GraphSearchRepository(this.db);
     this.graphTraversal = new GraphTraversalRepository(this.db, this.graphSearch);
     this.queries = new QueryPersistenceRepository(this.db, scope => this.touchScope(scope));
-    this.schemaDrift = new SchemaDriftRepository(this.db);
-    this.schemaDriftReviews = new SchemaDriftReviewRepository(this.db);
     this.semanticPatterns = new SemanticPatternRepository(this.db);
     this.recovery = new DatabaseRecoveryService({
       db: this.db,
@@ -511,7 +505,8 @@ export class GraphologyStore {
   /** Schema v77 has no new graph schema. It deterministically records only
    * review metadata for historic candidates newly allowed by the vocabulary,
    * so a read-only decision report never depends on opening a worklist first. */
-  private migrateSchemaDriftVocabularyReconciliationV77(): void { this.schemaDriftReviews.reconcileAll(); }
+  /** Reconciled schema-drift reviews with vocabulary reviews; both review flows were removed in 1.38. */
+  private migrateSchemaDriftVocabularyReconciliationV77(): void { /* no reader left */ }
 
   /** Schema v78 adds opaque host turn-advancement receipts only. Existing
    * journal events and capture receipts remain authoritative and unchanged. */
@@ -1266,10 +1261,6 @@ export class GraphologyStore {
     return { items };
   }
 
-  reviewSchemaDrift(scope: string, limit = 20): { items: SchemaDriftCandidate[] } {
-    return { items: this.schemaDrift.list(scope, limit) };
-  }
-
   reviewSemanticPatterns(scope: string, limit = 20): { items: SemanticPatternCandidate[] } {
     return { items: this.semanticPatterns.list(scope, limit) };
   }
@@ -1307,89 +1298,6 @@ export class GraphologyStore {
         .run(candidateId, normalizedScope, decision, expectedPreviewHash, auditId, now);
       this.db.exec("COMMIT");
       return { confirmed: true, candidate_id: candidateId, decision, preview_hash: expectedPreviewHash, eligible: true, audit_id: auditId };
-    } catch (error) { try { this.db.exec("ROLLBACK"); } catch {} throw error; }
-  }
-
-  /**
-   * Find legacy active edges that no longer pass the current endpoint policy.
-   * This is an audit-only, cursor-bounded projection: it never changes an
-   * edge, observation, confidence, or relationship definition.
-   */
-  scanLegacySchemaDrift(scope: string, afterEdgeId?: string, limit = 20): SchemaDriftScanResult {
-    const normalizedScope = normalizeScope(scope), take = Math.min(100, Math.max(1, Math.trunc(limit)));
-    const after = typeof afterEdgeId === "string" && afterEdgeId.length > 0 && afterEdgeId.length <= 200 ? afterEdgeId : "";
-    const rows = this.db.prepare("SELECT * FROM kg_edges WHERE deleted_at IS NULL AND id>? ORDER BY id LIMIT ?").all(after, take) as EdgeRow[];
-    let candidates_created = 0, candidates_updated = 0;
-    for (const row of rows) {
-      const edge = mapEdge(row), source = this.getNodeById(edge.source_id), target = this.getNodeById(edge.target_id);
-      if (!source || !target) continue;
-      const admission = validateRelationship(source, target, edge.type, 1, 0);
-      if (!admission.accepted || admission.endpoint_match) continue;
-      const evidence = this.evidenceForEdge(edge.id, 1, normalizedScope)[0];
-      if (!evidence) continue;
-      const existing = this.db.prepare("SELECT 1 AS present FROM kg_schema_drift_candidates WHERE scope=? AND source_entity_id=? AND target_entity_id=? AND relationship_type=? AND legacy_edge_id=?").get(normalizedScope, source.id, target.id, edge.type, edge.id) as { present?: number } | undefined;
-      this.schemaDrift.recordLegacy({
-        scope: normalizedScope, source, target, legacyEdgeId: edge.id,
-        definition: semanticVocabularyRecommendation(edge.type, source.type, target.type).definition,
-        relation: { source: source.name, target: target.name, type: edge.type, confidence: clamp01(evidence.confidence), evidence_span: evidence.quote.slice(0, 2000), valid_from: evidence.valid_from, valid_to: evidence.valid_to, temporal_confidence: evidence.temporal_confidence }
-      });
-      if (existing?.present) candidates_updated++; else candidates_created++;
-    }
-    return { scanned: rows.length, candidates_created, candidates_updated, ...(rows.length === take ? { next_edge_id: rows[rows.length - 1]!.id } : {}) };
-  }
-
-  /** Preview then explicitly admit a conservative structural replacement for
-   * an observed endpoint mismatch.  The original extractor relation remains
-   * non-admitted; this creates a separate, down-weighted audited fact only
-   * when both endpoints have same-scope evidence. */
-  previewSchemaDriftRepair(candidateId: string, replacementType: "depends_on" | "part_of" | "instance_of" | "related_to", scope = "default"): SchemaDriftRepairResult {
-    const normalizedScope = normalizeScope(scope), candidate = this.schemaDrift.get(candidateId, normalizedScope);
-    const basic = { confirmed: false, candidate_id: candidateId, replacement_type: replacementType } as const;
-    if (!candidate) return { ...basic, preview_hash: "", eligible: false, reason: "missing_candidate" };
-    const existing = this.schemaDrift.repair(candidateId, normalizedScope);
-    if (existing) return { ...basic, preview_hash: existing.preview_hash, eligible: false, reason: "already_repaired", edge_id: existing.edge_id, observation_id: existing.observation_id, audit_id: existing.audit_id, ...(existing.retired_edge_id ? { retired_edge_id: existing.retired_edge_id } : {}) };
-    const resolution = this.schemaDriftReviews.resolution(candidateId, normalizedScope);
-    if (resolution === "rejected") return { ...basic, preview_hash: "", eligible: false, reason: "already_rejected" };
-    if (resolution === "invalidated") return { ...basic, preview_hash: "", eligible: false, reason: "endpoint_now_allowed" };
-    const source = this.getNodeById(candidate.source_entity_id), target = this.getNodeById(candidate.target_entity_id);
-    if (!source || source.deleted_at != null || !target || target.deleted_at != null) return { ...basic, preview_hash: "", eligible: false, reason: "missing_endpoint" };
-    if (!this.hasNodeEvidenceInScope(source.id, normalizedScope) || !this.hasNodeEvidenceInScope(target.id, normalizedScope)) return { ...basic, preview_hash: "", eligible: false, reason: "missing_scope_evidence" };
-    const legacy = candidate.legacy_edge_id ? this.activeLegacySchemaDriftEdge(candidate, normalizedScope) : undefined;
-    if (candidate.legacy_edge_id && !legacy) return { ...basic, preview_hash: "", eligible: false, reason: "legacy_edge_changed" };
-    const relation = this.schemaDrift.relation(candidateId, normalizedScope);
-    if (!relation || relation.type !== candidate.relationship_type) return { ...basic, preview_hash: "", eligible: false, reason: "invalid_payload" };
-    const snapshot = { candidate_id: candidate.id, scope: normalizedScope, replacement_type: replacementType, original_type: candidate.relationship_type, source_id: source.id, target_id: target.id, occurrence_count: candidate.occurrence_count, relation_confidence: clamp01(relation.confidence), legacy_edge: legacy ? { id: legacy.id, updated_at: legacy.updated_at } : null, graph_revision: this.graphRevision() };
-    const previewHash = createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");
-    return { ...basic, preview_hash: previewHash, eligible: true };
-  }
-
-  confirmSchemaDriftRepair(candidateId: string, replacementType: "depends_on" | "part_of" | "instance_of" | "related_to", expectedPreviewHash: string, scope = "default"): SchemaDriftRepairResult {
-    const normalizedScope = normalizeScope(scope), preview = this.previewSchemaDriftRepair(candidateId, replacementType, normalizedScope);
-    if (!preview.eligible) return preview;
-    if (!expectedPreviewHash || expectedPreviewHash !== preview.preview_hash) throw new Error("stale_schema_drift_repair_preview");
-    const candidate = this.schemaDrift.get(candidateId, normalizedScope)!;
-    const relation = this.schemaDrift.relation(candidateId, normalizedScope)!;
-    const now = Date.now(), auditId = `schema-drift-repair:${randomUUID()}`;
-    this.db.exec("BEGIN IMMEDIATE");
-    try {
-      // Recheck inside the write transaction: a second operator must not turn
-      // the same candidate into duplicate evidence after a stale preview.
-      const prior = this.schemaDrift.repair(candidateId, normalizedScope);
-      if (prior) { this.db.exec("COMMIT"); return { confirmed: true, candidate_id: candidateId, replacement_type: replacementType, preview_hash: prior.preview_hash, eligible: false, reason: "already_repaired", edge_id: prior.edge_id, observation_id: prior.observation_id, audit_id: prior.audit_id, ...(prior.retired_edge_id ? { retired_edge_id: prior.retired_edge_id } : {}) }; }
-      if (this.schemaDriftReviews.resolution(candidateId, normalizedScope) !== "pending") throw new Error("schema_drift_repair_no_longer_eligible");
-      const source = this.getNodeById(candidate.source_entity_id), target = this.getNodeById(candidate.target_entity_id);
-      if (!source || source.deleted_at != null || !target || target.deleted_at != null || !this.hasNodeEvidenceInScope(source.id, normalizedScope) || !this.hasNodeEvidenceInScope(target.id, normalizedScope)) throw new Error("schema_drift_repair_no_longer_eligible");
-      const legacy = candidate.legacy_edge_id ? this.activeLegacySchemaDriftEdge(candidate, normalizedScope) : undefined;
-      if (candidate.legacy_edge_id && !legacy) throw new Error("schema_drift_legacy_edge_changed");
-      const edge = this.upsertEdge(source.id, target.id, replacementType, { schema_drift_repair: true, candidate_id: candidateId, original_type: candidate.relationship_type });
-      const observation = this.insertObservation({ edgeId: edge.id, source: `schema-drift-repair:${candidateId}`, scope: normalizedScope, quote: relation.evidence_span.slice(0, 2000), confidence: clamp01(relation.confidence * .8), payload: { schema_drift_candidate_id: candidateId, original_type: candidate.relationship_type, replacement_type: replacementType, repaired: true }, temporal: relation });
-      if (legacy && Number(this.db.prepare("UPDATE kg_edges SET deleted_at=?,updated_at=? WHERE id=? AND deleted_at IS NULL").run(now, now, legacy.id).changes) !== 1) throw new Error("schema_drift_legacy_edge_changed");
-      this.refreshEdgeWeight(edge.id); this.refreshNodeImportance(source.id); this.refreshNodeImportance(target.id);
-      this.db.prepare("INSERT INTO kg_quality_audits(id,action,snapshot_version,snapshot,created_at) VALUES(?,?,1,?,?)").run(auditId, "confirm_schema_drift_repair", JSON.stringify({ candidate_id: candidateId, scope: normalizedScope, original_type: candidate.relationship_type, replacement_type: replacementType, preview_hash: preview.preview_hash, edge_id: edge.id, observation_id: observation.id, ...(legacy ? { retired_edge_id: legacy.id } : {}) }), now);
-      this.db.prepare("INSERT INTO kg_schema_drift_repairs(candidate_id,scope,replacement_type,preview_hash,edge_id,observation_id,audit_id,retired_edge_id,created_at) VALUES(?,?,?,?,?,?,?,?,?)").run(candidateId, normalizedScope, replacementType, preview.preview_hash, edge.id, observation.id, auditId, legacy?.id ?? null, now);
-      this.bumpGraphRevision();
-      this.db.exec("COMMIT");
-      return { confirmed: true, candidate_id: candidateId, replacement_type: replacementType, preview_hash: preview.preview_hash, eligible: true, edge_id: edge.id, observation_id: observation.id, audit_id: auditId, ...(legacy ? { retired_edge_id: legacy.id } : {}) };
     } catch (error) { try { this.db.exec("ROLLBACK"); } catch {} throw error; }
   }
 
@@ -1663,7 +1571,6 @@ export class GraphologyStore {
       observations.push(observation);
       if (recommendation) {
         this.semanticPatterns.record({ scope: normalizedScope, domain: recommendation.domain, sourceType: sourceNode.type, predicate: relation.type, targetType: targetNode.type });
-        if (!recommendation.endpoint_match) this.schemaDrift.record({ scope: normalizedScope, source: sourceNode, target: targetNode, relation, definition: recommendation.definition });
       }
     }
     return { entities: entityResults, relations: relationResults, observations, skipped_relations };
@@ -2433,21 +2340,6 @@ export class GraphologyStore {
     return row?.present === 1;
   }
 
-  /** Recheck the exact historic edge selected by a scan. A repair must never
-   * retire a different, already-fixed, or newly-admitted relationship. */
-  private activeLegacySchemaDriftEdge(candidate: SchemaDriftCandidate, scope: string): KgEdge | undefined {
-    if (!candidate.legacy_edge_id) return undefined;
-    const row = this.db.prepare("SELECT * FROM kg_edges WHERE id=? AND deleted_at IS NULL").get(candidate.legacy_edge_id) as EdgeRow | undefined;
-    if (!row) return undefined;
-    const edge = mapEdge(row);
-    if (edge.source_id !== candidate.source_entity_id || edge.target_id !== candidate.target_entity_id || edge.type !== candidate.relationship_type) return undefined;
-    const source = this.getNodeById(edge.source_id), target = this.getNodeById(edge.target_id);
-    if (!source || !target) return undefined;
-    const admission = validateRelationship(source, target, edge.type, 1, 0);
-    if (!admission.accepted || admission.endpoint_match) return undefined;
-    return this.evidenceForEdge(edge.id, 1, scope).length ? edge : undefined;
-  }
-
   private allocateNodeId(name: string, type: NodeType): string {
     const preferred = normalizeSlug(name, type);
     const occupied = this.getNodeById(preferred, true);
@@ -3001,7 +2893,6 @@ function memorySearchResult(document: KgMemoryDocument, score: number, query: st
   const excerpt = `${start ? "…" : ""}${content.slice(start, end)}${end < content.length ? "…" : ""}`;
   return { id: document.id, scope: document.scope, title: document.title, excerpt, source: document.source, metadata: document.metadata, score: round(score), ...(scoreComponents ? { score_components: { lexical: round(scoreComponents.lexical), semantic: round(scoreComponents.semantic) } } : {}), created_at: document.created_at, updated_at: document.updated_at };
 }
-
 
 function parseJsonArray(value: string): string[] { try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []; } catch { return []; } }
 function parseJsonObject(value: string): Record<string, unknown> { try { const parsed = JSON.parse(value); return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}; } catch { return {}; } }

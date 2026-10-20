@@ -156,8 +156,8 @@ and explicit canary activation. Do not enable delivery to bypass readiness.
   compaction; leave it off unless the user explicitly wants model compaction.
 - `trustLayer.enabled` enables local source anchoring. Strict automatic
   verification is a separate `trustLayer.verification.enabled` opt-in.
-- `quality.hygiene.enabled` schedules bounded review-only graph hygiene;
-  scans never merge or delete data automatically.
+- `quality.hygiene` has no effect since 1.38.0 (graph hygiene was removed);
+  it is still accepted so existing configs load.
 - `toolSurface` is `full` for compatibility. Use `core` for everyday work or
   `research` for analysis when reducing tool-schema context matters. Changing
   it hides tools from the agent; it does not delete data or disable runtime

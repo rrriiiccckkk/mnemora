@@ -23,7 +23,6 @@ import { DecisionMemoryService, type DecisionMaker } from "./cognition/decisions
 import { TaskOutcomeService, type OutcomeImpact, type OutcomeVerdict, type TaskActionState } from "./cognition/outcomes.js";
 import { journalEmbeddingCoverage } from "./journal/search-index.js";
 import { RecallFeedbackRepository, ReflectionService, type RecallFeedbackKind } from "./cognition/reflection.js";
-import { CognitionGraduationService } from "./cognition/graduation.js";
 import { TaskResumeService } from "./task-resume/service.js";
 import { renderTaskResumeMemory } from "./task-resume/memory.js";
 import { TaskResumeComparisonRunner, validateTaskResumeComparisonPlan } from "./task-resume/comparison.js";
@@ -32,7 +31,6 @@ import { EvaluationRunner, serializeEvaluationReport, validateEvaluationDataset,
 import { openMnemoraDatabase } from "./sqlite.js";
 import { SUPPORTED_SCHEMA_VERSION } from "./schema.js";
 import { RecallUsefulnessReviewService } from "./cognition/recall-usefulness.js";
-import { GraphReviewDecisionGate } from "./graph-review/decision-gate.js";
 
 const [, , command, ...args] = process.argv;
 const dbPath = resolveDatabasePath(process.env.MNEMORA_DB);
@@ -266,46 +264,6 @@ function evaluateTaskResumeCommand(raw: string[]): unknown {
  * report, not another context-consuming agent tool or a policy mutation. */
 function reviewCommand(graph: Mnemora, raw: string[]): unknown {
   const { positional, options } = parseOptions(raw), operation = positional.shift(), scope = option(options, "scope") ?? process.env.SCOPE ?? "default";
-  if (operation === "gate") {
-    if (positional.length || Object.keys(options).some(key => key !== "scope")) throw new CliError("invalid_arguments");
-    const hygiene = graph.config.quality?.hygiene;
-    return new GraphReviewDecisionGate(graph.store, {
-      relatedToWarningRatio: hygiene?.relatedToWarningRatio ?? .4,
-      relatedToWarningMinimumEdges: hygiene?.relatedToWarningMinimumEdges ?? 20
-    }).report(scope);
-  }
-  if (operation === "worklist") {
-    if (positional.length || Object.keys(options).some(key => !["scope", "status", "limit", "after-id"].includes(key))) throw new CliError("invalid_arguments");
-    const status = option(options, "status") ?? "pending";
-    if (status !== "pending" && status !== "rejected" && status !== "invalidated") throw new CliError("invalid_arguments");
-    return graph.kg_review("worklist", status, false, boundedLimit(option(options, "limit")) ?? 20, option(options, "after-id"), undefined, undefined, scope);
-  }
-  if (operation === "vocabulary") {
-    const phase = takeArgument(positional);
-    if (phase === "scan") {
-      if (positional.length || Object.keys(options).some(key => !["scope", "limit", "after-id"].includes(key))) throw new CliError("invalid_arguments");
-      return graph.kg_review("semantic_vocabulary", "pending", true, boundedLimit(option(options, "limit")) ?? 20, option(options, "after-id"), undefined, undefined, scope);
-    }
-    if (phase === "list") {
-      if (positional.length || Object.keys(options).some(key => !["scope", "limit", "status"].includes(key))) throw new CliError("invalid_arguments");
-      const status = option(options, "status") ?? "pending";
-      if (status !== "pending" && status !== "accepted" && status !== "rejected") throw new CliError("invalid_arguments");
-      return graph.kg_review("semantic_vocabulary", status, false, boundedLimit(option(options, "limit")) ?? 20, undefined, undefined, undefined, scope);
-    }
-    if (phase === "preview" || phase === "confirm") {
-      const candidateId = takeArgument(positional), decision = takeArgument(positional);
-      if (positional.length || (decision !== "accepted" && decision !== "rejected") || Object.keys(options).some(key => !["scope", "preview-hash", "confirm"].includes(key))) throw new CliError("invalid_arguments");
-      if (phase === "preview") {
-        if (options.confirm === true || option(options, "preview-hash")) throw new CliError("invalid_arguments");
-        return graph.kg_review("semantic_vocabulary", "pending", false, 20, undefined, candidateId, decision, scope);
-      }
-      if (options.confirm !== true) return { status: "confirm_required", operation: "review.vocabulary.confirm" };
-      const previewHash = option(options, "preview-hash");
-      if (!previewHash) throw new CliError("invalid_arguments");
-      return graph.kg_review("semantic_vocabulary", "pending", false, 20, undefined, candidateId, decision, scope, undefined, undefined, previewHash, true);
-    }
-    throw new CliError("invalid_arguments");
-  }
   if (operation === "anomalies") {
     const phase = takeArgument(positional), edgeIds = positional.splice(0);
     if (!edgeIds.length || edgeIds.length > 20 || Object.keys(options).some(key => !["scope", "preview-hash", "confirm"].includes(key))) throw new CliError("invalid_arguments");
@@ -401,14 +359,6 @@ async function cognitionCommand(graph: Mnemora, raw: string[]): Promise<unknown>
     if (operation !== "compile" || Object.keys(options).some(key => !["scope", "token-budget", "max-items", "historical-at"].includes(key))) throw new CliError("invalid_arguments");
     const scope = option(options, "scope") ?? process.env.SCOPE ?? "default";
     return graph.personalContext.compile({ scope, query: positional.join(" "), tokenBudget: boundedRange(option(options, "token-budget"), 64, 1600), maxItems: boundedRange(option(options, "max-items"), 1, 20), historicalAt: boundedRange(option(options, "historical-at"), 0, Number.MAX_SAFE_INTEGER) });
-  }
-  if (family === "graduation") {
-    const operation = positional.shift(), scope = option(options, "scope") ?? process.env.SCOPE ?? "default", cognition = graph.config.cognition;
-    if (operation !== "status" && operation !== "audit") throw new CliError("invalid_arguments");
-    requireNone(positional);
-    const service = new CognitionGraduationService(graph.store.db, { enabled: cognition?.graduation?.enabled, formationShadow: cognition?.formationShadow, admissionMode: cognition?.admission?.mode, beliefsEnabled: cognition?.beliefs?.enabled, contextCompilerEnabled: cognition?.contextCompiler?.enabled, reflectionEnabled: cognition?.reflection?.enabled });
-    const status = service.status(scope);
-    return operation === "audit" ? { scope: status.scope, audit: status.audit } : status;
   }
   if (family === "reflection") {
     const operation = positional.shift(), scope = option(options, "scope") ?? process.env.SCOPE ?? "default", staleAfterDays = boundedRange(option(options, "stale-after-days"), 1, 3650), service = new ReflectionService(graph.store.db);

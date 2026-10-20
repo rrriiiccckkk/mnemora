@@ -35,7 +35,6 @@
     "benchmark:ingestion": "npm run build && node scripts/benchmark-ingestion.mjs",
     "benchmark:harness": "npm run build && node scripts/benchmark-personal-memory-harness.mjs",
     "benchmark:recall-quality": "npm run build && node scripts/benchmark-recall-quality.mjs",
-    "benchmark:cognition": "npm run build && node scripts/benchmark-cognition-graduation.mjs",
     "benchmark:reasoning": "npm run build && node scripts/benchmark-reasoning-runtime.mjs && node scripts/benchmark-reasoning-delivery-effectiveness.mjs",
     "benchmark:task-resume": "npm run build && node scripts/run-unit-tests.mjs tests/task-resume-evaluation.test.mjs tests/task-resume-comparison.test.mjs tests/task-resume-preregistration.test.mjs",
     "benchmark:graduation": "npm run build && node scripts/benchmark-single-memory-harness-graduation.mjs",

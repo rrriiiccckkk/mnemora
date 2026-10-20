@@ -228,30 +228,6 @@ export interface RelationshipAnomaly {
 
 /** A non-admitted extractor proposal whose endpoints do not match the current
  * domain dictionary. It is visible to review but never participates in graph
- * traversal, ranking, or automatic recall. */
-export interface SchemaDriftCandidate {
-  id: string;
-  scope: string;
-  source_entity_id: string;
-  target_entity_id: string;
-  relationship_type: string;
-  source_type: string;
-  target_type: string;
-  expected_source_types: string;
-  expected_target_types: string;
-  /** Present only when a bounded audit found an already-admitted legacy edge. */
-  legacy_edge_id?: string;
-  occurrence_count: number;
-  first_seen_at: number;
-  updated_at: number;
-}
-
-export interface SchemaDriftScanResult {
-  scanned: number;
-  candidates_created: number;
-  candidates_updated: number;
-  next_edge_id?: string;
-}
 
 /** Aggregate-only, human-reviewed proposal to add a pattern to a soft domain
  * vocabulary. It never changes topology or an existing fact by itself. */
@@ -277,20 +253,6 @@ export interface SemanticPatternReviewResult {
   eligible: boolean;
   reason?: "missing_candidate" | "already_reviewed";
   audit_id?: string;
-}
-
-export interface SchemaDriftRepairResult {
-  confirmed: boolean;
-  candidate_id: string;
-  replacement_type: RelationshipType;
-  preview_hash: string;
-  eligible: boolean;
-  reason?: "missing_candidate" | "missing_endpoint" | "missing_scope_evidence" | "invalid_payload" | "legacy_edge_changed" | "already_repaired" | "already_rejected" | "endpoint_now_allowed";
-  edge_id?: string;
-  observation_id?: string;
-  audit_id?: string;
-  /** An existing invalid edge is retired only by its matching confirmation. */
-  retired_edge_id?: string;
 }
 
 export interface QualityCleanupResult {

@@ -105,22 +105,7 @@ test("operator task-resume comparison reports reviewed injection rates without e
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
-test("operator CLI reports the scope-local graph review decision gate without adding an agent tool", () => {
-  const directory = createTempDir("mnemora-review-gate-"), database = join(directory, "memory.db"); let store;
-  try {
-    store = new GraphologyStore(database);
-    const quote = "Build Tool depends on TypeScript.";
-    store.ingest([{ name: "Build Tool", type: "product", confidence: .95, evidence_span: quote }, { name: "TypeScript", type: "technology", confidence: .95, evidence_span: quote }], [{ source: "Build Tool", target: "TypeScript", type: "related_to", confidence: .95, evidence_span: quote }], "fixture:review-gate", 0, undefined, "project:alpha");
-    store.close(); store = undefined;
-    const report = executeAt(database, "review", "gate", "--scope", "project:alpha");
-    assert.deepEqual({ ok: report.json.ok, command: report.json.command, version: report.json.result.version, scope: report.json.result.scope, edges: report.json.result.hygiene.scoped_edges, policy: report.json.result.actions.topology_policy }, { ok: true, command: "review.gate", version: "graph-review-decision-gate-v1", scope: "project:alpha", edges: 1, policy: "not_changed" });
-    const invalid = executeAt(database, "review", "gate", "--limit", "1");
-    assert.deepEqual(invalid.error, { ok: false, command: "review.gate", error: { code: "invalid_arguments" } });
-    assert.doesNotMatch(readFileSync("src/openclaw.ts", "utf8"), /descriptor\("kg_review_gate"/);
-  } finally { try { store?.close(); } catch {} try { rmSync(directory, { recursive: true, force: true }); } catch {} }
-});
-
-test("operator CLI exposes scope-bound graph-review worklists and preview-confirm anomaly cleanup", () => {
+test("operator CLI keeps preview-confirm anomaly cleanup scope-bound", () => {
   const directory = createTempDir("mnemora-review-anomalies-"), database = join(directory, "memory.db"); let store;
   try {
     store = new GraphologyStore(database);
@@ -132,12 +117,6 @@ test("operator CLI exposes scope-bound graph-review worklists and preview-confir
     store.db.prepare("INSERT INTO kg_observations(id,edge_id,source_entity_id,payload,source,scope,quote,confidence,created_at) VALUES(?,?,NULL,?,?,?,?,?,?)")
       .run("obs:review:self", edgeId, "{}", "fixture:review-anomalies", "project:alpha", quote, .9, now);
     store.close(); store = undefined;
-
-    const worklist = executeAt(database, "review", "worklist", "--scope", "project:alpha", "--status", "pending");
-    assert.equal(worklist.status, 0);
-    assert.deepEqual(worklist.json.result.items.map(item => [item.kind, item.edge_id, item.status]), [["suspicious_self_link", edgeId, "pending"]]);
-    const rejected = executeAt(database, "review", "worklist", "--scope", "project:alpha", "--status", "rejected");
-    assert.deepEqual(rejected.json.result.items, []);
 
     const preview = executeAt(database, "review", "anomalies", "preview", edgeId, "--scope", "project:alpha");
     assert.deepEqual({ confirmed: preview.json.result.confirmed, cleaned: preview.json.result.cleaned, edge_ids: preview.json.result.edge_ids }, { confirmed: false, cleaned: 0, edge_ids: [edgeId] });
@@ -151,38 +130,6 @@ test("operator CLI exposes scope-bound graph-review worklists and preview-confir
     store = new GraphologyStore(database);
     assert.notEqual(store.getEdgeById(edgeId)?.deleted_at, null);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM kg_quality_audits WHERE action='cleanup_relationship_anomalies'").get().value, 1);
-  } finally { try { store?.close(); } catch {} try { rmSync(directory, { recursive: true, force: true }); } catch {} }
-});
-
-test("operator CLI keeps semantic vocabulary collection and review scope-bound and preview-first", () => {
-  const directory = createTempDir("mnemora-review-vocabulary-"), database = join(directory, "memory.db"); let store;
-  try {
-    store = new GraphologyStore(database);
-    for (const [product, runtime, source] of [["Product One", "Runtime One", "fixture:vocabulary:a"], ["Product Two", "Runtime Two", "fixture:vocabulary:b"], ["Product Three", "Runtime Three", "fixture:vocabulary:a"]]) {
-      const quote = `${product} is based on ${runtime}.`;
-      store.ingest([{ name: product, type: "product", confidence: .95, evidence_span: quote }, { name: runtime, type: "technology", confidence: .95, evidence_span: quote }], [{ source: product, target: runtime, type: "related_to", confidence: .95, evidence_span: quote }], source, 0, undefined, "project:alpha");
-    }
-    const revision = store.graphRevision();
-    store.close(); store = undefined;
-
-    const scan = executeAt(database, "review", "vocabulary", "scan", "--scope", "project:alpha", "--limit", "20");
-    assert.equal(scan.status, 0);
-    assert.deepEqual({ scanned: scan.json.result.scan.scanned, promoted: scan.json.result.scan.candidates_promoted, items: scan.json.result.items.length }, { scanned: 3, promoted: 1, items: 1 });
-    const candidate = scan.json.result.items[0];
-    assert.deepEqual({ predicate: candidate.predicate, source: candidate.source_type, target: candidate.target_type, status: candidate.status }, { predicate: "based_on", source: "product", target: "technology", status: "pending" });
-    const isolated = executeAt(database, "review", "vocabulary", "list", "--scope", "project:beta", "--status", "pending");
-    assert.deepEqual(isolated.json.result.items, []);
-
-    const preview = executeAt(database, "review", "vocabulary", "preview", candidate.id, "accepted", "--scope", "project:alpha");
-    assert.deepEqual({ confirmed: preview.json.result.confirmed, eligible: preview.json.result.eligible, decision: preview.json.result.decision }, { confirmed: false, eligible: true, decision: "accepted" });
-    const guarded = executeAt(database, "review", "vocabulary", "confirm", candidate.id, "accepted", "--scope", "project:alpha");
-    assert.deepEqual(guarded.json.result, { status: "confirm_required", operation: "review.vocabulary.confirm" });
-    const confirmed = executeAt(database, "review", "vocabulary", "confirm", candidate.id, "accepted", "--scope", "project:alpha", "--preview-hash", preview.json.result.preview_hash, "--confirm");
-    assert.deepEqual({ confirmed: confirmed.json.result.confirmed, candidate: confirmed.json.result.candidate_id, decision: confirmed.json.result.decision, audit: typeof confirmed.json.result.audit_id === "string" }, { confirmed: true, candidate: candidate.id, decision: "accepted", audit: true });
-
-    store = new GraphologyStore(database);
-    assert.equal(store.graphRevision(), revision, "vocabulary review cannot mutate graph topology");
-    assert.equal(store.db.prepare("SELECT status FROM kg_semantic_vocabulary_candidates WHERE id=?").get(candidate.id).status, "accepted");
   } finally { try { store?.close(); } catch {} try { rmSync(directory, { recursive: true, force: true }); } catch {} }
 });
 
@@ -254,10 +201,4 @@ test("operator CLI keeps reflection preview-first and feedback confirmation-gate
   assert.deepEqual(guarded.json.result.status, "confirm_required");
   const feedback = execute("cognition", "feedback", "list", "--scope", "project:alpha");
   assert.deepEqual({ ok: feedback.json.ok, command: feedback.json.command, result: feedback.json.result }, { ok: true, command: "cognition.feedback", result: [] });
-});
-
-test("operator CLI exposes C8 graduation evidence as a read-only status", () => {
-  const status = execute("cognition", "graduation", "status", "--scope", "project:alpha");
-  assert.equal(status.status, 0);
-  assert.deepEqual({ ok: status.json.ok, command: status.json.command, scope: status.json.result.scope, checked: status.json.result.audit.checked, ready: status.json.result.ready }, { ok: true, command: "cognition.graduation", scope: "project:alpha", checked: 0, ready: false });
 });

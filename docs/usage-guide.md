@@ -265,122 +265,42 @@ The `unified` section reports the real ContextEngine attachment path; it does
 not alter retrieval or injection. Set `diversityLambda: 1` to retain score-only
 ordering, or keep the default `0.75` for modest deterministic diversification.
 
-### Graph hygiene and local embedding health
+### Graph review and local embedding health
 
-`kg_review` with `kind: "hygiene"` returns a scope-local, read-only report for
-`related_to` overuse, suspicious self-links, and a three-policy topology
-assessment. The assessment compares the live PPR multiplier with a 0.3×
-downweight and exclusion; it reports connectivity and representative top-k
-change but never changes PPR or traversal. New `related_to` edges require
-retained direct evidence and default to a `0.85` confidence floor. With
-`scan: true`, hygiene performs one bounded duplicate-candidate slice; it never
-merges entities, deletes an edge, or changes evidence. Enable the same bounded
-review after durable turns only when you want the weekly schedule:
+`kg_review` (full tool surface) serves four kinds: `duplicates` (pair with
+`kg_merge`), `anomalies` (relationship conflicts and self-links), `identity`,
+and `semantic_patterns`. Decisions are preview then explicit confirm. New
+`related_to` edges require retained direct evidence and default to a `0.85`
+confidence floor; an endpoint that does not match the relation's expected
+types is kept as a soft `endpoint_match: false` flag on the edge, never as a
+retyped entity.
 
-```json5
-quality: {
-  hygiene: {
-    enabled: true,
-    intervalHours: 168,
-    maxDuplicateScanNodes: 100
-  }
-}
-```
-
-The diagnostic does **not** automatically change that topology. When a legacy
-`related_to` quote itself states a direct structural fact, run the separate
-operator review flow with `kind: "related_edge_refinements"` and `scan: true`.
-It proposes only `depends_on`, `part_of`, or `instance_of` replacements from
-same-scope evidence at confidence `≥ 0.85`. A preview plus matching explicit
-confirmation copies the evidence, retires just that reviewed fallback edge,
-and writes an audit receipt. It never uses an LLM, broad co-occurrence, or an
-automatic graph mutation.
-
-For a direct semantic statement that should remain a topology bridge, use
-`kind: "related_edge_semantics"` instead. Its scan proposes labels from the
-existing vocabulary—such as `uses`, `develops`, `works_at`, and `supplies`—and
-an accepted preview/confirm decision makes that label available only to an
-explicit semantic relationship query. It retains the original `related_to`
-edge and does not alter PPR, traversal, observations, or graph weights.
-
-`kind: "semantic_vocabulary"` is the separate, review-driven path for the
-small domain-neutral seed vocabulary: `located_in`, `member_of`, `created_by`,
-`authored_by`, and `based_on`. Its bounded scan collects only direct,
-same-scope fallback evidence at confidence `>= 0.85`; a proposal needs at
-least three observations from two sources before preview/confirm. Accepting a
-vocabulary entry does not label an edge or change graph data. It merely allows
-a later `related_edge_semantics` scan to propose matching, per-edge labels,
-which still require their own preview and confirmation. Inspect an accepted
-label only with its exact predicate—for example
-`kg_related(..., semantic_predicates: ["based_on"])`. Dynamic labels never
-become traversal arcs, PPR inputs, or automatic context attachments.
-
-Run collection and its separate review flow through the local operator CLI; an
-accepted semantic-pattern review is not a vocabulary promotion:
-
-```bash
-MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review vocabulary scan --scope default --limit 20
-MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review vocabulary list --scope default --status pending
-MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review vocabulary preview <candidate_id> accepted --scope default
-MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review vocabulary confirm <candidate_id> accepted --scope default --preview-hash <hash> --confirm
-```
-
-The scan is bounded and only creates reviewable proposals. It neither rewrites
-an edge nor changes automatic recall. Each vocabulary proposal still requires
-its own matching preview and explicit confirmation. Use `rejected` in place of
-`accepted` when the evidence does not justify activating that vocabulary entry.
-
-Use `kg_review` with `kind: "worklist"` to page through one scope-local,
-read-only queue of pending self-link findings, related-edge proposals, and
-schema-drift candidates, plus rejected or invalidated outcomes. A schema-drift
-candidate can be repaired through its existing preview/confirm flow or
-explicitly rejected with its own matching preview hash; rejection records a
-human disposition but never changes an entity, edge, evidence, PPR, or
-traversal. When a later built-in endpoint rule makes an old mismatch valid,
-the candidate becomes `invalidated` review metadata rather than being silently
-deleted. A vocabulary-upgrade migration records that outcome for every
-already-valid historic candidate; the worklist can also reconcile imported
-legacy candidates. Neither path deletes graph data or a review receipt.
+Graph governance was removed in 1.38.0: the `hygiene`, `worklist`,
+`schema_drift`, `semantic_vocabulary`, `related_edge_refinements`, and
+`related_edge_semantics` review kinds (they now fail with
+`review_kind_removed`), the `review gate`, `review worklist`, and
+`review vocabulary` CLI commands, and scheduled hygiene. Their tables stay so
+existing databases load, hard forget still clears them, and previously
+accepted related-edge labels remain readable through
+`kg_related(..., semantic_predicates: [...])`. `quality.hygiene` is still
+accepted in configuration but has no effect.
 
 The built-in `uses` relation accepts `person` or `company` as its source and a
-`product` or `technology` as its target. This covers a person or KOL using a
-product without relabeling that person as a company. Mnemora never retags an
-entity automatically from a schema-drift candidate; an endpoint mismatch is
-not proof of identity.
+`product` or `technology` as its target, so a person using a product is not
+relabeled as a company. The built-in `develops` relation accepts a `company`
+developing a `product` or `concept`.
 
-The built-in `develops` relation accepts a `company` developing a `product` or
-`concept`. This covers directly evidenced work such as a company developing a
-named technical approach; it does not retag the company, create a topology arc,
-or broaden a vague `related_to` edge.
-
-After running the separate bounded scans and making some review decisions, use
-the CLI-only decision gate to collect the post-v1.16 measurement in one
-scope-local report:
+Scope-exclusive anomalies such as a self-link can be cleaned up through the
+audited operator CLI flow:
 
 ```bash
-MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review gate --scope default
-```
-
-It combines the current hygiene/topology diagnostic with aggregate accepted,
-rejected, pending, and durably invalidated refinement, semantic-label,
-schema-drift, and vocabulary outcomes. It returns JSON only: it does not scan, mutate review
-state, change PPR, or enable reasoning delivery. The operator remains
-responsible for judging whether the evidence supports any later policy change.
-
-The same local operator CLI can inspect the existing read-only worklist and,
-for a scope-exclusive active anomaly such as a self-link, perform the separate
-audited cleanup flow:
-
-```bash
-MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review worklist --scope default --status pending
 MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review anomalies preview edge:example --scope default
 MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review anomalies confirm edge:example --scope default --preview-hash <hash> --confirm
 ```
 
-`worklist` is read-only. Cleanup never runs automatically: confirmation must
-match a fresh preview hash, writes an audit receipt, and refuses an edge with
-evidence in any other scope. Use `--status rejected` or `--status invalidated`
-to inspect those durable outcomes without querying SQLite directly.
+Cleanup never runs automatically: confirmation must match a fresh preview
+hash, writes an audit receipt, and refuses an edge with evidence in any other
+scope.
 
 `kg_stats` includes `embedding_health`, an observed local status rather than a
 live provider probe. `healthy` and `degraded` are based only on bounded local
@@ -391,8 +311,6 @@ bounded unavailable error.
 ### Optional services
 
 - `embeddings.enabled`: local Ollama semantic retrieval (disabled by default).
-- `quality.hygiene.enabled`: schedules bounded, review-only duplicate scanning
-  after durable turns (disabled by default); merges remain preview/confirm.
 - `extraction.enabled`: bounded OpenAI-compatible relationship extraction
   (disabled by default).
 - `contextEngine.compaction.enabled`: source-linked model compaction

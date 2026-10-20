@@ -36,7 +36,7 @@
           "beliefs": { "type": "object", "additionalProperties": false, "properties": { "enabled": { "type": "boolean", "default": false, "description": "Allow Formation to create low-risk beliefs only from explicit user preference or correction candidates accepted by the deterministic policy." }, "autoCorroborate": { "type": "boolean", "default": false, "description": "Allow distinct explicit supporting candidates to increase support for an existing same-value belief." } } },
           "contextCompiler": { "type": "object", "additionalProperties": false, "properties": { "enabled": { "type": "boolean", "default": false, "description": "Enable the bounded Personal Context Compiler for explicit local CLI/API use; it never appends a prompt message or relies on an undocumented ContextEngine sidecar." }, "tokenBudget": { "type": "integer", "default": 600, "minimum": 64, "maximum": 1600 }, "maxItems": { "type": "integer", "default": 8, "minimum": 1, "maximum": 20 } } },
           "reflection": { "type": "object", "additionalProperties": false, "properties": { "enabled": { "type": "boolean", "default": false, "description": "Run bounded local reflection after completed turns; it creates review candidates only and never writes beliefs or facts." }, "maxJobsPerRun": { "type": "integer", "default": 4, "minimum": 1, "maximum": 20 }, "staleAfterDays": { "type": "integer", "default": 90, "minimum": 1, "maximum": 3650 } } },
-          "graduation": { "type": "object", "additionalProperties": false, "properties": { "enabled": { "type": "boolean", "default": false, "description": "Enable only local C8 graduation readiness reporting. It never enables memory writes, recall injection, or ContextEngine behavior." } } },
+          "graduation": { "type": "object", "additionalProperties": false, "properties": { "enabled": { "type": "boolean", "default": false, "description": "No effect since 1.38.0: cognition graduation was removed. Accepted so existing configs keep loading." } } },
           "reasoningCuration": {
             "type": "object",
             "additionalProperties": false,
@@ -481,7 +481,7 @@
           "pprMaxArcs": { "type": "number", "default": 50000, "minimum": 1, "maximum": 50000 },
           "hygiene": {
             "type": "object", "additionalProperties": false,
-            "description": "Opt-in bounded graph hygiene. It creates duplicate review candidates only; it never merges entities, deletes edges, or changes evidence.",
+            "description": "No effect since 1.38.0: graph hygiene was removed. Accepted so existing configs keep loading.",
             "properties": {
               "enabled": { "type": "boolean", "default": false },
               "intervalHours": { "type": "integer", "default": 168, "minimum": 1, "maximum": 720 },

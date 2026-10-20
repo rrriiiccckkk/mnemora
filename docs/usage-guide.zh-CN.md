@@ -165,97 +165,33 @@ mnemora recall metrics --scope default
 设为 `diversityLambda: 1` 可保留纯分数排序；保留默认 `0.75` 则启用适度、确定性的
 多样化。
 
-### 图谱卫生与本地 embedding 健康状态
+### 图谱审查与本地 embedding 健康状态
 
-通过 `kg_review` 的 `kind: "hygiene"` 可读取 scope 隔离的 `related_to` 过度使用、
-可疑自链接与三档拓扑评估。评估对比当前 PPR 权重、0.3× 降权和完全移除，并报告
-连通性及代表性 top-k 的变化；它绝不会修改实际 PPR 或遍历策略。新的 `related_to`
-必须保留直接证据，默认置信度阈值为 `0.85`。传入 `scan: true` 时，只执行一个有界的
-重复实体候选扫描切片；不会合并实体、删除边或修改证据。只有需要每周在 durable turn
-后自动执行该审查时，才显式开启：
+`kg_review`（full 工具面）提供四类审查：`duplicates`（配合 `kg_merge`）、`anomalies`
+（关系冲突与自环）、`identity` 和 `semantic_patterns`。所有决定都先 preview 再显式 confirm。
+新的 `related_to` 边必须保留直接证据，默认置信度下限为 `0.85`；端点类型与关系预期不符时，
+只在边上记为 `endpoint_match: false` 软标记，绝不会改写实体类型。
 
-```json5
-quality: {
-  hygiene: {
-    enabled: true,
-    intervalHours: 168,
-    maxDuplicateScanNodes: 100
-  }
-}
-```
+图谱治理功能已在 1.38.0 移除：`hygiene`、`worklist`、`schema_drift`、`semantic_vocabulary`、
+`related_edge_refinements`、`related_edge_semantics` 这些审查类型（现在会返回
+`review_kind_removed` 错误），CLI 的 `review gate`、`review worklist`、`review vocabulary`
+命令，以及定时 hygiene。相关数据表保留，旧数据库照常加载，hard forget 仍会清理它们；
+此前已接受的 related-edge 标签仍可通过 `kg_related(..., semantic_predicates: [...])` 读取。
+配置中的 `quality.hygiene` 仍被接受，但不再生效。
 
-该诊断**不会**自动改变拓扑策略。若某条历史 `related_to` 的原始证据直接表达了结构事实，
-可通过 `kg_review` 的 `kind: "related_edge_refinements"` 并传入 `scan: true` 发起单独的
-人工审查。它只会基于同 scope、置信度 `≥ 0.85` 的直接证据，提出 `depends_on`、`part_of`
-或 `instance_of` 候选。必须先 preview，再用匹配的显式 confirm 才会复制证据、仅退休被审查
-的那一条 fallback 边并写入审计回执；不会调用 LLM、不会依据宽泛共现，也不会自动改图。
+内置 `uses` 关系接受 `person` 或 `company` 作为来源、`product` 或 `technology` 作为目标，
+因此"某人使用某产品"不会把这个人改标为公司。内置 `develops` 关系接受 `company` 开发
+`product` 或 `concept`。
 
-若原文是直接的语义陈述、但仍需保留连通骨架，可改用 `kind: "related_edge_semantics"`。
-它会从既有词表中提出 `uses`、`develops`、`works_at`、`supplies` 等标签；preview/confirm
-接受后，仅让该标签可被显式语义关系查询返回。原 `related_to` 边会保留，PPR、遍历、
-observation 与图权重都不会改变。
-
-`kind: "semantic_vocabulary"` 是独立的、由审查驱动的领域中性词表路径；目前只包含
-`located_in`、`member_of`、`created_by`、`authored_by` 与 `based_on` 五个小型种子标签。
-有界扫描只收集同 scope、置信度 `>= 0.85` 的直接 fallback 证据；候选至少需要 3 条
-observation、且来自 2 个来源，才能进入 preview/confirm。接受词表项不会给任何边打标签，
-也不会修改图数据；它只允许之后的 `related_edge_semantics` 扫描为匹配的单条边提出候选，
-而每条边仍要各自 preview/confirm。只可通过精确谓词显式查看已接受的动态标签，例如
-`kg_related(..., semantic_predicates: ["based_on"])`。动态标签绝不会成为遍历边、PPR
-输入或自动上下文附加内容。
-
-词表收集及其独立审查流程必须显式执行；接受 semantic-pattern 审查结论并不等于自动提升
-词表项。使用本地 operator CLI：
+对于仅由当前 scope 证据支撑的异常（例如自环），可以通过带审计的 operator CLI 流程清理：
 
 ```bash
-MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review vocabulary scan --scope default --limit 20
-MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review vocabulary list --scope default --status pending
-MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review vocabulary preview <candidate_id> accepted --scope default
-MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review vocabulary confirm <candidate_id> accepted --scope default --preview-hash <hash> --confirm
-```
-
-扫描有边界，只会创建可审查候选；不会改写边，也不会改变自动召回。每个词表候选仍必须经过
-自己的 preview 与显式 confirm。证据不足时，将上面的 `accepted` 替换为 `rejected`。
-
-使用 `kg_review` 的 `kind: "worklist"` 可以在同一 scope 内分页查看只读的待处理
-自链接、关系候选和 schema-drift 候选，以及已拒绝或已 `invalidated` 的结果。schema-drift
-候选可沿用已有 preview/confirm 修复流程，或用其匹配的 preview hash 显式拒绝；拒绝只记录
-人工结论，绝不会修改实体、边、证据、PPR 或遍历。若后续内置端点规则已允许某个旧不匹配，
-候选会成为 `invalidated` 审查元数据，而非被静默删除。词表升级迁移会为所有已经合法的历史
-候选记录该结果；worklist 也可以协调导入的旧候选。两条路径都不会删除图数据或审查回执。
-
-内置 `uses` 关系允许 `person` 或 `company` 指向 `product` 或 `technology`。这覆盖个人或
-KOL 使用产品的事实，不再为了满足关系定义而把 person 改标成 company。schema-drift 候选
-并不是身份事实，Mnemora 绝不会据此自动重标实体。
-
-内置 `develops` 关系允许 `company` 指向 `product` 或 `concept`。这覆盖公司直接开发某个
-具名技术方法等有证据的事实；不会重标公司、不会创建拓扑边，也不会把宽泛的 `related_to`
-关系扩大为语义事实。
-
-在分别运行有界 scan、并做出一些人工审查决定后，可使用 CLI 专用的决策门，将
-v1.16 之后的测量汇总为一份 scope 隔离报告：
-
-```bash
-MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review gate --scope default
-```
-
-它会合并当前 hygiene/topology 诊断，以及 refinement、语义标签、schema-drift 和词表候选的
-accepted、rejected、pending 与持久化 invalidated 聚合统计；只输出 JSON，不会 scan、
-不会修改审查状态、不会改 PPR，也不会开启 reasoning delivery。是否有足够证据支持后续
-策略变更，始终由 operator 判断。
-
-同一个本地 operator CLI 还可查看既有的只读 worklist；对于仅由当前 scope 证据支撑的活跃异常
-（例如自链接），可使用独立、带审计的清理流程：
-
-```bash
-MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review worklist --scope default --status pending
 MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review anomalies preview edge:example --scope default
 MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review anomalies confirm edge:example --scope default --preview-hash <hash> --confirm
 ```
 
-`worklist` 始终只读。清理绝不会自动执行：confirm 必须匹配最新 preview hash、会写入审计回执，
-并会拒绝任何在其他 scope 仍有证据的边。使用 `--status rejected` 或 `--status invalidated`
-即可查看这些持久化结果，无需直接查询 SQLite。
+清理绝不会自动执行：confirm 必须匹配最新 preview hash、会写入审计回执，并会拒绝任何在其他
+scope 仍有证据的边。
 
 `kg_stats` 的 `embedding_health` 是已观察到的本地状态，不会为读取状态发起 Provider
 探测。`healthy`/`degraded` 只取决于有界 embedding 成功或类别化失败；`hybrid` 搜索会
@@ -264,7 +200,6 @@ MNEMORA_DB=/path/to/mnemora.db node dist/cli.js review anomalies confirm edge:ex
 ### 可选服务
 
 - `embeddings.enabled`：使用本地 Ollama 的语义检索，默认关闭。
-- `quality.hygiene.enabled`：在 durable turn 后调度有界、只审查的重复实体扫描，默认关闭；实体合并仍需 preview/confirm。
 - `extraction.enabled`：有边界的 OpenAI-compatible 关系抽取，默认关闭。
 - `contextEngine.compaction.enabled`：带来源的模型压缩，默认关闭。
 - `cognition.admission.mode: "enforce"`：确定性候选策略；Belief 和 enforcement 仍需各自显式开启。

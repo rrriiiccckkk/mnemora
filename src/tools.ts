@@ -1,3 +1,5 @@
+import { REMOVED_REVIEW_KINDS, type ReviewKind } from "./review-kinds.js";
+export type { ReviewKind } from "./review-kinds.js";
 import { RecallRelevanceShadow } from "./retrieval/relevance-shadow.js";
 import { failureCategory, recordOperationFailure, type OperationFailureReporter, type OperationName } from "./operations/failure-ledger.js";
 import { semanticClassificationTelemetry, SemanticMemoryClassifier, type MemoryClassificationInput, type MemoryClassificationReport } from "./cognition/semantic-classifier.js";
@@ -52,14 +54,7 @@ import { CanonicalCorpusIndexer } from "./corpus/indexer.js";
 import { isExclusiveUserMdPath, isExclusiveUserMdSource } from "./workspace-boundary.js";
 import { ArtifactRepository } from "./artifacts/repository.js";
 import { MemoryDocumentLifecycleService, type MemoryTier } from "./memory-lifecycle/service.js";
-import { GraphHygieneService, type GraphHygienePolicy } from "./hygiene/service.js";
 import { EmbeddingHealthRepository } from "./embedding-health/repository.js";
-import { RelatedEdgeRefinementService } from "./related-edge-refinement/service.js";
-import { RelatedEdgeSemanticService } from "./related-edge-semantics/service.js";
-import { GraphReviewLifecycleRepository } from "./graph-review/lifecycle.js";
-import { GraphReviewWorklistService, type GraphReviewWorklistStatus } from "./graph-review/worklist.js";
-import { SemanticVocabularyRepository } from "./semantic-vocabulary/repository.js";
-import { SchemaDriftReviewRepository } from "./schema-drift/review.js";
 
 export type SemanticSearchUnavailableCategory = "disabled" | "timeout" | "aborted" | "provider" | "invalid_response" | "scale_limit";
 export type ReviewStatus = DuplicateCandidateStatus | "accepted" | "invalidated";
@@ -110,6 +105,7 @@ export interface MnemoraOptions {
   governanceActorId?: string;
   anchorVerifier?: AnchorVerificationProvider;
 }
+
 
 export class Mnemora {
   readonly config: MnemoraConfig;
@@ -176,20 +172,6 @@ export class Mnemora {
   readonly personalContext: PersonalContextCompiler;
   /** User-confirmed recall feedback affects ranking salience, never truth. */
   private readonly recallFeedback: RecallFeedbackRepository;
-  /** Review-only graph diagnostics, kept outside GraphologyStore mutation paths. */
-  private readonly hygiene: GraphHygieneService;
-  /** Preview/confirm refinement of legacy weak edges; it owns no live recall policy. */
-  private readonly relatedEdgeRefinements: RelatedEdgeRefinementService;
-  /** Source-backed semantic labels for fallback edges; it never changes topology. */
-  private readonly relatedEdgeSemantics: RelatedEdgeSemanticService;
-  /** Review-only vocabulary candidates may classify later explicit label proposals. */
-  private readonly semanticVocabulary: SemanticVocabularyRepository;
-  /** Invalidation overlays make stale review proposals visible without touching graph facts. */
-  private readonly graphReviewLifecycle: GraphReviewLifecycleRepository;
-  /** Durable operator dispositions for ontology mismatches; it never owns graph facts. */
-  private readonly schemaDriftReviews: SchemaDriftReviewRepository;
-  /** Bounded read model joining graph-remediation proposals and self-link findings. */
-  private readonly graphReviewWorklist: GraphReviewWorklistService;
   /** Local categorical provider outcomes; never a live probe or provider log. */
   private readonly embeddingHealth: EmbeddingHealthRepository;
   /** Non-destructive tier/expiry selection overlay for canonical memory documents. */
@@ -233,13 +215,6 @@ export class Mnemora {
     this.governance = new GovernanceService(this.governanceRepository, this.config.trustLayer?.governance);
     this.personalContext = new PersonalContextCompiler(this.store.db, this.now, { staleAfterDays: this.config.cognition?.reflection?.staleAfterDays });
     this.recallFeedback = new RecallFeedbackRepository(this.store.db, this.now);
-    this.hygiene = new GraphHygieneService(this.store, this.now);
-    this.graphReviewLifecycle = new GraphReviewLifecycleRepository(this.store.db, this.now);
-    this.schemaDriftReviews = new SchemaDriftReviewRepository(this.store.db, this.now);
-    this.semanticVocabulary = new SemanticVocabularyRepository(this.store.db, this.now);
-    this.relatedEdgeRefinements = new RelatedEdgeRefinementService(this.store.db, this.now, this.graphReviewLifecycle);
-    this.relatedEdgeSemantics = new RelatedEdgeSemanticService(this.store.db, this.now, this.graphReviewLifecycle, this.semanticVocabulary);
-    this.graphReviewWorklist = new GraphReviewWorklistService(this.store.db, this.graphReviewLifecycle, this.schemaDriftReviews);
     this.embeddingHealth = new EmbeddingHealthRepository(this.store, this.now);
     this.memoryLifecycle = new MemoryDocumentLifecycleService(this.store.db, {
       enabled: this.config.memory?.lifecycle?.enabled === true,
@@ -971,22 +946,6 @@ export class Mnemora {
     return { ...this.store.stats(), embedding_health: this.embeddingHealth.status(this.embeddingConfig) };
   }
 
-  /** Bounded review maintenance. It only records duplicate candidates and never merges or deletes graph data. */
-  runGraphHygiene(scope?: string, force = false) {
-    const policy = this.hygienePolicy();
-    return this.hygiene.run({ scope: normalizeScope(scope, this.config.scope?.default ?? "default"), policy, force });
-  }
-
-  private hygienePolicy(): GraphHygienePolicy {
-    const value = this.config.quality?.hygiene;
-    return {
-      intervalHours: value?.intervalHours ?? 168,
-      maxDuplicateScanNodes: value?.maxDuplicateScanNodes ?? 100,
-      relatedToWarningRatio: value?.relatedToWarningRatio ?? .4,
-      relatedToWarningMinimumEdges: value?.relatedToWarningMinimumEdges ?? 20
-    };
-  }
-
   kg_profile(subject: string, scope?: string, limit?: number): ProfileProjection {
     return this.profiles.project({ subject, scope: normalizeScope(scope, this.config.scope?.default ?? "default"), limit });
   }
@@ -1126,49 +1085,16 @@ export class Mnemora {
     } catch (error) { this.reportFailure("vector_mirror", error); return { ...result, vector_index_cleanup: "deferred" }; }
   }
 
-  kg_review(kind: "duplicates" | "anomalies" | "identity" | "schema_drift" | "semantic_patterns" | "semantic_vocabulary" | "related_edge_refinements" | "related_edge_semantics" | "hygiene" | "worklist" = "duplicates", status: ReviewStatus = "pending", scan = false, limit = 20, after_id?: string, candidate_id?: string, decision?: "ignored" | "rejected" | "accepted", scope?: string, approval_id?: string, repair_type?: "depends_on" | "part_of" | "instance_of" | "related_to", preview_hash?: string, confirm = false): unknown {
+  kg_review(kind: ReviewKind = "duplicates", status: ReviewStatus = "pending", scan = false, limit = 20, after_id?: string, candidate_id?: string, decision?: "ignored" | "rejected" | "accepted", scope?: string, approval_id?: string, repair_type?: "depends_on" | "part_of" | "instance_of" | "related_to", preview_hash?: string, confirm = false): unknown {
+    if ((REMOVED_REVIEW_KINDS as readonly string[]).includes(kind)) throw new Error(`review_kind_removed: ${kind} was removed in 1.38.0`);
     const bounded = Math.min(100, Math.max(1, Math.trunc(limit)));
     const normalizedScope = normalizeScope(scope, this.config.scope?.default ?? "default");
-    if (kind === "worklist") {
-      if (scan || candidate_id || decision || approval_id || repair_type || preview_hash || confirm) throw new Error("graph_review_worklist_is_read_only");
-      if (status !== "pending" && status !== "rejected" && status !== "invalidated") throw new Error("invalid_graph_review_worklist_status");
-      return this.graphReviewWorklist.list({ scope: normalizedScope, status: status as GraphReviewWorklistStatus, limit: bounded, afterId: after_id });
-    }
     if (status === "invalidated") throw new Error("invalid_review_status");
     const candidateStatus = status as DuplicateCandidateStatus;
-    if (kind === "hygiene") {
-      if (status !== "pending" || after_id || candidate_id || decision || approval_id || repair_type || preview_hash || confirm) throw new Error("hygiene review is read-only");
-      if (!scan) return this.hygiene.report(normalizedScope, this.hygienePolicy());
-      // The scheduled pass follows configuration; an operator-requested pass
-      // follows the tool's documented limit so an inspection stays bounded.
-      const policy = this.hygienePolicy();
-      return this.hygiene.run({ scope: normalizedScope, policy: { ...policy, maxDuplicateScanNodes: Math.min(policy.maxDuplicateScanNodes, bounded) }, force: true });
-    }
-    // Schema-drift repair intentionally uses a preview hash instead of a
-    // duplicate/conflict decision. Do not apply the legacy pair requirement
-    // to that separate, confirmation-gated workflow.
-    if (kind !== "schema_drift" && (candidate_id == null) !== (decision == null)) throw new Error("candidate_id and decision must be provided together");
+    if ((candidate_id == null) !== (decision == null)) throw new Error("candidate_id and decision must be provided together");
     if (kind === "identity") {
       if (status !== "pending" || scan || candidate_id || decision) throw new Error("identity audit is read-only");
       return this.store.auditLegacyIdentities(after_id, bounded);
-    }
-    if (kind === "schema_drift") {
-      if (status !== "pending") throw new Error("invalid_schema_drift_review");
-      if (decision === "rejected") {
-        if (!candidate_id || scan || after_id || repair_type) throw new Error("schema_drift_candidate_required");
-        return confirm
-          ? this.schemaDriftReviews.confirmReject(candidate_id, normalizedScope, preview_hash ?? "")
-          : this.schemaDriftReviews.previewReject(candidate_id, normalizedScope);
-      }
-      if (decision) throw new Error("invalid_schema_drift_review");
-      if (repair_type) {
-        if (!candidate_id || scan || after_id) throw new Error("schema_drift_candidate_required");
-        return confirm ? this.store.confirmSchemaDriftRepair(candidate_id, repair_type, preview_hash ?? "", normalizedScope) : this.store.previewSchemaDriftRepair(candidate_id, repair_type, normalizedScope);
-      }
-      if (after_id && !scan) throw new Error("schema_drift_scan_required_for_cursor");
-      if (candidate_id) throw new Error("schema_drift_repair_type_required");
-      const scan_result = scan ? this.store.scanLegacySchemaDrift(normalizedScope, after_id, bounded) : undefined;
-      return { ...this.store.reviewSchemaDrift(normalizedScope, bounded), ...(scan_result ? { scan: scan_result } : {}) };
     }
     if (kind === "semantic_patterns") {
       if (status !== "pending" || scan || after_id || approval_id || repair_type) throw new Error("invalid_semantic_pattern_review");
@@ -1179,45 +1105,6 @@ export class Mnemora {
       }
       if (candidate_id || decision) throw new Error("semantic_pattern_decision_required");
       return this.store.reviewSemanticPatterns(normalizedScope, bounded);
-    }
-    if (kind === "semantic_vocabulary") {
-      if ((status !== "pending" && status !== "accepted" && status !== "rejected") || approval_id || repair_type) throw new Error("invalid_semantic_vocabulary_review");
-      if (after_id && !scan) throw new Error("semantic_vocabulary_scan_required_for_cursor");
-      if (scan && (candidate_id || decision)) throw new Error("semantic_vocabulary_scan_only");
-      if (candidate_id && (decision === "accepted" || decision === "rejected")) {
-        return confirm
-          ? this.semanticVocabulary.confirm(candidate_id, decision, preview_hash ?? "", normalizedScope)
-          : this.semanticVocabulary.preview(candidate_id, decision, normalizedScope);
-      }
-      if (candidate_id || decision) throw new Error("semantic_vocabulary_decision_required");
-      const scan_result = scan ? this.semanticVocabulary.scan({ scope: normalizedScope, afterEdgeId: after_id, limit: bounded }) : undefined;
-      return { ...this.semanticVocabulary.list(normalizedScope, status, bounded), ...(scan_result ? { scan: scan_result } : {}) };
-    }
-    if (kind === "related_edge_refinements") {
-      if (status !== "pending" || approval_id || repair_type) throw new Error("invalid_related_edge_refinement_review");
-      if (after_id && !scan) throw new Error("related_edge_refinement_scan_required_for_cursor");
-      if (scan && (candidate_id || decision)) throw new Error("related_edge_refinement_scan_only");
-      if (candidate_id && (decision === "accepted" || decision === "rejected")) {
-        return confirm
-          ? this.relatedEdgeRefinements.confirm(candidate_id, decision, preview_hash ?? "", normalizedScope)
-          : this.relatedEdgeRefinements.preview(candidate_id, decision, normalizedScope);
-      }
-      if (candidate_id || decision) throw new Error("related_edge_refinement_decision_required");
-      const scan_result = scan ? this.relatedEdgeRefinements.scan({ scope: normalizedScope, afterEdgeId: after_id, limit: bounded }) : undefined;
-      return { ...this.relatedEdgeRefinements.list(normalizedScope, bounded), ...(scan_result ? { scan: scan_result } : {}) };
-    }
-    if (kind === "related_edge_semantics") {
-      if (status !== "pending" || approval_id || repair_type) throw new Error("invalid_related_edge_semantic_review");
-      if (after_id && !scan) throw new Error("related_edge_semantic_scan_required_for_cursor");
-      if (scan && (candidate_id || decision)) throw new Error("related_edge_semantic_scan_only");
-      if (candidate_id && (decision === "accepted" || decision === "rejected")) {
-        return confirm
-          ? this.relatedEdgeSemantics.confirm(candidate_id, decision, preview_hash ?? "", normalizedScope)
-          : this.relatedEdgeSemantics.preview(candidate_id, decision, normalizedScope);
-      }
-      if (candidate_id || decision) throw new Error("related_edge_semantic_decision_required");
-      const scan_result = scan ? this.relatedEdgeSemantics.scan({ scope: normalizedScope, afterEdgeId: after_id, limit: bounded }) : undefined;
-      return { ...this.relatedEdgeSemantics.list(normalizedScope, bounded), ...(scan_result ? { scan: scan_result } : {}) };
     }
     if (kind === "anomalies") {
       if (decision === "accepted") throw new Error("invalid_conflict_decision");

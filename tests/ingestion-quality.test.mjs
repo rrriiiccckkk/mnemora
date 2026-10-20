@@ -6,7 +6,7 @@ import { SUPPORTED_SCHEMA_VERSION } from "../dist/schema.js";
 const entity = (name, type, confidence = .95) => ({ name, type, confidence, evidence_span: name });
 const relation = (source, target, type, confidence = .95) => ({ source, target, type, confidence, evidence_span: `${source} ${type} ${target}` });
 
-test("ingestion rejects self-loops but retains semantic endpoint mismatches as reviewable evidence", () => {
+test("ingestion rejects self-loops but retains semantic endpoint mismatches as evidence", () => {
   const store = new GraphologyStore(":memory:");
   try {
     const result = store.ingest(
@@ -23,13 +23,12 @@ test("ingestion rejects self-loops but retains semantic endpoint mismatches as r
     assert.equal(result.relations.length, 2);
     assert.equal(store.stats().edges.total, 2);
     assert.equal(store.stats().observations.total, 5);
-    assert.equal(store.reviewSchemaDrift("default").items.length, 1);
   } finally {
     store.close();
   }
 });
 
-test("semantic vocabulary mismatch is durable, reviewable, and not topology", () => {
+test("a semantic endpoint mismatch stays a soft flag on the edge, not topology", () => {
   const store = new GraphologyStore(":memory:");
   try {
     const result = store.ingest(
@@ -43,10 +42,10 @@ test("semantic vocabulary mismatch is durable, reviewable, and not topology", ()
     assert.deepEqual(result.skipped_relations, []);
     assert.equal(result.relations.length, 1);
     assert.equal(store.stats().edges.total, 1);
-    const [candidate] = store.reviewSchemaDrift("project:code", 10).items;
-    assert.deepEqual({ source: candidate.source_type, target: candidate.target_type, expectedSource: candidate.expected_source_types, expectedTarget: candidate.expected_target_types, occurrences: candidate.occurrence_count }, { source: "product", target: "technology", expectedSource: "person", expectedTarget: "company", occurrences: 1 });
+    // Since 1.38.0 the mismatch lives only on the edge; no review candidate is recorded.
+    assert.equal(result.relations[0].edge.edge_props.semantics.endpoint_match, false);
     store.ingest([entity("Build tool", "product"), entity("TypeScript", "technology")], [relation("Build tool", "TypeScript", "works_at")], "fixture:schema-drift:second", 0, { edgeMinConfidence: 0, relatedToMinConfidence: .8, edgeTypeMinConfidence: {} }, "project:code");
-    assert.equal(store.reviewSchemaDrift("project:code", 10).items[0].occurrence_count, 2);
+    assert.equal(store.stats().edges.total, 1);
   } finally { store.close(); }
 });
 
