@@ -532,3 +532,13 @@ settles near ties, which the relevance floor did not (a record from "10 days
 ago" lost to a newer, shorter record with the same words). With `all-minilm`
 semantic recall the window is also searched by nearest neighbours; questions
 with all evidence 99 → 102 of 133 (measured with the relevance-floor variant).
+
+## Retrieval regression gate (1.37)
+
+CI checks recall on a fixed subset (every fifth LongMemEval_S question,
+lexical, deterministic; see development.md). Baseline at 1.37: of 94
+answerable questions, 72 hold all evidence in the packet and 90 some of it;
+26 records attached to the 6 unanswerable questions, 416 to questions from
+other items and 286 to unrelated tasks (100 prompts each). Checked against
+older builds: 1.36.0 passes (71 with all evidence, 4 per-question changes);
+1.32.19, before query-dependent ranking, fails with 3 and 12.

@@ -71,10 +71,13 @@ Each item targets a measured weakness.
    conversation text to a hosted provider. Open: thresholds for hosted models
    such as `text-embedding-3-small`, which need a key to calibrate with
    `npm run eval:calibrate-semantic`.
-4. **Retrieval regression gate in CI.** A fixed small question set, lexical
-   recall only, no model calls; CI fails when evidence recall or wrong
-   attachment moves beyond a tolerance. First check the dataset's size and
-   licence for the repository or a CI download.
+4. **Retrieval regression gate in CI (done on main).** Job `retrieval gate`:
+   every fifth LongMemEval_S question (100), lexical, no model calls, seeded
+   ids and clock so runs repeat exactly; fails when evidence recall drops or
+   attached records rise beyond the tolerance in
+   `eval/retrieval-gate/baseline.json`. The dataset is MIT; the 277 MB file is
+   downloaded at a pinned revision and sha256 and cached, not committed.
+   Verified against 1.32.19 (fails: all evidence 72 → 3) and 1.36.0 (passes).
 5. **Comparable published number (optional).** One LongMemEval_S run at a
    4k–7k token budget, the range other systems report at, so results can be
    read side by side (about 1,000 model calls).

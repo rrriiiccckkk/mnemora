@@ -36,3 +36,37 @@ jobs:
         run: npx playwright install chromium
       - run: npm run verify
       - run: npm run release:pack
+
+  retrieval-gate:
+    # Fixed LongMemEval_S subset through automatic recall, lexical only, no
+    # model calls; fails when evidence recall drops or wrong attachment rises
+    # beyond eval/retrieval-gate/baseline.json. One platform: the run is
+    # deterministic and the baseline is per-question.
+    name: retrieval gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.19.0"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - id: dataset
+        run: |
+          echo "url=$(node -p "require('./eval/retrieval-gate/baseline.json').dataset.url")" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(node -p "require('./eval/retrieval-gate/baseline.json').dataset.sha256")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: .tmp/datasets
+          key: longmemeval-s-${{ steps.dataset.outputs.sha256 }}
+      - name: Download LongMemEval_S (MIT)
+        run: |
+          mkdir -p .tmp/datasets
+          f=.tmp/datasets/longmemeval_s_cleaned.json
+          if ! echo "${{ steps.dataset.outputs.sha256 }}  $f" | sha256sum -c --status 2>/dev/null; then
+            curl -fsSL --retry 3 -o "$f" "${{ steps.dataset.outputs.url }}"
+            echo "${{ steps.dataset.outputs.sha256 }}  $f" | sha256sum -c
+          fi
+      - run: npm run -s eval:retrieval-gate -- .tmp/datasets/longmemeval_s_cleaned.json

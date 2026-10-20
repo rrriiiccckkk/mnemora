@@ -21,6 +21,7 @@
     "release:validate": "node scripts/validate-release-version.mjs",
     "eval:longmemeval": "node --expose-gc scripts/evaluate-longmemeval.mjs",
     "eval:longmemeval-qa": "node --expose-gc scripts/evaluate-longmemeval-qa.mjs",
+    "eval:retrieval-gate": "node --expose-gc scripts/retrieval-gate.mjs",
     "eval:calibrate-semantic": "node --expose-gc scripts/calibrate-semantic.mjs",
     "cli": "node dist/cli.js",
     "test:unit": "npm run build && node scripts/run-unit-tests.mjs",

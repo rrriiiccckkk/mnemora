@@ -27,6 +27,37 @@ mode retains all checks from the original `verify` command. Individual existing
 benchmark commands remain available and build their own prerequisites.
 Fast mode is feedback during development, not a substitute for full verification.
 
+## Retrieval regression gate
+
+CI runs a fixed LongMemEval_S subset through automatic recall on every push
+(job `retrieval gate`): every fifth question (100: 94 answerable, 6
+unanswerable), lexical recall, 800 tokens, no model calls. Ids are seeded and
+the clock advances per call (`scripts/lib/deterministic.mjs`), so a run is
+repeatable to the question; `TZ` is fixed to UTC.
+
+```bash
+curl -L -o /tmp/longmemeval_s_cleaned.json \
+  "$(node -p "require('./eval/retrieval-gate/baseline.json').dataset.url")"
+npm run build
+npm run eval:retrieval-gate -- /tmp/longmemeval_s_cleaned.json            # check
+npm run eval:retrieval-gate -- /tmp/longmemeval_s_cleaned.json --update   # accept a change
+```
+
+`eval/retrieval-gate/baseline.json` pins the dataset revision and sha256
+(MIT, `xiaowu0162/longmemeval-cleaned`; the 277 MB file is downloaded and
+cached in CI, not committed) and holds per-question results. The gate fails
+when, beyond `tolerance`:
+
+- questions whose packet holds all evidence sessions, or any, drop;
+- records attached to a question from another item, to an unrelated task, or
+  to an unanswerable question rise.
+
+Lexical recall attaches something to most such prompts on this dataset
+(generic chat matches "hello"), so attachment is counted in records, not
+packets. The output lists every per-question change. A change that is
+intended is accepted by rerunning with `--update` and committing the baseline
+with it, so the diff shows what moved. About one minute locally.
+
 ## Isolated host integration
 
 `test:host` uses the `openclaw` executable on PATH. To select an executable
