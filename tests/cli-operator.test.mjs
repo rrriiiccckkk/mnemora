@@ -16,7 +16,7 @@ const execute = (...args) => executeAt(":memory:", ...args);
 test("operator CLI evaluates tool surfaces without opening a graph and returns stable JSON", () => {
   const result = execute("surface", "core");
   assert.equal(result.status, 0);
-  assert.deepEqual({ ok: result.json.ok, command: result.json.command, tools: result.json.result.tool_count, baseline: result.json.result.baseline.tool_count }, { ok: true, command: "surface.evaluate", tools: 10, baseline: 32 });
+  assert.deepEqual({ ok: result.json.ok, command: result.json.command, tools: result.json.result.tool_count, baseline: result.json.result.baseline.tool_count }, { ok: true, command: "surface.evaluate", tools: 10, baseline: 25 });
   assert.equal(result.json.result.reduction.schema_percent > 0, true);
 });
 

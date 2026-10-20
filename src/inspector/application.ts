@@ -27,7 +27,7 @@ export interface InspectorApplication extends InspectorGraphApi {
 
 export function createInspectorApplication(options: { graph: Mnemora; allowOperations: boolean; artifactDirectory: string; now?: () => number; randomBytes?: (size: number) => Buffer }): InspectorApplication {
   const registry = new ArtifactRegistry(options.artifactDirectory, { create: options.allowOperations });
-  const read = new InspectorService({ store: options.graph.store, analytics: options.graph.insights, trust: options.graph.sourceAnchors, now: options.now, scopeDefault: configuredScope(options.graph.config.scope?.default), recoveryHealth: () => registry.health() });
+  const read = new InspectorService({ store: options.graph.store, trust: options.graph.sourceAnchors, now: options.now, scopeDefault: configuredScope(options.graph.config.scope?.default), recoveryHealth: () => registry.health() });
   const trust = new TrustDashboardService(options.graph.store.db, { scopeDefault: configuredScope(options.graph.config.scope?.default), adaptiveConfigured: options.graph.config.trustLayer?.recall?.canary?.enabled === true, governanceEnabled: options.graph.governance.active, now: options.now });
   const consolidation = new ConsolidationService(options.graph.store.db, options.now);
   const memory = new PersonalMemoryInspectorService(options.graph.store.db, options.now);

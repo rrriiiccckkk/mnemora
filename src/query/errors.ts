@@ -77,14 +77,8 @@ function isResearchOperationError(value: unknown): value is ResearchOperationErr
 
 function operationSummary(operation: unknown): string {
   switch (operation) {
-    case "kg_compare": return "kg_compare failed";
-    case "kg_digest": return "kg_digest failed";
     case "kg_export": return "kg_export failed";
     case "kg_import": return "kg_import failed";
-    case "kg_query": return "kg_query failed";
-    case "kg_query_history": return "kg_query_history failed";
-    case "kg_timeline": return "kg_timeline failed";
-    case "kg_watch": return "kg_watch failed";
     default: return "Research operation failed.";
   }
 }

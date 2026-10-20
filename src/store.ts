@@ -51,9 +51,6 @@ import { openMnemoraDatabase } from "./sqlite.js";
 import { DatabaseRecoveryService } from "./operations/database-recovery.js";
 import type { AutoRunClaim, AutoRunFinishStatus, CommunitySummary, ConflictCandidate, ConflictCandidateStatus, DuplicateCandidate, DuplicateCandidateStatus, DuplicateScanResult, EvidenceSummary, ExtractedEntity, ExtractedRelation, InsightKind, KgContextResult, KgEdge, KgForgetResult, KgInsight, KgMemoryChunk, KgMemoryDocument, KgMemoryExpiryReview, KgMemoryLifecycleAudit, KgMemoryLifecycleConfirm, KgMemoryLifecyclePreview, KgMemorySearchResult, KgNode, KgObservation, KgRelatedResult, KgScopeSummary, KgSearchResult, KgSourceSummary, KgStatsResult, LegacyIdentityAuditResult, MemoryLifecycleAction, MergeResult, MergeUndoResult, NodeType, QualityCleanupResult, QualityEvidenceSummary, RankedNode, RelationshipAnomaly, SemanticPatternCandidate, SemanticPatternReviewResult, StoredEmbedding } from "./types.js";
 import type { GraphProjection, InsightSnapshot } from "./insights/types.js";
-import type { QueryPlanV1 } from "./query/types.js";
-import type { DigestClaim, KgDigestResult, KgWatch, WatchScheduleHint } from "./query/watch.js";
-import { QueryPersistenceRepository, type NewQueryRunRecord, type QueryRunRecord } from "./query/repository.js";
 import type { EntityDetailSection, GraphFilters } from "./inspector/types.js";
 
 type CandidateRow = Omit<DuplicateCandidate, "signals" | "reasons"> & { signals: string; reasons: string };
@@ -67,19 +64,11 @@ export interface IngestRelationResult { edge: KgEdge; observation: KgObservation
 export interface SkippedRelation { relation: ExtractedRelation; reason: RelationshipSkipReason }
 export interface IngestResult { entities: IngestEntityResult[]; relations: IngestRelationResult[]; observations: KgObservation[]; skipped_relations: SkippedRelation[]; skipped?: boolean }
 
-export interface QueryGraphProjection {
-  graphRevision: number;
-  nodes: Array<{ id: string; name: string; type: NodeType; aliases: string[]; createdAt: number; updatedAt: number }>;
-  edges: Array<{ id: string; source: string; target: string; type: RelationshipType; confidence: number; evidenceCount: number; sourceCount: number; firstSeenAt: number; lastSeenAt: number; validFrom: number | null; validTo: number | null }>;
-  truncated: boolean;
-}
 
 export interface TimelineProjectionRow {
   timestamp: number; kind: "observed" | "became_valid" | "became_invalid";
   relationshipIds: string[]; observationIds: string[]; evidenceCount: number; sourceCount: number;
 }
-
-export type { NewQueryRunRecord, QueryRunRecord } from "./query/repository.js";
 
 export class GraphologyStore {
   db: DatabaseSyncInstance;
@@ -87,7 +76,6 @@ export class GraphologyStore {
   readonly semanticPatterns: SemanticPatternRepository;
   private readonly graphSearch: GraphSearchRepository;
   private readonly graphTraversal: GraphTraversalRepository;
-  private readonly queries: QueryPersistenceRepository;
   private readonly recovery: DatabaseRecoveryService;
   private readonly location: string;
   private readonly inspectorSessionNonce = randomUUID();
@@ -99,7 +87,6 @@ export class GraphologyStore {
     this.entities = new EntityRepository(this.db);
     this.graphSearch = new GraphSearchRepository(this.db);
     this.graphTraversal = new GraphTraversalRepository(this.db, this.graphSearch);
-    this.queries = new QueryPersistenceRepository(this.db, scope => this.touchScope(scope));
     this.semanticPatterns = new SemanticPatternRepository(this.db);
     this.recovery = new DatabaseRecoveryService({
       db: this.db,
@@ -111,38 +98,7 @@ export class GraphologyStore {
 
   close(): void { this.db.close(); }
   replaceDatabaseFrom(sourcePath: string): void { this.recovery.replaceFrom(sourcePath); }
-  createWatch(input: { id: string; name: string; plan: QueryPlanV1; scope: string; schedule_hint: WatchScheduleHint; enabled: boolean; now: number; maxWatches: number }): KgWatch {
-    return this.queries.createWatch(input);
-  }
-  getWatch(id: string): KgWatch | undefined {
-    return this.queries.getWatch(id);
-  }
-  resolveExactEntityId(input: string, scope?: string): string | undefined {
-    return this.entities.resolveExact(input, scope);
-  }
-  listWatches(limit = 100, scope?: string): KgWatch[] {
-    return this.queries.listWatches(limit, scope);
-  }
-  updateWatch(id: string, input: { name: string; plan: QueryPlanV1; scope: string; schedule_hint: WatchScheduleHint; enabled: boolean; now: number }): KgWatch {
-    return this.queries.updateWatch(id, input);
-  }
-  removeWatch(id: string): boolean { return this.queries.removeWatch(id); }
-  selectDigestWatches(ids: string[] | undefined, limit: number, scope?: string): KgWatch[] {
-    return this.queries.selectDigestWatches(ids, limit, scope);
-  }
-  claimDigest(idempotencyKey: string, watchIds: string[], scope: string, now: number, staleAfterMs: number): DigestClaim {
-    return this.queries.claimDigest(idempotencyKey, watchIds, scope, now, staleAfterMs);
-  }
-  finishDigest(idempotencyKey: string, startedAt: number, result: KgDigestResult, cursorUpdates: Record<string, number>): KgDigestResult {
-    return this.queries.finishDigest(idempotencyKey, startedAt, result, cursorUpdates);
-  }
-  recordQueryRun(record: NewQueryRunRecord): void {
-    this.queries.recordQueryRun(record);
-  }
 
-  listQueryRuns(limit: number, scope?: string): QueryRunRecord[] {
-    return this.queries.listQueryRuns(limit, scope);
-  }
   graphRevision(): number {
     const row = this.db.prepare("SELECT value FROM kg_graph_state WHERE key='content_revision'").get() as { value: number } | undefined;
     return Number(row?.value ?? 0);
@@ -163,26 +119,6 @@ export class GraphologyStore {
       this.db.exec("ROLLBACK");
       throw error;
     }
-  }
-
-  readInsightSnapshot(key: string, scope = "default"): InsightSnapshot | undefined {
-    const row = this.db.prepare("SELECT snapshot FROM kg_insight_snapshots WHERE cache_key=? AND scope=?").get(key, normalizeScope(scope)) as { snapshot: string } | undefined;
-    if (!row) return undefined;
-    try {
-      return canonicalizeInsightSnapshot(JSON.parse(row.snapshot));
-    } catch {
-      return undefined;
-    }
-  }
-
-  writeInsightSnapshot(key: string, snapshot: InsightSnapshot, scope = "default"): void {
-    const deterministicSnapshot = canonicalizeInsightSnapshot(snapshot);
-    if (!deterministicSnapshot) throw new Error("invalid insight snapshot");
-    const { graphRevision, algorithmVersion, createdAt } = deterministicSnapshot;
-    if (!Number.isSafeInteger(graphRevision) || graphRevision < 0 || !algorithmVersion || !Number.isFinite(createdAt)) throw new Error("invalid insight snapshot");
-    this.db.prepare(`INSERT INTO kg_insight_snapshots(cache_key,scope,graph_revision,algorithm_version,snapshot,created_at)
-      VALUES(?,?,?,?,?,?) ON CONFLICT(cache_key) DO UPDATE SET scope=excluded.scope,graph_revision=excluded.graph_revision,algorithm_version=excluded.algorithm_version,snapshot=excluded.snapshot,created_at=excluded.created_at`)
-      .run(key, normalizeScope(scope), graphRevision, algorithmVersion, JSON.stringify(deterministicSnapshot), createdAt);
   }
 
   migrate(): void {
@@ -2511,80 +2447,6 @@ export class GraphologyStore {
     };
   }
 
-  queryGraphProjection(options: { maxNodes: number; maxEdges: number; asOf: number; scope?: string }): QueryGraphProjection {
-    const bounded = (value: number, hard: number) => Number.isFinite(value) ? Math.min(hard, Math.max(0, Math.trunc(value))) : 0;
-    const maxNodes = bounded(options.maxNodes, 10000);
-    const maxEdges = bounded(options.maxEdges, 50000);
-    const asOf = Number.isFinite(options.asOf) ? options.asOf : Date.now();
-    const scope = options.scope == null ? undefined : normalizeScope(options.scope);
-    const nodeRows = this.db.prepare(`SELECT id,name,type,aliases,created_at,updated_at FROM kg_nodes
-      WHERE deleted_at IS NULL AND typeof(id)='text' AND typeof(name)='text' AND type IN (${insightNodeTypeSql})
-        AND typeof(aliases)='text' AND json_valid(aliases) AND json_type(aliases)='array'
-        AND typeof(created_at)='integer' AND typeof(updated_at)='integer'
-        AND (? IS NULL OR EXISTS (
-          SELECT 1 FROM kg_observations o LEFT JOIN kg_edges e ON e.id=o.edge_id AND e.deleted_at IS NULL
-          WHERE o.scope=? AND (o.source_entity_id=kg_nodes.id OR e.source_id=kg_nodes.id OR e.target_id=kg_nodes.id)
-        ) OR (?='default' AND NOT EXISTS (
-          SELECT 1 FROM kg_observations o LEFT JOIN kg_edges e ON e.id=o.edge_id AND e.deleted_at IS NULL
-          WHERE o.source_entity_id=kg_nodes.id OR e.source_id=kg_nodes.id OR e.target_id=kg_nodes.id
-        )))
-      ORDER BY id LIMIT ?`).all(scope ?? null, scope ?? null, scope ?? null, maxNodes + 1) as Array<{ id: string; name: string; type: NodeType; aliases: string; created_at: number; updated_at: number }>;
-    const nodes = nodeRows.slice(0, maxNodes).flatMap(row => {
-      const aliases = parseJsonArray(row.aliases);
-      const validNodeTypes = new Set<NodeType>(["person", "company", "product", "technology", "concept", "industry", "fund", "policy", "portfolio"]);
-      return validNodeTypes.has(row.type) ? [{ id: row.id, name: row.name, type: row.type, aliases, createdAt: Number(row.created_at), updatedAt: Number(row.updated_at) }] : [];
-    });
-    const ids = new Set(nodes.map(node => node.id));
-    const edgeRows = this.db.prepare(`SELECT e.id,e.source_id AS source,e.target_id AS target,e.type,
-        AVG(o.confidence) AS confidence,COUNT(*) AS evidence_count,COUNT(DISTINCT o.source) AS source_count,
-        MIN(o.created_at) AS first_seen_at,MAX(o.created_at) AS last_seen_at,
-        MIN(o.valid_from) AS valid_from,MAX(o.valid_to) AS valid_to
-      FROM kg_edges e JOIN kg_nodes sn ON sn.id=e.source_id AND sn.deleted_at IS NULL AND sn.type IN (${insightNodeTypeSql})
-      JOIN kg_nodes tn ON tn.id=e.target_id AND tn.deleted_at IS NULL AND tn.type IN (${insightNodeTypeSql})
-      JOIN kg_observations o ON o.edge_id=e.id
-        AND (? IS NULL OR o.scope=?)
-        AND (o.valid_from IS NULL OR (typeof(o.valid_from)='integer' AND o.valid_from<=?))
-        AND (o.valid_to IS NULL OR (typeof(o.valid_to)='integer' AND o.valid_to>=?))
-        AND (o.valid_from IS NULL OR o.valid_to IS NULL OR o.valid_from<=o.valid_to)
-        AND typeof(o.confidence) IN ('integer','real') AND o.confidence BETWEEN 0 AND 1
-        AND typeof(o.created_at)='integer'
-      WHERE e.deleted_at IS NULL AND e.source_id<>e.target_id AND (${insightRelationshipPredicate})
-      GROUP BY e.id,e.source_id,e.target_id,e.type ORDER BY e.id LIMIT ?`).all(scope ?? null, scope ?? null, asOf, asOf, maxEdges + 1) as Array<{
-        id: string; source: string; target: string; type: RelationshipType; confidence: number; evidence_count: number; source_count: number;
-        first_seen_at: number; last_seen_at: number; valid_from: number | null; valid_to: number | null;
-      }>;
-    const validTypes = new Set(Object.keys(relationshipDefinitions));
-    const edges = edgeRows.slice(0, maxEdges).filter(row => typeof row.id === "string" && ids.has(row.source) && ids.has(row.target)
-      && validTypes.has(row.type) && [row.confidence, row.evidence_count, row.source_count, row.first_seen_at, row.last_seen_at].every(Number.isFinite))
-      .map(row => ({ id: row.id, source: row.source, target: row.target, type: row.type, confidence: Number(row.confidence), evidenceCount: Number(row.evidence_count), sourceCount: Number(row.source_count), firstSeenAt: Number(row.first_seen_at), lastSeenAt: Number(row.last_seen_at), validFrom: row.valid_from == null ? null : Number(row.valid_from), validTo: row.valid_to == null ? null : Number(row.valid_to) }));
-    return { graphRevision: this.graphRevision(), nodes, edges, truncated: nodeRows.length > maxNodes || edgeRows.length > maxEdges };
-  }
-
-  timelineProjection(subjectId: string, options: { from: number; to: number; limit: number; scope?: string }): { rows: TimelineProjectionRow[]; truncated: boolean; graphRevision: number } {
-    const limit = Math.min(50, Math.max(0, Math.trunc(options.limit)));
-    const from = Math.min(options.from, options.to), to = Math.max(options.from, options.to);
-    const scope = options.scope == null ? undefined : normalizeScope(options.scope);
-    const rows = this.db.prepare(`WITH relevant AS (
-        SELECT o.id AS observation_id,o.edge_id,o.source,o.created_at,o.valid_from,o.valid_to
-        FROM kg_observations o LEFT JOIN kg_edges e ON e.id=o.edge_id AND e.deleted_at IS NULL
-        WHERE (o.source_entity_id=? OR e.source_id=? OR e.target_id=?)
-          AND (? IS NULL OR o.scope=?)
-          AND typeof(o.id)='text' AND typeof(o.created_at)='integer'
-          AND (o.valid_from IS NULL OR typeof(o.valid_from)='integer')
-          AND (o.valid_to IS NULL OR typeof(o.valid_to)='integer')
-          AND (o.valid_from IS NULL OR o.valid_to IS NULL OR o.valid_from<=o.valid_to)
-      ), events AS (
-        SELECT created_at AS timestamp,'observed' AS kind,observation_id,edge_id,source FROM relevant
-        UNION ALL SELECT valid_from,'became_valid',observation_id,edge_id,source FROM relevant WHERE valid_from IS NOT NULL
-        UNION ALL SELECT valid_to,'became_invalid',observation_id,edge_id,source FROM relevant WHERE valid_to IS NOT NULL
-      ) SELECT timestamp,kind,GROUP_CONCAT(DISTINCT observation_id) AS observation_ids,
-          GROUP_CONCAT(DISTINCT edge_id) AS relationship_ids,COUNT(DISTINCT observation_id) AS evidence_count,
-          COUNT(DISTINCT source) AS source_count
-        FROM events WHERE timestamp BETWEEN ? AND ? GROUP BY timestamp,kind ORDER BY timestamp,kind LIMIT ?`)
-      .all(subjectId, subjectId, subjectId, scope ?? null, scope ?? null, from, to, limit + 1) as Array<{ timestamp: number; kind: TimelineProjectionRow["kind"]; observation_ids: string; relationship_ids: string | null; evidence_count: number; source_count: number }>;
-    return { rows: rows.slice(0, limit).map(row => ({ timestamp: Number(row.timestamp), kind: row.kind, observationIds: [...new Set(String(row.observation_ids).split(","))].sort(), relationshipIds: row.relationship_ids == null ? [] : [...new Set(String(row.relationship_ids).split(","))].sort(), evidenceCount: Number(row.evidence_count), sourceCount: Number(row.source_count) })), truncated: rows.length > limit, graphRevision: this.graphRevision() };
-  }
-
   qualityGraphSnapshot(seedIds: string[], limits: { maxNodes: number; maxArcs: number }, now = Date.now()): { nodes: string[]; arcs: PprArc[] } {
     const maxNodes = Math.max(0, Math.trunc(limits.maxNodes));
     const maxArcs = Math.max(0, Math.trunc(limits.maxArcs));
@@ -2894,7 +2756,6 @@ function memorySearchResult(document: KgMemoryDocument, score: number, query: st
   return { id: document.id, scope: document.scope, title: document.title, excerpt, source: document.source, metadata: document.metadata, score: round(score), ...(scoreComponents ? { score_components: { lexical: round(scoreComponents.lexical), semantic: round(scoreComponents.semantic) } } : {}), created_at: document.created_at, updated_at: document.updated_at };
 }
 
-function parseJsonArray(value: string): string[] { try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []; } catch { return []; } }
 function parseJsonObject(value: string): Record<string, unknown> { try { const parsed = JSON.parse(value); return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}; } catch { return {}; } }
 function edgeId(sourceId: string, targetId: string, type: RelationshipType): string { return `edge:${createHash("sha256").update(`${sourceId}\0${targetId}\0${type}`).digest("hex").slice(0, 24)}`; }
 function normalizeLookup(value: string): string { return value.trim().toLowerCase(); }

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import plugin from "../dist/plugin.js";
 import { CORE_TOOL_NAMES, RESEARCH_TOOL_NAMES } from "../dist/openclaw.js";
 
-const expectedTools = ["kg_compare", "kg_context", "kg_digest", "kg_embed_backfill", "kg_export", "kg_forget", "kg_import", "kg_ingest", "kg_ingest_batch", "kg_ingest_file", "kg_ingest_url", "kg_insights", "kg_integrations", "kg_memory", "kg_merge", "kg_merge_undo", "kg_profile", "kg_profile_lock", "kg_query", "kg_query_history", "kg_recall_canary", "kg_recall_explain", "kg_recall_metrics", "kg_related", "kg_review", "kg_scopes", "kg_search", "kg_sources", "kg_stats", "kg_timeline", "kg_verify", "kg_watch"];
+const expectedTools = ["kg_context", "kg_embed_backfill", "kg_export", "kg_forget", "kg_import", "kg_ingest", "kg_ingest_batch", "kg_ingest_file", "kg_ingest_url", "kg_integrations", "kg_memory", "kg_merge", "kg_merge_undo", "kg_profile", "kg_profile_lock", "kg_recall_canary", "kg_recall_explain", "kg_recall_metrics", "kg_related", "kg_review", "kg_scopes", "kg_search", "kg_sources", "kg_stats", "kg_verify"];
 const expectedCoreTools = [...CORE_TOOL_NAMES].sort();
 const expectedResearchTools = [...RESEARCH_TOOL_NAMES].sort();
 const structuralSchema = (value) => Array.isArray(value) ? value.map(structuralSchema) : value && typeof value === "object"

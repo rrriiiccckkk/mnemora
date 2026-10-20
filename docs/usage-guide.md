@@ -337,8 +337,12 @@ pre-1.33 behaviour where every agent shares `scope.default`.
 
 ### Tool surface
 
-`toolSurface` defaults to `core` (ten everyday memory tools). Use `research`
-for analysis and saved-query tools, or `full` for every operational tool.
+`toolSurface` defaults to `core` (ten everyday memory tools). Use `full` for
+every operational tool (25). The research tools (`kg_insights`, `kg_query`,
+`kg_query_history`, `kg_timeline`, `kg_compare`, `kg_watch`, `kg_digest`)
+were removed in 1.38.0, so `research` is now an alias of `core`, kept so
+existing configs load. Their tables stay; the Inspector still shows stored
+history, watches, digests, and insight snapshots read-only.
 
 ### Semantic journal recall
 
@@ -540,9 +544,8 @@ MNEMORA_DB=~/.openclaw/mnemora.db node dist/cli.js stats
 ```
 
 The bundled `/mnemora` command provides read-only status, diagnostics, and
-explicit canonical-corpus operations. Use the `core`, `research`, or `full`
-tool surface to control how much tool schema an agent receives; the compatible
-default is `full`.
+explicit canonical-corpus operations. Use the `core` (default) or `full` tool
+surface to control how much tool schema an agent receives.
 
 ## Boundaries
 

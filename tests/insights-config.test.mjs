@@ -80,29 +80,10 @@ test("insights TypeBox configuration publishes matching bounds", () => {
 
 test("store initializes graph revision and insight cache tables", () => {
   const store = temporaryStore();
-  const snapshot = { graphRevision: 0, algorithmVersion: "test", createdAt: 1,
-    truncated: false, communities: [], insights: [], warnings: [] };
   try {
     assert.equal(store.graphRevision(), 0);
-    assert.doesNotThrow(() => store.writeInsightSnapshot("key", snapshot));
-    assert.deepEqual(store.readInsightSnapshot("key"), snapshot);
-  } finally {
-    store.close();
-  }
-});
-
-test("insight snapshots reject legacy snake_case metadata", () => {
-  const store = temporaryStore();
-  try {
-    assert.throws(() => store.writeInsightSnapshot("legacy", {
-      graph_revision: 0,
-      algorithm_version: "test",
-      generated_at: 1,
-      truncated: false,
-      communities: [],
-      insights: [],
-      warnings: []
-    }), /invalid insight snapshot/);
+    // kg_insights was removed in 1.38.0; the table stays for the Inspector's read-only research page.
+    assert.equal(store.db.prepare("SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name='kg_insight_snapshots'").get().value, 1);
   } finally {
     store.close();
   }
@@ -216,73 +197,6 @@ test("confirmed merge and merge undo bump revision once each", () => {
     const undoPreview = store.undoMerge(merged.audit_id, false);
     store.undoMerge(merged.audit_id, true, undoPreview.preview_hash);
     assert.equal(store.graphRevision(), 3);
-  } finally {
-    store.close();
-  }
-});
-
-test("insight snapshots never persist optional explanations", () => {
-  const store = temporaryStore();
-  const snapshot = {
-    graphRevision: 1,
-    algorithmVersion: "test",
-    createdAt: 1,
-    truncated: false,
-    communities: [],
-    insights: [{
-      id: "insight:1", kind: "knowledge_gap", score: 1,
-      community_ids: [], entity_ids: ["company:nvidia"], relationship_ids: [],
-      reason: "weak_evidence", signals: { confidence: .2 }, explanation: "generated explanation"
-    }],
-    warnings: []
-  };
-  try {
-    store.writeInsightSnapshot("without-explanation", snapshot);
-    assert.deepEqual(store.readInsightSnapshot("without-explanation")?.insights, [{
-      id: "insight:1", kind: "knowledge_gap", score: 1,
-      community_ids: [], entity_ids: ["company:nvidia"], relationship_ids: [],
-      reason: "weak_evidence", signals: { confidence: .2 }
-    }]);
-  } finally {
-    store.close();
-  }
-});
-
-test("insight snapshots whitelist deterministic fields at runtime", () => {
-  const store = temporaryStore();
-  const snapshot = {
-    graphRevision: 1,
-    algorithmVersion: "test",
-    createdAt: 1,
-    truncated: false,
-    quote: "runtime-quote",
-    payload: { marker: "runtime-payload" },
-    url: "https://runtime.invalid/snapshot",
-    conversation: "runtime-conversation",
-    communities: [{
-      id: "community:1", entity_ids: ["company:nvidia"], size: 1, internal_edge_count: 0,
-      density: 0, average_confidence: .9, evidence_coverage: 1, source_concentration: 1,
-      recent_growth: 0, bridge_score: 0, quote: "runtime-community-quote"
-    }],
-    insights: [{
-      id: "insight:1", kind: "knowledge_gap", score: 1,
-      community_ids: ["community:1"], entity_ids: ["company:nvidia"], relationship_ids: [],
-      reason: "weak_evidence", signals: { confidence: .2 }, quote: "runtime-insight-quote",
-      payload: { marker: "runtime-insight-payload" }, url: "https://runtime.invalid/insight",
-      conversation: "runtime-insight-conversation",
-      path: { entity_ids: ["company:nvidia", "company:mnemora"], edge_ids: ["edge:1"], quote: "runtime-path-quote" }
-    }],
-    warnings: [{ category: "test", url: "https://runtime.invalid/warning" }]
-  };
-  try {
-    store.writeInsightSnapshot("whitelist", snapshot);
-    const stored = store.db.prepare("SELECT snapshot FROM kg_insight_snapshots WHERE cache_key=?").get("whitelist").snapshot;
-    const read = store.readInsightSnapshot("whitelist");
-    for (const marker of ["runtime-quote", "runtime-payload", "runtime-conversation", "runtime-community-quote", "runtime-insight-quote", "runtime-insight-payload", "runtime-insight-conversation", "runtime.invalid"]) {
-      assert.equal(stored.includes(marker), false);
-      assert.equal(JSON.stringify(read).includes(marker), false);
-    }
-    assert.deepEqual(read.insights[0].path, { entity_ids: ["company:nvidia", "company:mnemora"], edge_ids: ["edge:1"] });
   } finally {
     store.close();
   }

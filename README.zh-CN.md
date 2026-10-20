@@ -105,7 +105,7 @@ node dist/cli.js resume "deployment task" --scope project-a
 | 配置项 | 默认值 | 含义 |
 |---|---|---|
 | `scope.isolation` | `"agent"` | 每个 agent 使用独立范围 `agent:<id>`；默认 agent（`scope.defaultAgentId`，即 `main`）沿用 `scope.default`。设为 `"shared"` 时所有 agent 共用一个范围。 |
-| `toolSurface` | `"core"` | 10 个日常记忆工具。`"research"` 增加分析和保存的查询；`"full"` 开放全部 32 个。 |
+| `toolSurface` | `"core"` | 10 个日常记忆工具；`"full"` 开放全部 25 个。自 1.38.0 起 `"research"` 等同于 `"core"`。 |
 | `unifiedRetrieval.tokenBudget` / `maxItems` | 800 / 8 | 每次提问注入记忆的上限。 |
 | `unifiedRetrieval.minQueryMatch` | 有向量时 0.15，否则 0 | 记录至少要覆盖的提问词比例（按稀有度加权）。 |
 | `embeddings.enabled` | `false` | 用本地 Ollama embedding 做语义召回。 |

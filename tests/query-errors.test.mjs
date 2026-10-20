@@ -24,7 +24,7 @@ test("research errors expose every closed code-stage contract", () => {
     const thrown = new ResearchOperationError({ error_code, retryable, details });
     const expected = { error, error_code, stage, retryable, summary, details };
     assert.deepEqual(thrown.public, expected, error_code);
-    assert.deepEqual(toResearchError("kg_compare", thrown), expected, error_code);
+    assert.deepEqual(toResearchError("kg_import", thrown), expected, error_code);
     assert.deepEqual(JSON.parse(JSON.stringify(thrown)), expected, error_code);
   }
 });
@@ -61,8 +61,8 @@ test("research errors always redact arbitrary thrown values and sensitive text",
     "https://api:credential@example.test/provider body SECRET_PROVIDER_BODY",
     { stack: "SECRET_STACK", prompt: "SECRET_PROMPT", source: "SECRET_SOURCE", evidence: "SECRET_EVIDENCE" }
   ]) {
-    const output = toResearchError("kg_query", value);
-    assert.deepEqual(output, { error: "operation_failed", error_code: "RESEARCH_OPERATION_FAILED", stage: "execution", retryable: false, summary: "kg_query failed", details: {} });
+    const output = toResearchError("kg_export", value);
+    assert.deepEqual(output, { error: "operation_failed", error_code: "RESEARCH_OPERATION_FAILED", stage: "execution", retryable: false, summary: "kg_export failed", details: {} });
     assert.doesNotMatch(JSON.stringify(output), /SECRET|SQLite|SELECT|credential|provider|source|evidence|prompt|[A-Za-z]:\\|\/(?:home|private)\//i);
   }
 });
@@ -75,7 +75,7 @@ test("research errors enforce a compiled sixteen KiB ceiling with deterministic 
   const output = huge.public;
   assert.ok(Buffer.byteLength(JSON.stringify(output), "utf8") <= 16 * 1024);
   assert.deepEqual(output, { error: "operation_failed", error_code: "RESEARCH_OPERATION_FAILED", stage: "serialization", retryable: false, summary: "Research operation failed.", details: {} });
-  assert.deepEqual(toResearchError("kg_compare", huge), output);
+  assert.deepEqual(toResearchError("kg_import", huge), output);
 });
 
 test("toResearchError is total for hostile thrown values", () => {
@@ -90,8 +90,8 @@ test("toResearchError is total for hostile thrown values", () => {
   const circular = {}; circular.self = circular;
   hostile.push(circular);
   for (const value of hostile) {
-    assert.doesNotThrow(() => toResearchError("kg_query", value));
-    assert.deepEqual(toResearchError("kg_query", value), { error: "operation_failed", error_code: "RESEARCH_OPERATION_FAILED", stage: "execution", retryable: false, summary: "kg_query failed", details: {} });
+    assert.doesNotThrow(() => toResearchError("kg_export", value));
+    assert.deepEqual(toResearchError("kg_export", value), { error: "operation_failed", error_code: "RESEARCH_OPERATION_FAILED", stage: "execution", retryable: false, summary: "kg_export failed", details: {} });
   }
 });
 
@@ -128,7 +128,7 @@ test("research error output is deeply immutable after construction and serializa
   assert.throws(() => { error.public.details.candidates[0].aliases.push("x"); }, TypeError);
   assert.deepEqual(error.public, expected);
   assert.deepEqual(error.toJSON(), expected);
-  assert.deepEqual(toResearchError("kg_compare", error), expected);
+  assert.deepEqual(toResearchError("kg_import", error), expected);
 });
 
 test("research errors redact unsafe graph labels without dropping ordinary labels", () => {

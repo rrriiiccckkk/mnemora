@@ -20,18 +20,8 @@ export interface QueryConfig {
   maxWatches?: number; maxDigestWatches?: number;
   maxImportBytes?: number; maxImportRecords?: number;
 }
-export interface KgQueryInput { question?: string; plan?: unknown; scope?: string }
-export interface KgTimelineInput { subject: string; from?: number; to?: number; limit?: number; scope?: string }
-export interface KgCompareInput { left: string; right: string; max_depth?: number; confidence_min?: number; valid_from?: number; valid_to?: number; limit?: number; as_of?: number; max_response_bytes?: number; scope?: string }
-export type KgWatchInput =
-  | { operation: "create"; id?: string; name: string; question?: string; plan: unknown; schedule_hint: "manual" | "daily" | "weekly"; enabled?: boolean; scope?: string }
-  | { operation: "list"; limit?: number; scope?: string }
-  | { operation: "inspect" | "enable" | "disable" | "delete"; id: string }
-  | { operation: "update"; id: string; name?: string; plan?: unknown; schedule_hint?: "manual" | "daily" | "weekly"; enabled?: boolean; scope?: string };
-export interface KgDigestInput { idempotency_key: string; watch_ids?: string[]; since?: number; limit?: number; scope?: string }
 export interface KgExportInput { format: "jsonl" | "csv" | "graphml"; max_bytes?: number; max_records?: number }
 export interface KgImportInput { format: "jsonl"; data: string; preview_hash?: string; confirm?: boolean }
-export interface KgQueryHistoryInput { limit?: number; scope?: string }
 export interface IngestionItem { text: string; source?: string; scope?: string; metadata?: Record<string, string | number | boolean | null>; force?: boolean; sourceRef?: import("./trust/types.js").ExternalSourceRef }
 export type IngestionErrorCategory = "invalid_input" | "unsupported_file" | "file_too_large" | "workspace_boundary" | "extraction_disabled" | "extraction_failed" | "persistence_failed" | import("./url-ingestion.js").SafeUrlErrorCategory;
 export interface IngestionWarning { category: "embedding_failed" | "candidate_discovery_failed" | "conflict_discovery_failed" | "source_anchoring_failed" | "pre_admission_dropped"; count?: number }
@@ -493,15 +483,6 @@ export interface CommunitySummary {
   bridge_score: number;
 }
 
-export interface KgInsightsInput {
-  kind?: "all" | InsightKind;
-  limit?: number;
-  communityId?: string;
-  explain?: "auto" | boolean;
-  refresh?: boolean;
-  scope?: string;
-}
-
 export interface KgInsight {
   id: string;
   kind: InsightKind;
@@ -513,15 +494,4 @@ export interface KgInsight {
   signals: Record<string, number>;
   path?: { entity_ids: string[]; edge_ids: string[] };
   explanation?: string;
-}
-
-export interface KgInsightsResult {
-  status: "ok" | "empty" | "unavailable";
-  graph_revision: number;
-  algorithm_version: string;
-  cache_hit: boolean;
-  truncated: boolean;
-  communities: CommunitySummary[];
-  insights: KgInsight[];
-  warnings: Array<{ category: string; detector?: InsightKind }>;
 }

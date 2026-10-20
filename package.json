@@ -28,8 +28,6 @@
     "test": "npm run test:unit",
     "benchmark:hybrid": "npm run build && node scripts/benchmark-hybrid-recall.mjs",
     "benchmark:quality": "npm run build && node scripts/benchmark-quality-ranking.mjs",
-    "benchmark:insights": "npm run build && node scripts/benchmark-insights.mjs",
-    "benchmark:query": "npm run build && node scripts/benchmark-query.mjs",
     "benchmark:inspector": "npm run build && node scripts/benchmark-inspector.mjs",
     "benchmark:lifecycle": "npm run build && node scripts/benchmark-memory-lifecycle.mjs",
     "benchmark:ingestion": "npm run build && node scripts/benchmark-ingestion.mjs",

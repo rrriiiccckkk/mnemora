@@ -5,7 +5,6 @@ import type { EntityDetailRequest, EntityDetailSection, GraphPageRequest, GraphP
 import type { SourceAnchorPage } from "../trust/types.js";
 import type { NodeType } from "../types.js";
 import type { RelationshipType } from "../relationships.js";
-import type { KgInsightsResult } from "../types.js";
 import { createHash } from "node:crypto";
 import { detectCommunities } from "../insights/community.js";
 import type { GraphProjection } from "../insights/types.js";
@@ -38,8 +37,6 @@ export interface InspectorStore {
   };
 }
 
-/** The existing analytics service is injected so Inspector never reimplements insight formulas. */
-export interface InspectorAnalytics { analyze(input: { explain: false; scope?: string }): Promise<KgInsightsResult>; }
 /** Read-only trust boundary. It exposes no stored snapshots or provider payloads. */
 export interface InspectorTrustReader {
   revision(): string;
@@ -47,7 +44,6 @@ export interface InspectorTrustReader {
 }
 export interface InspectorServiceOptions {
   store: InspectorStore;
-  analytics?: InspectorAnalytics;
   limits?: Partial<OperationsConfig>;
   now?: () => number;
   signal?: AbortSignal;
@@ -166,15 +162,8 @@ export class InspectorService {
       const insightState = section === "insights" ? researchInsightState(raw.insights_state) : "current";
       if (insightState === "malformed") return this.researchResult(section, revision, raw, limit, check, [{ code: "malformed_row" }], true, scope);
       if (insightState !== "current") {
-        if (!this.options.analytics) return this.researchResult(section, revision, raw, limit, check, [{ code: "truncated" }], true, scope);
-        return this.options.analytics.analyze({ explain: false, scope }).then(result => {
-          check();
-          const fallback = insightItems(result, after, limit, check);
-          return this.researchResult(section, revision, fallback, limit, check, fallback.truncated || result.truncated ? [{ code: "truncated" }] : [], fallback.truncated || result.truncated === true, scope);
-        }).catch(error => {
-          if (error instanceof InspectorExecutionError) return this.researchResult(section, revision, { items: [], next: null, truncated: true }, limit, check, [{ code: error.code }], true, scope);
-          return this.researchResult(section, revision, { items: [], next: null, truncated: true }, limit, check, [{ code: "truncated" }], true, scope);
-        });
+        // Live insight analysis was removed in 1.38.0; only a current stored snapshot is shown.
+        return this.researchResult(section, revision, raw, limit, check, [{ code: "truncated" }], true, scope);
       }
       return this.researchResult(section, revision, raw, limit, check, [], false, scope);
     } catch (error) { return this.result({ kind: "research", section, items: [], next_cursor: null, warnings: [{ code: warningFor(error) }], truncated: true }) as ResearchPageResult; }
@@ -417,17 +406,6 @@ function decodeOpaqueCursor(cursor: string): Record<string, unknown> {
 function researchNext(value: unknown): { sort: number; id: string } | null { return record(value) && Number.isSafeInteger(value.sort) && (value.sort as number) >= 0 && !!safeInspectorId(value.id) ? { sort: value.sort as number, id: value.id as string } : null; }
 function researchInsightState(value: unknown): "current" | "missing" | "stale" | "malformed" {
   return value === "missing" || value === "stale" || value === "malformed" ? value : "current";
-}
-function insightItems(result: KgInsightsResult, after: { sort: number; id: string } | null, limit: number, check: () => void): { items: Array<Record<string, unknown>>; next: { sort: number; id: string } | null; truncated: boolean } {
-  const rawInsights = Array.isArray(result.insights) ? result.insights : [];
-  const insights = rawInsights.slice(0, 101).map(item => {
-    check();
-    return { id: item.id, status: "available", kind: item.kind, score: item.score, sort: Math.floor(item.score * 1_000_000), created_at: 0 };
-  }).filter(item => after == null || Number(item.sort) < after.sort || Number(item.sort) === after.sort && String(item.id) < after.id)
-    .sort((a, b) => Number(b.sort) - Number(a.sort) || String(b.id).localeCompare(String(a.id)));
-  const page = insights.slice(0, limit + 1);
-  const last = page[Math.min(limit, page.length) - 1];
-  return { items: page, next: page.length > limit && last ? { sort: Number(last.sort), id: String(last.id) } : null, truncated: rawInsights.length > 101 };
 }
 function inspectorCommunityProjection(value: GraphPageResult["nodes"], edgeRows: GraphPageResult["edges"], revision: number, asOf: number, check: () => void): GraphProjection {
   const nodeRows = value.slice(0, INSPECTOR_COMMUNITY_NODE_LIMIT);

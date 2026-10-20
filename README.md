@@ -156,7 +156,7 @@ It returns source records only and never revives forgotten data.
 | Setting | Default | Meaning |
 |---|---|---|
 | `scope.isolation` | `"agent"` | Each agent gets its own scope `agent:<id>`; the default agent (`scope.defaultAgentId`, `main`) keeps `scope.default`. `"shared"` puts every agent in one scope. |
-| `toolSurface` | `"core"` | Ten everyday memory tools. `"research"` adds analysis and saved queries; `"full"` exposes all 32. |
+| `toolSurface` | `"core"` | Ten everyday memory tools; `"full"` exposes all 25. `"research"` is an alias of `"core"` since 1.38.0. |
 | `unifiedRetrieval.tokenBudget` / `maxItems` | 800 / 8 | Upper bound on attached memory per prompt. |
 | `unifiedRetrieval.minQueryMatch` | 0.15 with embeddings, 0 without | Minimum rarity-weighted share of prompt terms a record must match. |
 | `embeddings.enabled` | `false` | Local Ollama embeddings for semantic recall. |

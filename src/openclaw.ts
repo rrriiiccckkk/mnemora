@@ -20,10 +20,12 @@ type Operation = (graph: Mnemora, params: Record<string, unknown>) => unknown | 
 export const CORE_TOOL_NAMES = [
   "kg_context", "kg_ingest", "kg_memory", "kg_profile", "kg_recall_explain", "kg_related", "kg_scopes", "kg_search", "kg_sources", "kg_stats"
 ] as const;
-/** Research adds analysis and saved-query workflows without exposing operational mutation tools. */
-export const RESEARCH_TOOL_NAMES = [
-  ...CORE_TOOL_NAMES, "kg_compare", "kg_digest", "kg_insights", "kg_query", "kg_timeline", "kg_watch"
-] as const;
+/**
+ * The research tools (kg_compare, kg_digest, kg_insights, kg_query,
+ * kg_timeline, kg_watch) were removed in 1.38.0; `research` is now an alias of
+ * `core`, kept so existing configurations load.
+ */
+export const RESEARCH_TOOL_NAMES = CORE_TOOL_NAMES;
 
 const enabledNames = (surface: ToolSurface): ReadonlySet<string> | undefined => surface === "full"
   ? undefined
@@ -107,8 +109,6 @@ export function createOpenClawToolDefinitions(openGraph: () => Mnemora, surface:
       (graph, p) => graph.kg_ingest_file(String(p.path ?? ""), optionalString(p.source), p.force === true, optionalString(p.scope))),
     descriptor("kg_ingest_url", "KG Ingest URL", scoped("Safely fetch and ingest one public HTTP(S) text or HTML resource."), Type.Object({ url: Type.String(), scope: Type.Optional(scopeSchema), force: Type.Optional(Type.Boolean()) }, { additionalProperties: false }),
       (graph, p) => graph.kg_ingest_url(String(p.url ?? ""), p.force === true, optionalString(p.scope))),
-    descriptor("kg_insights", "KG Insights", scoped("Return deterministic structural analysis and supporting data within one scope, not instructions or newly established facts."), Type.Object({ kind: Type.Optional(Type.Union([Type.Literal("all"), Type.Literal("knowledge_gap"), Type.Literal("emerging_topic"), Type.Literal("cross_community_path")])), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })), communityId: Type.Optional(Type.String()), explain: Type.Optional(Type.Union([Type.Literal("auto"), Type.Boolean()])), refresh: Type.Optional(Type.Boolean()), scope: Type.Optional(scopeSchema) }, { additionalProperties: false }),
-      (graph, p) => graph.kg_insights(p)),
     descriptor("kg_embed_backfill", "KG Embed Backfill", "Embed stale graph nodes in stable node id order.", Type.Object({ limit: Type.Optional(Type.Number({ minimum: 1, maximum: 1000 })), after_id: Type.Optional(Type.String()) }, { additionalProperties: false }),
       (graph, p) => graph.kg_embed_backfill(optionalNumber(p.limit), optionalString(p.after_id))),
     descriptor("kg_search", "KG Search", scoped("Search local knowledge graph entities within one scope by lexical or semantic similarity. Use kg_scopes before retrying an unexpectedly empty search in another project."), Type.Object({ query: Type.String({ description: "Entity search query." }), node_type: Type.Optional(Type.String({ description: "Optional node type filter." })), scope: Type.Optional(scopeSchema), limit: Type.Optional(Type.Number({ description: "Maximum result count." })), mode: Type.Optional(Type.Union([Type.Literal("lexical"), Type.Literal("semantic"), Type.Literal("hybrid")])) }, { additionalProperties: false }),
@@ -142,17 +142,11 @@ export function createOpenClawToolDefinitions(openGraph: () => Mnemora, surface:
       (graph, p) => graph.kg_merge(String(p.canonical_entity_id ?? ""), String(p.duplicate_entity_id ?? ""), p.confirm === true, optionalString(p.preview_hash))),
     descriptor("kg_merge_undo", "KG Merge Undo", "Preview or explicitly confirm conflict-safe restoration of a merge audit.", Type.Object({ audit_id: Type.String(), preview_hash: Type.Optional(Type.String()), confirm: Type.Optional(Type.Boolean()) }, { additionalProperties: false }),
       (graph, p) => graph.kg_merge_undo(String(p.audit_id ?? ""), p.confirm === true, optionalString(p.preview_hash))),
-    descriptor("kg_query", "KG Query", scoped("Execute a bounded, evidence-backed natural-language or explicit graph query plan within one scope."), Type.Object({ question: Type.Optional(Type.String({ maxLength: 4000 })), plan: Type.Optional(queryPlanSchema), scope: Type.Optional(scopeSchema) }, { additionalProperties: false }), (graph, p) => graph.kg_query(p), true),
     descriptor("kg_verify", "KG Verify", scoped("Inspect redacted source lifecycle state, or queue, run, retry, reclaim, or cancel bounded Mnemora-owned verification and retrospective-audit jobs; never writes to external providers."), verificationSchema, (graph, p) => graph.kg_verify(p as never), true),
     descriptor("kg_recall_metrics", "KG Recall Metrics", scoped("List bounded, redacted adaptive and automatic-recall telemetry for one scope. It never stores prompt text, candidate content, identifiers, or sources, and never changes retrieval or injected context."), Type.Object({ scope: Type.Optional(scopeSchema), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })) }, { additionalProperties: false }), (graph, p) => graph.kg_recall_metrics({ scope: optionalString(p.scope), limit: optionalNumber(p.limit) }), true),
     descriptor("kg_recall_canary", "KG Recall Canary", scoped("Evaluate redacted shadow metrics, create a model-specific calibration, or explicitly enable/roll back one adaptive-recall canary. Injection needs configuration, a ready calibration, and confirmed scope activation; rollback is one confirmed call."), recallCanarySchema, (graph, p) => graph.kg_recall_canary(p as never), true),
-    descriptor("kg_timeline", "KG Timeline", scoped("Return bounded observation and validity changes for one graph subject within one scope."), Type.Object({ subject: Type.String({ minLength: 1, maxLength: 160 }), from: Type.Optional(Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })), to: Type.Optional(Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })), scope: Type.Optional(scopeSchema) }, { additionalProperties: false }), (graph, p) => graph.kg_timeline(p as never), true),
-    descriptor("kg_compare", "KG Compare", scoped("Compare two entities or communities using bounded topology, temporal, and evidence signals within one scope."), Type.Object({ left: Type.String({ minLength: 1, maxLength: 160 }), right: Type.String({ minLength: 1, maxLength: 160 }), max_depth: Type.Optional(Type.Integer({ minimum: 0, maximum: 4 })), confidence_min: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })), valid_from: Type.Optional(Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })), valid_to: Type.Optional(Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })), as_of: Type.Optional(Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })), max_response_bytes: Type.Optional(Type.Integer({ minimum: 1, maximum: 1048576 })), scope: Type.Optional(scopeSchema) }, { additionalProperties: false }), (graph, p) => graph.kg_compare(p as never), true),
-    descriptor("kg_watch", "KG Watch", scoped("Create, list, inspect, update, enable, disable, or delete bounded saved query watches."), watchSchema, (graph, p) => graph.kg_watch(p as never), true),
-    descriptor("kg_digest", "KG Digest", scoped("Run a bounded idempotent digest over selected enabled watches in one scope."), Type.Object({ idempotency_key: Type.String({ minLength: 1, maxLength: 300 }), watch_ids: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 160 }), { maxItems: 1000 })), since: Type.Optional(Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 25 })), scope: Type.Optional(scopeSchema) }, { additionalProperties: false }), (graph, p) => graph.kg_digest(p as never), true),
     descriptor("kg_export", "KG Export", "Export bounded graph data as lossless JSONL or lossy CSV/GraphML.", Type.Object({ format: Type.Union([Type.Literal("jsonl"), Type.Literal("csv"), Type.Literal("graphml")]), max_bytes: Type.Optional(Type.Integer({ minimum: 1, maximum: 10485760 })), max_records: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })) }, { additionalProperties: false }), (graph, p) => graph.kg_export(p as never), true),
     descriptor("kg_import", "KG Import", "Preview or explicitly confirm bounded JSONL graph data; filesystem paths are never accepted.", Type.Object({ format: Type.Literal("jsonl"), data: Type.String({ maxLength: 10485760 }), preview_hash: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })), confirm: Type.Optional(Type.Boolean()) }, { additionalProperties: false }), (graph, p) => graph.kg_import(p as never), true),
-    descriptor("kg_query_history", "KG Query History", scoped("Return bounded redacted query execution audit metadata for one scope."), Type.Object({ limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })), scope: Type.Optional(scopeSchema) }, { additionalProperties: false }), (graph, p) => graph.kg_query_history(p), true),
     descriptor("kg_integrations", "KG Integrations", "Probe, migrate, search, or ingest through opt-in public provider CLIs only. Migration is preview-first and uses public capabilities only; no provider table or database directory is read directly.", integrationSchema, (graph, p) => graph.kg_integrations(p as never), true)
   ];
   const names = enabledNames(surface);
@@ -206,15 +200,8 @@ const coreMemorySchema = Type.Union([
   Type.Object({ operation: Type.Literal("corpus_status"), scope: Type.Optional(scopeSchema) }, { additionalProperties: false }),
   Type.Object({ operation: Type.Literal("corpus_search"), query: Type.String({ minLength: 1, maxLength: 512 }), scope: Type.Optional(scopeSchema), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })), sync: Type.Optional(Type.Boolean({ description: "Explicitly refresh the configured local corpus before searching." })) }, { additionalProperties: false })
 ]);
-const nodeTypeSchema = enumOf(["person", "company", "product", "technology", "concept", "industry", "fund", "policy", "portfolio"] as const);
 const relationshipTypeSchema = enumOf(Object.keys(relationshipDefinitions) as RelationshipType[]);
-const queryStepSchema = Type.Union([
-  Type.Object({ op: Type.Literal("lookup"), query: Type.String({ minLength: 1, maxLength: 4000 }), node_types: Type.Optional(Type.Array(nodeTypeSchema, { maxItems: 9 })), mode: Type.Optional(Type.Literal("lexical")) }, { additionalProperties: false }),
-  Type.Object({ op: Type.Literal("traverse"), from: Type.Array(Type.String({ minLength: 1, maxLength: 160 }), { minItems: 1, maxItems: 50 }), edge_types: Type.Optional(Type.Array(relationshipTypeSchema, { maxItems: 12 })), direction: enumOf(["out", "in", "both"] as const), depth: Type.Integer({ minimum: 0, maximum: 4 }) }, { additionalProperties: false }),
-  Type.Object({ op: Type.Literal("filter"), node_types: Type.Optional(Type.Array(nodeTypeSchema, { maxItems: 9 })), confidence_min: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })), valid_from: Type.Optional(Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })), valid_to: Type.Optional(Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })) }, { additionalProperties: false }),
-  Type.Object({ op: Type.Literal("aggregate"), by: enumOf(["node_type", "relationship_type", "source"] as const), metric: enumOf(["count", "entities", "relationships"] as const) }, { additionalProperties: false })
-]);
-const queryPlanSchema = Type.Object({ version: Type.Literal(1), steps: Type.Array(queryStepSchema, { minItems: 1, maxItems: 8 }), order_by: Type.Optional(enumOf(["relevance", "confidence", "recency", "name"] as const)), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })) }, { additionalProperties: false });
+
 const losslessExternalRefSchema = Type.Object({
   provider: Type.Literal("lossless-claw"), externalId: Type.String({ minLength: 1, maxLength: 200 }),
   externalVersion: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })), conversationId: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
@@ -265,17 +252,6 @@ const verificationSchema = Type.Union([
   Type.Object({ operation: Type.Literal("audit_reclaim_stale"), scope: Type.Optional(scopeSchema) }, { additionalProperties: false }),
   Type.Object({ operation: Type.Literal("cancel"), job_id: Type.String({ minLength: 1, maxLength: 160 }) }, { additionalProperties: false })
 ]);
-const watchIdSchema = Type.String({ minLength: 1, maxLength: 160 });
-const watchSchema = Type.Union([
-  Type.Object({ operation: Type.Literal("create"), id: Type.Optional(watchIdSchema), name: Type.String({ minLength: 1, maxLength: 200 }), question: Type.Optional(Type.String({ maxLength: 4000 })), plan: queryPlanSchema, scope: Type.Optional(scopeSchema), schedule_hint: enumOf(["manual", "daily", "weekly"] as const), enabled: Type.Optional(Type.Boolean()) }, { additionalProperties: false }),
-  Type.Object({ operation: Type.Literal("list"), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })), scope: Type.Optional(scopeSchema) }, { additionalProperties: false }),
-  Type.Object({ operation: Type.Literal("inspect"), id: watchIdSchema }, { additionalProperties: false }),
-  Type.Object({ operation: Type.Literal("enable"), id: watchIdSchema }, { additionalProperties: false }),
-  Type.Object({ operation: Type.Literal("disable"), id: watchIdSchema }, { additionalProperties: false }),
-  Type.Object({ operation: Type.Literal("delete"), id: watchIdSchema }, { additionalProperties: false }),
-  Type.Object({ operation: Type.Literal("update"), id: watchIdSchema, name: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })), plan: Type.Optional(queryPlanSchema), scope: Type.Optional(scopeSchema), schedule_hint: Type.Optional(enumOf(["manual", "daily", "weekly"] as const)), enabled: Type.Optional(Type.Boolean()) }, { additionalProperties: false })
-]);
-
 const optionalString = (value: unknown) => typeof value === "string" && value.trim() ? value.trim() : undefined;
 const optionalNumber = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : undefined;
 const optionalStringArray = (value: unknown): RelationshipType[] | undefined => Array.isArray(value)

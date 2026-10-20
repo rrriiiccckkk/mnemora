@@ -18,19 +18,8 @@ import { basename, extname } from "node:path";
 import { canonicalizeUrl, fetchUrlResource, type SafeUrlErrorCategory, type UrlFetchResult } from "./url-ingestion.js";
 import { rankQualityCandidates } from "./ranking.js";
 import { personalizedPageRank } from "./ppr.js";
-import { GraphAnalyticsService } from "./insights/service.js";
-import { InsightExplainer } from "./insights/explainer.js";
 import { normalizeConfig } from "./config.js";
-import { QueryPlanner } from "./query/planner.js";
-import type { KgInsightsInput, KgInsightsResult } from "./types.js";
-import { GraphQueryService } from "./query/service.js";
-import type { KgQueryResult } from "./query/types.js";
-import { buildTimeline, type TimelineInput } from "./query/timeline.js";
-import { compareSubjects, type CompareInput } from "./query/compare.js";
-import { resolveCompareSubject } from "./query/subject-resolution.js";
-import type { KgCompareResult, KgTimelineResult } from "./query/types.js";
-import type { KgDigestInput, KgExportInput, KgImportInput, KgQueryHistoryInput, KgWatchInput } from "./types.js";
-import { WatchService } from "./query/watch.js";
+import type { KgExportInput, KgImportInput } from "./types.js";
 import { confirmJsonlImport, exportGraph, previewJsonlImport, type KgImportConfirmInput } from "./query/exchange.js";
 import { confirmMemoryImport, exportMemoryDocuments, previewMemoryImport } from "./memory-exchange.js";
 import { normalizeScope } from "./scope.js";
@@ -106,7 +95,6 @@ export interface MnemoraOptions {
   anchorVerifier?: AnchorVerificationProvider;
 }
 
-
 export class Mnemora {
   readonly config: MnemoraConfig;
   readonly store: GraphologyStore;
@@ -124,9 +112,6 @@ export class Mnemora {
   private readonly memoryReranker?: MemoryReranker;
   private readonly urlFetcher: NonNullable<MnemoraOptions["urlFetcher"]>;
   private readonly now: () => number;
-  readonly insights: GraphAnalyticsService;
-  readonly queryService: GraphQueryService;
-  readonly watches: WatchService;
   /** Separate trust persistence; GraphologyStore remains graph-only. */
   readonly sourceAnchors: SourceAnchorRepository;
   /** Read-only source freshness and revalidation projection. */
@@ -291,24 +276,12 @@ export class Mnemora {
       minimumAgeDays: this.config.trustLayer?.verification?.retrospectiveAudit?.minimumAgeDays ?? 30,
       minimumRecallCount: this.config.trustLayer?.verification?.retrospectiveAudit?.minimumRecallCount ?? 3
     }, this.now);
-    this.insights = new GraphAnalyticsService({ store: this.store, config: this.config, now: this.now, signal: this.runtimeSignal, explainer: new InsightExplainer(this.config, fetcher, this.runtimeSignal) });
-    this.queryService = new GraphQueryService({ store: this.store, config: this.config, now: this.now, signal: this.runtimeSignal, planner: new QueryPlanner(this.config, fetcher, this.runtimeSignal) });
-    this.watches = new WatchService({ store: this.store, config: this.config, now: this.now, execute: async (plan, run) => {
-      const result = await this.queryService.query({ plan, scope: run.scope, signal: run.signal });
-      const projection = this.store.queryGraphProjection({ maxNodes: this.config.query?.maxNodes ?? 10000, maxEdges: this.config.query?.maxEdges ?? 50000, asOf: this.now(), scope: run.scope });
-      const freshNodes = new Set(projection.nodes.filter(node => run.since == null || Math.max(node.createdAt, node.updatedAt) > run.since).map(node => node.id));
-      const freshEdges = new Set(projection.edges.filter(edge => run.since == null || edge.lastSeenAt > run.since).map(edge => edge.id));
-      const insightResult = await this.insights.analyze({ explain: false, limit: 20, scope: run.scope });
-      return { entities: result.entities.filter(item => freshNodes.has(item.id)), relationships: result.relationships.filter(item => freshEdges.has(item.id)), warnings: [...result.warnings, ...insightResult.warnings], insights: insightResult.insights };
-    } });
   }
 
   close(): void {
     this.store.close();
   }
 
-  async kg_insights(input: KgInsightsInput = {}): Promise<KgInsightsResult> { return this.insights.analyze({ ...input, scope: normalizeScope(input.scope, this.config.scope?.default ?? "default") }); }
-  async kg_query(input: { question?: string; plan?: unknown; scope?: string; signal?: AbortSignal }): Promise<KgQueryResult> { return this.queryService.query({ ...input, scope: normalizeScope(input.scope, this.config.scope?.default ?? "default") }); }
   kg_verify(input: { operation: "list"; scope?: string; status?: VerificationStatus; after_id?: string; limit?: number } | { operation: "sources"; scope?: string; limit?: number; freshness_after_days?: number } | { operation: "transition"; verification_id: string; status: VerificationStatus; support_type?: "direct" | "inferred" | "contradicted" | "none"; verification_confidence?: number; source_quality?: number; verifier_kind?: "rule" | "model" | "human"; reason_code?: "manual_review" | "direct_support" | "indirect_support" | "insufficient_source" | "source_changed" | "source_deleted" | "conflict"; approval_id?: string; confirm?: boolean } | { operation: "queue"; scope?: string; limit?: number } | { operation: "run"; scope?: string; limit?: number; signal?: AbortSignal } | { operation: "jobs"; scope?: string; limit?: number } | { operation: "cancel"; job_id: string } | { operation: "audit_schedule"; scope?: string; limit?: number } | { operation: "audit_run"; scope?: string; limit?: number } | { operation: "audits"; scope?: string; limit?: number } | { operation: "audit_cancel"; audit_id: string } | { operation: "audit_requeue"; audit_id: string } | { operation: "audit_review"; audit_id: string } | { operation: "audit_reclaim_stale"; scope?: string }) {
     return input.operation === "list"
       ? this.verifications.list({ scope: input.scope == null ? undefined : normalizeScope(input.scope, this.config.scope?.default ?? "default"), status: input.status, after_id: input.after_id, limit: input.limit })
@@ -395,30 +368,6 @@ export class Mnemora {
     if (input.operation === "enable") return this.recallCanary.enable(scope, input.calibration_id, input.confirm === true ? input.preview_hash : undefined);
     return input.confirm === true ? this.recallCanary.rollback(scope) : { status: "confirm_required", ...this.recallCanary.status(scope) };
   }
-  kg_timeline(input: TimelineInput): KgTimelineResult { return buildTimeline(this.store, { ...input, scope: normalizeScope(input.scope, this.config.scope?.default ?? "default") }); }
-  async kg_compare(input: CompareInput): Promise<KgCompareResult> {
-    const asOf = Number.isFinite(input.as_of) ? input.as_of! : this.now();
-    const scope = normalizeScope(input.scope, this.config.scope?.default ?? "default");
-    const search = (value: string) => this.kg_search(value, undefined, 8, "hybrid", undefined, scope);
-    const left = await resolveCompareSubject(this.store, search, input.left, "left", asOf, scope);
-    const right = await resolveCompareSubject(this.store, search, input.right, "right", asOf, scope);
-    return compareSubjects(this.store, { ...input, scope, as_of: asOf, left_id: left.id, right_id: right.id });
-  }
-
-  kg_watch(input: KgWatchInput) {
-    switch (input.operation) {
-      case "create": { const { operation: _operation, ...create } = input; return this.watches.create(create); }
-      case "list": return this.watches.list(input.limit, input.scope == null ? undefined : normalizeScope(input.scope, this.config.scope?.default ?? "default"));
-      case "inspect": return this.store.getWatch(input.id) ?? null;
-      case "enable": return this.watches.update(input.id, { enabled: true });
-      case "disable": return this.watches.update(input.id, { enabled: false });
-      case "delete": return { deleted: this.watches.remove(input.id) };
-      case "update": { const { operation: _operation, id, ...patch } = input; return this.watches.update(id, patch); }
-    }
-  }
-
-  kg_digest(input: KgDigestInput) { return this.watches.digest({ idempotencyKey: input.idempotency_key, watchIds: input.watch_ids, since: input.since, limit: input.limit, scope: normalizeScope(input.scope, this.config.scope?.default ?? "default") }); }
-  kg_query_history(input: KgQueryHistoryInput = {}) { return this.store.listQueryRuns(input.limit ?? 20, normalizeScope(input.scope, this.config.scope?.default ?? "default")); }
 
   async kg_integrations(input: KgIntegrationInput): Promise<KgIntegrationResult> {
     const provider: IntegrationProviderId = input.operation === "status" ? input.provider ?? "lossless-claw" : input.provider;
@@ -1185,18 +1134,11 @@ export function createMnemoraTools(options: MnemoraOptions = {}) {
       kg_review: graphology.kg_review.bind(graphology),
       kg_merge: graphology.kg_merge.bind(graphology),
       kg_merge_undo: graphology.kg_merge_undo.bind(graphology),
-      kg_insights: graphology.kg_insights.bind(graphology),
-      kg_query: graphology.kg_query.bind(graphology),
       kg_verify: graphology.kg_verify.bind(graphology),
       kg_recall_metrics: graphology.kg_recall_metrics.bind(graphology),
       kg_recall_canary: graphology.kg_recall_canary.bind(graphology),
-      kg_timeline: graphology.kg_timeline.bind(graphology),
-      kg_compare: graphology.kg_compare.bind(graphology),
-      kg_watch: graphology.kg_watch.bind(graphology),
-      kg_digest: graphology.kg_digest.bind(graphology),
       kg_export: graphology.kg_export.bind(graphology),
       kg_import: graphology.kg_import.bind(graphology),
-      kg_query_history: graphology.kg_query_history.bind(graphology),
       kg_integrations: graphology.kg_integrations.bind(graphology)
     }
   };

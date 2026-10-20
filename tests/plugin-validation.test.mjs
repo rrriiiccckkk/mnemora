@@ -52,15 +52,16 @@ test("advanced validator rejects declared tool contract drift", () => {
   assert.throws(() => validator.validateAdvancedPlugin({ manifest: invalid, pkg, plugin, readme }), /tool contracts/i);
 });
 
-test("authoritative plugin contract declares exactly thirty-two tools without ContextEngine metadata", () => {
-  assert.equal(manifest.contracts.tools.length, 32);
-  assert.equal(manifest.contracts.tools.includes("kg_insights"), true);
+test("authoritative plugin contract declares exactly twenty-five tools without ContextEngine metadata", () => {
+  assert.equal(manifest.contracts.tools.length, 25);
+  assert.equal(manifest.contracts.tools.includes("kg_insights"), false, "research tools were removed in 1.38.0");
   assert.equal(manifest.contracts.tools.includes("kg_profile"), true);
   assert.equal(manifest.contracts.tools.includes("kg_profile_lock"), true);
   assert.equal(manifest.contracts.tools.includes("kg_scopes"), true);
   assert.equal(manifest.contracts.tools.includes("kg_recall_canary"), true);
   assert.equal(manifest.contracts.tools.includes("kg_recall_explain"), true);
-  for (const name of ["kg_query", "kg_timeline", "kg_compare", "kg_watch", "kg_digest", "kg_export", "kg_import", "kg_query_history"]) assert.equal(manifest.contracts.tools.includes(name), true);
+  for (const name of ["kg_export", "kg_import"]) assert.equal(manifest.contracts.tools.includes(name), true);
+  for (const name of ["kg_query", "kg_timeline", "kg_compare", "kg_watch", "kg_digest", "kg_query_history"]) assert.equal(manifest.contracts.tools.includes(name), false);
   assert.equal("contextEngine" in manifest.contracts, false);
   assert.doesNotThrow(() => validator.validateAdvancedPlugin({ manifest, pkg, plugin, readme }));
 });

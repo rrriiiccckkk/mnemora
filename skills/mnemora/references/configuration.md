@@ -158,10 +158,10 @@ and explicit canary activation. Do not enable delivery to bypass readiness.
   verification is a separate `trustLayer.verification.enabled` opt-in.
 - `quality.hygiene` has no effect since 1.38.0 (graph hygiene was removed);
   it is still accepted so existing configs load.
-- `toolSurface` is `full` for compatibility. Use `core` for everyday work or
-  `research` for analysis when reducing tool-schema context matters. Changing
-  it hides tools from the agent; it does not delete data or disable runtime
-  services.
+- `toolSurface` defaults to `core` (ten everyday tools); `full` exposes all
+  25. `research` is an alias of `core` since 1.38.0 (the research tools were
+  removed). Changing it hides tools from the agent; it does not delete data or
+  disable runtime services.
 
 ## Compatibility and change rules
 

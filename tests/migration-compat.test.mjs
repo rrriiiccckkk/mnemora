@@ -36,7 +36,7 @@ test("v1.3 migrates analytical records to a persisted default scope", () => {
     try {
       const version = store.db.prepare("PRAGMA user_version").get().user_version;
       assert.equal(version, SUPPORTED_SCHEMA_VERSION);
-      assert.equal(store.getWatch("watch:legacy")?.scope, "default");
+      assert.equal(store.db.prepare("SELECT scope FROM kg_watches WHERE id=?").get("watch:legacy")?.scope, "default");
       for (const table of ["kg_insight_snapshots", "kg_query_runs", "kg_watches", "kg_digest_runs"]) {
         assert.equal((store.db.prepare(`PRAGMA table_info(${table})`).all()).some(column => column.name === "scope"), true, table);
       }

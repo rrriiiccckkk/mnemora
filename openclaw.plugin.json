@@ -426,6 +426,7 @@
       },
       "insights": {
         "type": "object",
+        "description": "No effect since 1.38.0: kg_insights was removed. Accepted so existing configs keep loading.",
         "additionalProperties": false,
         "properties": {
           "maxNodes": { "type": "number", "default": 10000, "minimum": 1, "maximum": 10000 },
@@ -506,6 +507,7 @@
       },
       "query": {
         "type": "object",
+        "description": "Since 1.38.0 only maxImportBytes and maxImportRecords apply (kg_import); the query, watch and digest tools were removed.",
         "additionalProperties": false,
         "properties": {
           "maxSteps": { "type": "integer", "default": 8, "minimum": 1, "maximum": 8 },
@@ -652,7 +654,6 @@
       "kg_ingest_batch",
       "kg_ingest_file",
       "kg_ingest_url",
-      "kg_insights",
       "kg_search",
       "kg_related",
       "kg_stats",
@@ -666,18 +667,12 @@
       "kg_review",
       "kg_merge",
       "kg_merge_undo",
-      "kg_query",
       "kg_verify",
       "kg_recall_metrics",
       "kg_recall_explain",
       "kg_recall_canary",
-      "kg_timeline",
-      "kg_compare",
-      "kg_watch",
-      "kg_digest",
       "kg_export",
       "kg_import",
-      "kg_query_history",
       "kg_memory",
       "kg_integrations"
     ]

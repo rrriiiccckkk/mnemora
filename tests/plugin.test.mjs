@@ -27,10 +27,11 @@ const configs = [
 ];
 
 const EXISTING_17_TOOLS = [
-  "kg_context", "kg_embed_backfill", "kg_forget", "kg_ingest", "kg_ingest_batch", "kg_ingest_file", "kg_ingest_url", "kg_insights", "kg_merge", "kg_merge_undo", "kg_profile", "kg_related", "kg_review", "kg_scopes", "kg_search", "kg_sources", "kg_stats"
+  "kg_context", "kg_embed_backfill", "kg_forget", "kg_ingest", "kg_ingest_batch", "kg_ingest_file", "kg_ingest_url", "kg_merge", "kg_merge_undo", "kg_profile", "kg_related", "kg_review", "kg_scopes", "kg_search", "kg_sources", "kg_stats"
 ];
-const RESEARCH_8_TOOLS = ["kg_compare", "kg_digest", "kg_export", "kg_import", "kg_query", "kg_query_history", "kg_timeline", "kg_watch"];
-const EXPECTED_32_TOOLS = [...EXISTING_17_TOOLS, ...RESEARCH_8_TOOLS, "kg_memory", "kg_integrations", "kg_verify", "kg_recall_metrics", "kg_profile_lock", "kg_recall_canary", "kg_recall_explain"].sort();
+const EXCHANGE_TOOLS = ["kg_export", "kg_import"];
+const REMOVED_RESEARCH_TOOLS = ["kg_compare", "kg_digest", "kg_insights", "kg_query", "kg_query_history", "kg_timeline", "kg_watch"];
+const EXPECTED_TOOLS = [...EXISTING_17_TOOLS, ...EXCHANGE_TOOLS, "kg_memory", "kg_integrations", "kg_verify", "kg_recall_metrics", "kg_profile_lock", "kg_recall_canary", "kg_recall_explain"].sort();
 const EXISTING_CONTRACT_HASHES = {
   kg_context: "6d828b0d1bf435d19cc497803bd05c173af7ccdaded6cbe8f5e58460d6cd8011",
   kg_embed_backfill: "14d5cf728d9e14209e74a4c18e3818a25cd2a0fc35dec84f9b84eea9769606a3",
@@ -39,7 +40,6 @@ const EXISTING_CONTRACT_HASHES = {
   kg_ingest_batch: "b8dae8fc015478425f54b528bcdba686a153dc14029c7f1e4c4708ecc7680980",
   kg_ingest_file: "ef7ec5ef2c14c50d60c887d19252494a15d0310cee5f31c47216719fb60dd24b",
   kg_ingest_url: "37bb3fef8395143dfc9e7456e9868da41afb0c9a552543da2523cffa0c9850aa",
-  kg_insights: "0491dd9cee5eb095019355023843eeee917f20f91283ae0e89f1e23b7a4d22a7",
   kg_merge: "92e65ad4b789dfc92677b9dc92c31f8a3ec47b51199cb88d6894a7bec7ddd042",
   kg_merge_undo: "47714e80017fb7ae0116151d347734532063c96598187e15880bb69d31d9843f",
   kg_related: "c49456453f69b68b18e09712115917eba81c95409e09c3313d29bae595bce5bc",
@@ -153,8 +153,8 @@ for (const [name, config, expectedHooks] of configs) test(`${name} registers the
   assert.deepEqual(result.contextEngines, []);
 });
 
-test("toolSurface full still registers all thirty-two tools", () => {
-  assert.deepEqual(harness({ toolSurface: "full" }).tools.map((tool) => tool.name).sort(), EXPECTED_32_TOOLS);
+test("toolSurface full registers every tool", () => {
+  assert.deepEqual(harness({ toolSurface: "full" }).tools.map((tool) => tool.name).sort(), EXPECTED_TOOLS);
 });
 
 test("ContextEngine is registered only after explicit opt-in", () => {
@@ -225,42 +225,14 @@ test("an occupied extraction lease does not skip consolidation or reflection", a
   } finally { runtime.stop(); }
 });
 
-test("kg_insights publishes a strict bounded schema and dispatches the exact input object", async () => {
-  let received;
-  const graph = {
-    async kg_insights(input) { received = input; return { insights: [] }; },
-    close() {}
-  };
-  const insights = createOpenClawToolDefinitions(() => graph).find((tool) => tool.name === "kg_insights");
-  const input = { kind: "emerging_topic", limit: 3, communityId: "community:abc", explain: "auto", refresh: true };
-  const output = await insights.execute("call", input);
-  assert.deepEqual(received, input);
-  assert.deepEqual(JSON.parse(output.content[0].text), { insights: [] });
-  assert.match(insights.description, /structural analysis/i);
-  assert.match(insights.description, /not instructions or newly established facts/i);
-  assert.equal(insights.parameters.additionalProperties, false);
-  for (const valid of [
-    {},
-    { kind: "all", limit: 1, communityId: "community:abc", explain: false, refresh: false },
-    { kind: "knowledge_gap", limit: 20 },
-    { kind: "emerging_topic" },
-    { kind: "cross_community_path", explain: true }
-  ]) assert.equal(Check(insights.parameters, valid), true);
-  for (const invalid of [
-    { kind: "unknown" },
-    { limit: 21 },
-    { path: "irrelevant" },
-    { explain: "always" }
-  ]) assert.equal(Check(insights.parameters, invalid), false);
-});
-
 test("tool surfaces register only their documented schemas and core materially reduces context", () => {
   const core = createOpenClawToolDefinitions(() => ({}), "core");
   const research = createOpenClawToolDefinitions(() => ({}), "research");
   const full = createOpenClawToolDefinitions(() => ({}), "full");
   assert.deepEqual(core.map(tool => tool.name).sort(), [...CORE_TOOL_NAMES].sort());
   assert.deepEqual(research.map(tool => tool.name).sort(), [...RESEARCH_TOOL_NAMES].sort());
-  assert.equal(full.length, EXPECTED_32_TOOLS.length);
+  assert.deepEqual([...RESEARCH_TOOL_NAMES].sort(), [...CORE_TOOL_NAMES].sort(), "research is an alias of core since 1.38.0");
+  assert.equal(full.length, EXPECTED_TOOLS.length);
   const coreMemory = core.find(tool => tool.name === "kg_memory");
   assert.equal(coreMemory.parameters.type, "object");
   assert.ok(coreMemory.parameters.properties.query);
@@ -274,9 +246,9 @@ test("tool surfaces register only their documented schemas and core materially r
   const fullSummary = evaluateToolSurface();
   assert.equal(coreSummary.tool_count, CORE_TOOL_NAMES.length);
   assert.equal(researchSummary.tool_count, RESEARCH_TOOL_NAMES.length);
-  assert.equal(fullSummary.tool_count, EXPECTED_32_TOOLS.length);
+  assert.equal(fullSummary.tool_count, EXPECTED_TOOLS.length);
   assert.equal(coreSummary.schema_bytes < fullSummary.schema_bytes, true);
-  assert.equal(coreSummary.reduction.tool_count, EXPECTED_32_TOOLS.length - CORE_TOOL_NAMES.length);
+  assert.equal(coreSummary.reduction.tool_count, EXPECTED_TOOLS.length - CORE_TOOL_NAMES.length);
   assert.equal(coreSummary.reduction.schema_percent > 0, true);
 });
 
@@ -305,19 +277,18 @@ test("kg_recall_explain is bounded, read-only, and dispatches an exact request",
   assert.match(tool.description, /without changing local state/i);
 });
 
-test("public factory exposes exactly thirty-two bound tools including profile choices and adaptive recall controls", async () => {
+test("public factory exposes exactly the bound tools including profile choices and adaptive recall controls", async () => {
 
   const directory = createTempDir("mnemora-factory-");
   const created = createMnemoraTools({ config: { dbPath: join(directory, "graph.db") } });
   try {
-    assert.deepEqual(Object.keys(created.tools).sort(), EXPECTED_32_TOOLS);
-    for (const name of RESEARCH_8_TOOLS) assert.equal(typeof created.tools[name], "function", name);
+    assert.deepEqual(Object.keys(created.tools).sort(), EXPECTED_TOOLS);
+    for (const name of EXCHANGE_TOOLS) assert.equal(typeof created.tools[name], "function", name);
     const scopes = created.tools.kg_scopes();
     assert.equal(scopes.default_scope, "default");
     assert.deepEqual(scopes.scopes.map(item => ({ id: item.id, observations: item.observations, memory_documents: item.memory_documents })), [{ id: "default", observations: 0, memory_documents: 0 }]);
     assert.equal(scopes.scopes[0].updated_at > 0, true);
-    const output = await created.tools.kg_insights({ explain: false });
-    assert.equal(output.status, "empty");
+    for (const name of REMOVED_RESEARCH_TOOLS) assert.equal(name in created.tools, false, `${name} was removed in 1.38.0`);
   } finally { created.graphology.close(); }
 });
 
@@ -330,7 +301,7 @@ test("the complete published contracts of the scope-aware graph descriptors rema
 });
 
 test("scope-aware descriptors explain default isolation and kg_scopes exposes aggregate-only discovery", async () => {
-  const scopedNames = ["kg_ingest", "kg_ingest_batch", "kg_ingest_file", "kg_ingest_url", "kg_insights", "kg_search", "kg_related", "kg_profile", "kg_profile_lock", "kg_context", "kg_sources", "kg_memory", "kg_query", "kg_verify", "kg_recall_metrics", "kg_recall_canary", "kg_timeline", "kg_compare", "kg_watch", "kg_digest", "kg_query_history"];
+  const scopedNames = ["kg_ingest", "kg_ingest_batch", "kg_ingest_file", "kg_ingest_url", "kg_search", "kg_related", "kg_profile", "kg_profile_lock", "kg_context", "kg_sources", "kg_memory", "kg_verify", "kg_recall_metrics", "kg_recall_canary"];
   const graph = { kg_scopes(limit) { return { default_scope: "project:alpha", scopes: [{ id: "project:alpha", observations: 2, memory_documents: 1, updated_at: 42 }], limit }; }, close() {} };
   const tools = createOpenClawToolDefinitions(() => graph);
   for (const name of scopedNames) {
@@ -351,19 +322,13 @@ test("scope-aware descriptors explain default isolation and kg_scopes exposes ag
 test("v0.9 descriptors are closed, bounded, forward exact inputs, and preserve safe failures", async () => {
   const calls = [];
   const graph = { close() {} };
-  for (const name of RESEARCH_8_TOOLS) graph[name] = async (input) => { calls.push([name, input]); return { name }; };
+  for (const name of EXCHANGE_TOOLS) graph[name] = async (input) => { calls.push([name, input]); return { name }; };
   const tools = createOpenClawToolDefinitions(() => graph);
   const valid = {
-    kg_query: { question: "Who supplies Acme?" },
-    kg_timeline: { subject: "company:acme", from: 1, to: 2, limit: 10 },
-    kg_compare: { left: "company:a", right: "company:b", max_depth: 2, confidence_min: .5, valid_from: 1, valid_to: 2, limit: 10, as_of: 2, max_response_bytes: 4096 },
-    kg_watch: { operation: "list", limit: 10 },
-    kg_digest: { idempotency_key: "digest-1", watch_ids: ["watch:a"], since: 1, limit: 2 },
     kg_export: { format: "jsonl", max_bytes: 1024, max_records: 10 },
-    kg_import: { format: "jsonl", data: "", preview_hash: "abc", confirm: true },
-    kg_query_history: { limit: 10 }
+    kg_import: { format: "jsonl", data: "", preview_hash: "abc", confirm: true }
   };
-  for (const name of RESEARCH_8_TOOLS) {
+  for (const name of EXCHANGE_TOOLS) {
     const tool = tools.find(item => item.name === name);
     if (Array.isArray(tool.parameters.anyOf)) for (const branch of tool.parameters.anyOf) assert.equal(branch.additionalProperties, false, `${name} union branch`);
     else assert.equal(tool.parameters.additionalProperties, false, name);
@@ -373,45 +338,19 @@ test("v0.9 descriptors are closed, bounded, forward exact inputs, and preserve s
     const output = await tool.execute(`call-${name}`, valid[name]);
     assert.deepEqual(JSON.parse(output.content[0].text), { name });
   }
-  assert.deepEqual(calls, RESEARCH_8_TOOLS.map(name => [name, valid[name]]));
-  assert.equal(Check(tools.find(x => x.name === "kg_query").parameters, { question: "x".repeat(4001) }), false);
-  assert.equal(Check(tools.find(x => x.name === "kg_timeline").parameters, { subject: "x", limit: 51 }), false);
-  assert.equal(Check(tools.find(x => x.name === "kg_compare").parameters, { left: "a", right: "b", max_depth: 5 }), false);
-  assert.equal(Check(tools.find(x => x.name === "kg_digest").parameters, { idempotency_key: "x", limit: 26 }), false);
+  assert.deepEqual(calls, EXCHANGE_TOOLS.map(name => [name, valid[name]]));
   assert.equal(Check(tools.find(x => x.name === "kg_export").parameters, { format: "xml" }), false);
   const importSchema = tools.find(x => x.name === "kg_import").parameters;
   assert.equal(Check(importSchema, { format: "jsonl", data: "", path: "C:/secret.jsonl" }), false);
   assert.equal(Check(importSchema, { format: "csv", data: "" }), false);
-  assert.equal(Check(tools.find(x => x.name === "kg_query_history").parameters, { limit: 101 }), false);
 
 });
 
-test("v0.9 schemas enforce every operation variant, nested closure, enum, and documented maximum", () => {
+test("v0.9 exchange schemas enforce every enum and documented maximum", () => {
   const byName = Object.fromEntries(createOpenClawToolDefinitions(() => ({})).map(tool => [tool.name, tool.parameters]));
-  const plan = { version: 1, steps: [{ op: "lookup", query: "x", node_types: ["company"], mode: "lexical" }], order_by: "relevance", limit: 50 };
-  const watchVariants = [
-    { operation: "create", id: "watch:x", name: "x".repeat(200), question: "q".repeat(4000), plan, schedule_hint: "weekly", enabled: true },
-    { operation: "list", limit: 100 },
-    { operation: "inspect", id: "watch:x" }, { operation: "enable", id: "watch:x" }, { operation: "disable", id: "watch:x" }, { operation: "delete", id: "watch:x" },
-    { operation: "update", id: "watch:x", name: "new", plan, schedule_hint: "daily", enabled: false }
-  ];
-  for (const value of watchVariants) assert.equal(Check(byName.kg_watch, value), true, JSON.stringify(value));
-  for (const value of [
-    { operation: "list", id: "watch:x" }, { operation: "inspect", id: "watch:x", limit: 1 }, { operation: "delete", id: "watch:x", enabled: true },
-    { operation: "create", name: "x", plan, schedule_hint: "hourly" }, { operation: "create", name: "x".repeat(201), plan, schedule_hint: "daily" },
-    { operation: "create", name: "x", question: "q".repeat(4001), plan, schedule_hint: "daily" }, { operation: "list", limit: 101 },
-    { operation: "inspect", id: "i".repeat(161) }, { operation: "update", id: "watch:x", name: "x".repeat(201) },
-    { operation: "update", id: "watch:x", question: "not allowed" }, { operation: "unknown" }
-  ]) assert.equal(Check(byName.kg_watch, value), false, JSON.stringify(value));
-
   const cases = [
-    ["kg_query", { question: "q".repeat(4000), plan }, [{ question: "q".repeat(4001) }, { plan: { ...plan, steps: [...plan.steps, ...Array(8).fill(plan.steps[0])] } }, { plan: { ...plan, steps: [{ ...plan.steps[0], query: "q".repeat(4001) }] } }, { plan: { ...plan, steps: [{ ...plan.steps[0], node_types: ["unknown"] }] } }, { plan: { ...plan, steps: [{ ...plan.steps[0], mode: "hybrid" }] } }, { plan: { ...plan, steps: [{ ...plan.steps[0], extra: true }] } }, { plan: { ...plan, order_by: "random" } }]],
-    ["kg_timeline", { subject: "s".repeat(160), from: 0, to: Number.MAX_SAFE_INTEGER, limit: 50 }, [{ subject: "s".repeat(161) }, { subject: "s", limit: 51 }, { subject: "s", limit: 1.5 }]],
-    ["kg_compare", { left: "l".repeat(160), right: "r".repeat(160), max_depth: 4, confidence_min: 1, valid_from: 0, valid_to: Number.MAX_SAFE_INTEGER, limit: 50, as_of: Number.MAX_SAFE_INTEGER, max_response_bytes: 1048576 }, [{ left: "l".repeat(161), right: "r" }, { left: "l", right: "r", max_depth: 5 }, { left: "l", right: "r", confidence_min: 1.1 }, { left: "l", right: "r", max_response_bytes: 1048577 }]],
-    ["kg_digest", { idempotency_key: "i".repeat(300), watch_ids: Array(1000).fill("watch:x"), since: Number.MAX_SAFE_INTEGER, limit: 25 }, [{ idempotency_key: "i".repeat(301) }, { idempotency_key: "i", watch_ids: Array(1001).fill("watch:x") }, { idempotency_key: "i", watch_ids: ["w".repeat(161)] }, { idempotency_key: "i", limit: 26 }]],
     ["kg_export", { format: "graphml", max_bytes: 10485760, max_records: 1000 }, [{ format: "xml" }, { format: "jsonl", max_bytes: 10485761 }, { format: "csv", max_records: 1001 }]],
-    ["kg_import", { format: "jsonl", data: "d".repeat(10485760), preview_hash: "h".repeat(128), confirm: true }, [{ format: "csv", data: "" }, { format: "jsonl", data: "", path: "x" }, { format: "jsonl", data: "d".repeat(10485761) }, { format: "jsonl", data: "", preview_hash: "h".repeat(129) }]],
-    ["kg_query_history", { limit: 100 }, [{ limit: 101 }, { limit: 1.5 }]]
+    ["kg_import", { format: "jsonl", data: "d".repeat(10485760), preview_hash: "h".repeat(128), confirm: true }, [{ format: "csv", data: "" }, { format: "jsonl", data: "", path: "x" }, { format: "jsonl", data: "d".repeat(10485761) }, { format: "jsonl", data: "", preview_hash: "h".repeat(129) }]]
   ];
   for (const [name, valid, invalid] of cases) {
     assert.equal(Check(byName[name], valid), true, `${name} valid maxima`);
@@ -436,7 +375,7 @@ test("every v0.9 descriptor forwards exactly one bounded JSON text block for saf
       }))
     }
   });
-  for (const name of RESEARCH_8_TOOLS) {
+  for (const name of EXCHANGE_TOOLS) {
     const revoked = Proxy.revocable({}, {});
     revoked.revoke();
     for (const [failure, expected] of [
@@ -459,7 +398,7 @@ test("every v0.9 descriptor forwards exactly one bounded JSON text block for saf
 });
 
 test("every v0.9 descriptor contains graph construction failures in one safe JSON block", async () => {
-  for (const name of RESEARCH_8_TOOLS) {
+  for (const name of EXCHANGE_TOOLS) {
     const tool = createOpenClawToolDefinitions(() => { throw new Error(`SECRET open ${name} C:/private`); }).find(item => item.name === name);
     const output = await tool.execute("call", {});
     assert.deepEqual(output, { content: [{ type: "text", text: JSON.stringify({
@@ -472,7 +411,7 @@ test("every v0.9 descriptor contains graph construction failures in one safe JSO
 
 test("every v0.9 descriptor contains close failures without overriding operation failures", async () => {
   const known = new ResearchOperationError({ error_code: "QUERY_TIMEOUT", retryable: true, details: {} });
-  for (const name of RESEARCH_8_TOOLS) {
+  for (const name of EXCHANGE_TOOLS) {
     let closes = 0;
     const closeFailure = createOpenClawToolDefinitions(() => ({
       async [name]() { return { ok: true }; },

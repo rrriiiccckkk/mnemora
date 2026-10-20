@@ -72,38 +72,21 @@ test("scope configuration canonicalizes defaults and rejects unsafe explicit ide
   } finally { graph.close(); }
 });
 
-test("scoped analysis, audits, watches, and Inspector all use the same graph projection", async () => {
+test("scoped graph projection and Inspector stay scope-isolated", async () => {
   const graph = new Mnemora({ config: { dbPath: ":memory:", recall: { mode: "lexical" } } });
   try {
     await graph.kg_ingest("scope a", "fixture:a", { entities: [entity("Acme"), entity("Alpha", "product")], relations: [relation("Acme", "Alpha")] }, "project:a");
     await graph.kg_ingest("scope b", "fixture:b", { entities: [entity("Acme"), entity("Beta", "product")], relations: [relation("Acme", "Beta")] }, "project:b");
-    const plan = { version: 1, steps: [{ op: "lookup", query: "Alpha", mode: "lexical" }], order_by: "name", limit: 10 };
-    const alpha = await graph.kg_query({ plan, scope: "project:a" });
-    const beta = await graph.kg_query({ plan, scope: "project:b" });
-    assert.deepEqual(alpha.entities.map(item => item.name), ["Alpha"]);
-    assert.deepEqual(beta.entities, []);
-    assert.equal(graph.kg_query_history({ scope: "project:a" }).every(item => item.scope === "project:a"), true);
-    assert.equal(graph.kg_query_history({ scope: "project:b" }).every(item => item.scope === "project:b"), true);
-
-    const aProjection = graph.store.queryGraphProjection({ maxNodes: 20, maxEdges: 20, asOf: Date.now(), scope: "project:a" });
+    const aProjection = graph.store.insightGraphProjection({ maxNodes: 20, maxEdges: 20, confidenceFloor: 0, asOf: Date.now(), scope: "project:a" });
     const bProjection = graph.store.insightGraphProjection({ maxNodes: 20, maxEdges: 20, confidenceFloor: 0, asOf: Date.now(), scope: "project:b" });
     assert.deepEqual(aProjection.nodes.map(node => node.name).sort(), ["Acme", "Alpha"]);
     assert.deepEqual(bProjection.nodes.map(node => node.name).sort(), ["Acme", "Beta"]);
-    assert.deepEqual(aProjection.edges.map(edge => edge.target).sort(), [graph.store.resolveEntity("Alpha")?.id]);
-    assert.throws(() => graph.kg_timeline({ subject: "Alpha", scope: "project:b" }), /subject not found/);
-    await assert.rejects(graph.kg_compare({ left: "Acme", right: "Alpha", scope: "project:b" }));
 
-    graph.kg_watch({ operation: "create", id: "watch:a", name: "A", plan: { version: 1, steps: [{ op: "lookup", query: "Acme", mode: "lexical" }], order_by: "name", limit: 10 }, schedule_hint: "manual", scope: "project:a" });
-    graph.kg_watch({ operation: "create", id: "watch:b", name: "B", plan: { version: 1, steps: [{ op: "lookup", query: "Acme", mode: "lexical" }], order_by: "name", limit: 10 }, schedule_hint: "manual", scope: "project:b" });
-    assert.deepEqual(graph.kg_watch({ operation: "list", scope: "project:a" }).map(item => item.id), ["watch:a"]);
-    const digest = await graph.kg_digest({ idempotency_key: "scope-a", scope: "project:a" });
-    assert.deepEqual(digest.watches.map(item => item.watch_id), ["watch:a"]);
-
-    const inspector = new InspectorService({ store: graph.store, analytics: graph.insights });
+    const inspector = new InspectorService({ store: graph.store });
     const page = inspector.graph({ kind: "graph", scope: "project:a" });
     assert.deepEqual(page.nodes.map(node => node.name).sort(), ["Acme", "Alpha"]);
     assert.throws(() => inspector.entity({ kind: "entity", id: "Beta", scope: "project:a" }), /entity not found/);
-    const history = inspector.research({ kind: "research", section: "history", scope: "project:a" });
-    assert.equal((await history).items.every(item => item.id.startsWith("query:")), true);
+    const history = await inspector.research({ kind: "research", section: "history", scope: "project:a" });
+    assert.deepEqual(history.items, []);
   } finally { graph.close(); }
 });

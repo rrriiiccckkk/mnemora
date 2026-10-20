@@ -95,11 +95,3 @@ test("Phase 0: manual ingestion shares bounded, abortable extraction", async () 
     assert.deepEqual(result.error, { category: "extraction_failed", summary: "extraction failed" });
   } finally { graph.close(); }
 });
-
-test("Phase 0: public graph query propagates a caller abort through its execution budget", async () => {
-  const graph = new Mnemora({ config: { dbPath: ":memory:" } });
-  const controller = new AbortController(); controller.abort();
-  try {
-    await assert.rejects(graph.kg_query({ plan: { version: 1, steps: [{ op: "lookup", query: "Alpha" }], order_by: "name", limit: 1 }, signal: controller.signal }), /^Error: aborted$/);
-  } finally { graph.close(); }
-});

@@ -58,7 +58,7 @@ test("kg_ingest persists searchable and traversable graph data", async () => {
   }
 });
 
-test("ingested leading-hyphen slugs remain ambiguous candidates and support canonical retry", async () => {
+test("ingested leading-hyphen names keep distinct canonical slugs", async () => {
   const graph = new Mnemora({ config: { dbPath: ":memory:" } });
   try {
     const ingested = graph.store.ingest([
@@ -67,16 +67,6 @@ test("ingested leading-hyphen slugs remain ambiguous candidates and support cano
       { name: "TSMC", type: "company", confidence: .9, evidence_span: "right" }
     ], [], "fixture:leading-hyphen");
     assert.deepEqual(ingested.entities.map(item => item.node.id), ["company:-acme-alpha", "company:--acme-beta", "company:tsmc"]);
-    graph.kg_search = async () => [];
-
-    let candidates;
-    await assert.rejects(graph.kg_compare({ left: "-", right: "company:tsmc" }), error => {
-      candidates = error.public?.details?.candidates;
-      assert.deepEqual(candidates?.map(candidate => candidate.id), ["company:--acme-beta", "company:-acme-alpha"]);
-      return true;
-    });
-    const retried = await graph.kg_compare({ left: candidates[0].id, right: "company:tsmc" });
-    assert.deepEqual(retried.subjects.map(subject => subject.id), ["company:--acme-beta", "company:tsmc"]);
   } finally { graph.close(); }
 });
 

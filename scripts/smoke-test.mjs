@@ -40,8 +40,8 @@ export async function runSmokeScenario({ registerPlugin = api => plugin.register
       });
       const tool = (name) => tools.find((value) => value.name === name);
       const execute = async (name, params) => JSON.parse((await tool(name).execute(`smoke-${name}`, params)).content[0].text);
-      if (tools.length !== 32)
-        throw new Error(`expected thirty-two tools, received ${tools.length}`);
+      if (tools.length !== 25)
+        throw new Error(`expected twenty-five tools, received ${tools.length}`);
       if (hooks.some((value) => value.name === "before_prompt_build" || value.name === "agent_end"))
         throw new Error("legacy hook registered");
       if (!hooks.some((value) => value.name === "gateway_stop"))

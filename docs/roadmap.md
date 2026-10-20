@@ -84,7 +84,10 @@ Each item targets a measured weakness.
 
 ## Next: slimming (reviewed 2026-10-20, for v1.38.0)
 
-Status: batch A is removed on `main`, batch B is next. `kg_review` stayed,
+Status: batches A and B are removed on `main` for v1.38.0; C is deferred and
+D is kept. Batch B leaves `toolSurface: "research"` as an alias of `core`; the
+query, watch, digest, and insight tables stay and the Inspector still shows
+their stored rows read-only, without live insight analysis. `kg_review` stayed,
 reduced to `duplicates`, `anomalies`, `identity` and `semantic_patterns`,
 because every `kg_ingest` still writes duplicate candidates that only it
 reads; the removed kinds fail with `review_kind_removed`. Ingest no longer

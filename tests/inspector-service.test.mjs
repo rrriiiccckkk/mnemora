@@ -262,42 +262,6 @@ test("research cursors reject same-timestamp updates and deletes", () => {
   } finally { store.close(); }
 });
 
-test("research refreshes missing and stale insight snapshots through injected analytics", async () => {
-  const store = fixture();
-  try {
-    const calls = [];
-    const analytics = { analyze: async input => {
-      calls.push(input);
-      return { status: "ok", graph_revision: store.graphRevision(), algorithm_version: "test", cache_hit: false, truncated: false, communities: [], insights: [{ id: "insight:fresh", kind: "knowledge_gap", score: .9, entity_ids: [], relationship_ids: [], community_ids: [], signals: {} }], warnings: [] };
-    } };
-    const service = new InspectorService({ store, analytics, now: () => NOW });
-    const missing = await service.research({ kind: "research", section: "insights" });
-    assert.deepEqual(calls, [{ explain: false, scope: "default" }]);
-    assert.deepEqual(missing.items.map(item => item.id), ["insight:fresh"]);
-
-    store.bumpGraphRevision();
-    store.writeInsightSnapshot("stale", { graphRevision: store.graphRevision() - 1, algorithmVersion: "test", createdAt: NOW, truncated: false, communities: [], insights: [], warnings: [] });
-    const stale = await service.research({ kind: "research", section: "insights" });
-    assert.deepEqual(stale.items.map(item => item.id), ["insight:fresh"]);
-    assert.equal(calls.length, 2);
-  } finally { store.close(); }
-});
-
-test("analytics-backed insight fallback keeps opaque keyset continuation", async () => {
-  const store = fixture();
-  try {
-    const analytics = { analyze: async () => ({ status: "ok", graph_revision: store.graphRevision(), algorithm_version: "test", cache_hit: false, truncated: false, communities: [], insights: [
-      { id: "insight:one", kind: "knowledge_gap", score: .9, entity_ids: [], relationship_ids: [], community_ids: [], signals: {} },
-      { id: "insight:two", kind: "knowledge_gap", score: .8, entity_ids: [], relationship_ids: [], community_ids: [], signals: {} }
-    ], warnings: [] }) };
-    const service = new InspectorService({ store, analytics, now: () => NOW });
-    const first = await service.research({ kind: "research", section: "insights", limit: 1 });
-    const second = await service.research({ kind: "research", section: "insights", limit: 1, cursor: first.next_cursor });
-    assert.ok(first.next_cursor);
-    assert.deepEqual([...first.items, ...second.items].map(item => item.id), ["insight:one", "insight:two"]);
-  } finally { store.close(); }
-});
-
 test("research marks malformed insight snapshots as truncated instead of exposing them", () => {
   const store = fixture();
   try {
@@ -316,20 +280,6 @@ test("research treats oversized current insight snapshots as malformed without m
     const result = new InspectorService({ store, now: () => NOW }).research({ kind: "research", section: "insights" });
     assert.deepEqual(result.items, []);
     assert.deepEqual(result.warnings, [{ code: "malformed_row" }]);
-    assert.equal(result.truncated, true);
-  } finally { store.close(); }
-});
-
-test("research fallback remains cancellable after injected analytics starts", async () => {
-  const store = fixture();
-  try {
-    const controller = new AbortController();
-    const service = new InspectorService({ store, now: () => NOW, analytics: { analyze: async () => {
-      controller.abort();
-      return { status: "ok", graph_revision: 0, algorithm_version: "test", cache_hit: false, truncated: false, communities: [], insights: [], warnings: [] };
-    } } });
-    const result = await service.research({ kind: "research", section: "insights" }, { signal: controller.signal });
-    assert.deepEqual(result.warnings, [{ code: "cancelled" }]);
     assert.equal(result.truncated, true);
   } finally { store.close(); }
 });
@@ -421,5 +371,15 @@ test("inspector returns only normalized aggregate and research contracts", () =>
     const history = service.research({ kind: "research", section: "history", limit: 100 });
     assert.equal(history.kind, "research");
     assert.equal(history.items.length <= 100, true);
+  } finally { store.close(); }
+});
+
+test("research insights show only a current stored snapshot since live analysis was removed", async () => {
+  const store = fixture();
+  try {
+    const result = await new InspectorService({ store, now: () => NOW }).research({ kind: "research", section: "insights" });
+    assert.deepEqual(result.items, []);
+    assert.deepEqual(result.warnings, [{ code: "truncated" }]);
+    assert.equal(result.truncated, true);
   } finally { store.close(); }
 });

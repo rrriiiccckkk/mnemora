@@ -190,7 +190,7 @@ test("canonical id grammar accepts slug-leading hyphens while rejecting hostile 
   } finally { store.close(); }
 });
 
-test("imported canonical ids containing tildes remain safe compare candidates and support retry", async () => {
+test("imported canonical ids containing tildes import cleanly", async () => {
   const graph = new Mnemora({ config: { dbPath: ":memory:" } });
   const node = (id, name) => ({ format_version: 1, kind: "node", node: { id, type: "company", name, description: "", aliases: [], importance: 0, deleted_at: null, created_at: 1, updated_at: 1 } });
   const data = [
@@ -202,16 +202,7 @@ test("imported canonical ids containing tildes remain safe compare candidates an
     const preview = graph.kg_import({ format: "jsonl", data });
     assert.equal(preview.errors.length, 0);
     graph.kg_import({ format: "jsonl", data, preview_hash: preview.preview_hash, confirm: true });
-    graph.kg_search = async () => [];
-
-    let candidates;
-    await assert.rejects(graph.kg_compare({ left: "Acme", right: "company:tsmc~fab", as_of: 20 }), error => {
-      candidates = error.public?.details?.candidates;
-      assert.deepEqual(candidates?.map(candidate => candidate.id), ["company:acme~east", "company:acme~west"]);
-      return true;
-    });
-    const retried = await graph.kg_compare({ left: candidates[0].id, right: "company:tsmc~fab", as_of: 20 });
-    assert.deepEqual(retried.subjects.map(subject => subject.id), ["company:acme~east", "company:tsmc~fab"]);
+    assert.equal(graph.store.db.prepare("SELECT COUNT(*) AS value FROM kg_nodes WHERE id IN ('company:acme~east','company:acme~west','company:tsmc~fab') AND deleted_at IS NULL").get().value, 3);
   } finally { graph.close(); }
 });
 

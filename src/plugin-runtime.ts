@@ -3,7 +3,6 @@ import { OperationFailureReporter } from "./operations/failure-ledger.js";
 import { normalizeConfig } from "./config.js";
 import type { EmbeddingConfig, MnemoraConfig } from "./index.js";
 import { Mnemora } from "./tools.js";
-import { InsightExplainer } from "./insights/explainer.js";
 import { ConversationJournalService } from "./journal/service.js";
 import type { JournalDerivedTaskKind, JournalTurnReceipt } from "./journal/types.js";
 import { MnemoraContextEngine } from "./context-engine/engine.js";
@@ -72,7 +71,6 @@ export class PluginRuntime {
   private contextEngineSlotBound = false;
   readonly consolidationEnabled: boolean;
   readonly reflectionEnabled: boolean;
-  readonly explainer: InsightExplainer;
   private readonly logger: SafeLogger;
   /** One reporter per runtime: counts survive per-operation graph handles. */
   readonly failures: OperationFailureReporter;
@@ -99,7 +97,6 @@ export class PluginRuntime {
     this.config = config;
     this.logger = safe;
     this.failures = new OperationFailureReporter({ warn: (message, fields) => safe.warn?.(message, fields) });
-    this.explainer = new InsightExplainer(this.config, fetch, this.shutdown.signal);
     const deps = { config: this.config, openGraph: () => this.openGraph(), openGraphForAdmitted: () => this.openGraphForAdmitted(), logger: safe, signal: this.shutdown.signal };
     if (this.config.extraction?.autoExtract && this.config.contextEngine?.enabled) {
       if (this.config.extraction.enabled && (this.config.llm?.apiKey || process.env.DEEPSEEK_API_KEY)) this.extract = new AutoExtractService(deps);

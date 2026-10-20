@@ -217,7 +217,7 @@ agent id 取自宿主会话键 `agent:<id>:...`。默认 agent（`scope.defaultA
 
 ### 工具面
 
-`toolSurface` 默认为 `core`（10 个日常记忆工具）。需要分析和保存查询时用 `research`，需要全部运维工具时用 `full`。
+`toolSurface` 默认为 `core`（10 个日常记忆工具），需要全部运维工具（25 个）时用 `full`。研究类工具（`kg_insights`、`kg_query`、`kg_query_history`、`kg_timeline`、`kg_compare`、`kg_watch`、`kg_digest`）已在 1.38.0 移除，`research` 现在等同于 `core`，保留只是为了让旧配置照常加载。相关数据表保留，Inspector 仍以只读方式显示已存的历史、watch、digest 和 insight 快照。
 
 ### 语义召回（journal）
 
@@ -338,7 +338,7 @@ OpenClaw 安装扩展时不会创建 npm 的全局 `mnemora` bin shim。若从�
 MNEMORA_DB=~/.openclaw/mnemora.db node dist/cli.js stats
 ```
 
-随包的 `/mnemora` 命令只提供只读状态、诊断和显式 canonical corpus 操作。可选择 `core`、`research` 或 `full` 工具面来控制 Agent 收到的工具 schema 数量；为兼容性，默认值是 `full`。
+随包的 `/mnemora` 命令只提供只读状态、诊断和显式 canonical corpus 操作。可选择 `core`（默认）或 `full` 工具面来控制 Agent 收到的工具 schema 数量。
 
 ## 边界
 
