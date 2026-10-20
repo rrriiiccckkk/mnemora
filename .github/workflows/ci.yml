@@ -40,8 +40,9 @@ jobs:
   retrieval-gate:
     # Fixed LongMemEval_S subset through automatic recall, lexical only, no
     # model calls; fails when evidence recall drops or wrong attachment rises
-    # beyond eval/retrieval-gate/baseline.json. One platform: the run is
-    # deterministic and the baseline is per-question.
+    # beyond eval/retrieval-gate/baseline.json (default budget) or
+    # baseline-4000.json (large budget, adaptive fill). One platform: the run
+    # is deterministic and the baseline is per-question.
     name: retrieval gate
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -70,3 +71,4 @@ jobs:
             echo "${{ steps.dataset.outputs.sha256 }}  $f" | sha256sum -c
           fi
       - run: npm run -s eval:retrieval-gate -- .tmp/datasets/longmemeval_s_cleaned.json
+      - run: npm run -s eval:retrieval-gate -- .tmp/datasets/longmemeval_s_cleaned.json --baseline eval/retrieval-gate/baseline-4000.json

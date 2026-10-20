@@ -16,6 +16,7 @@ import { UnifiedRetrievalService } from "../retrieval/service.js";
 import { sanitizeMemoryForContext } from "../retrieval/context-safety.js";
 import { ProjectionEvidenceReader, renderProjectionEvidence, limitProjectionEvidence } from "../retrieval/projection-evidence.js";
 import { selectGraphInjection, selectInjectionCandidates, type InjectionSuppressionReason } from "../retrieval/injection-policy.js";
+import type { RetrievalCandidate } from "../retrieval/types.js";
 import { planRecallQuery } from "../retrieval/query-routing.js";
 import { RecallUsageRepository } from "../recall-lifecycle/repository.js";
 import { RecallAttachmentEvidenceService } from "../cognition/recall-attachment.js";
@@ -100,6 +101,20 @@ type ContextTurnLifecycle = {
   failures?: OperationFailureReporter;
 };
 
+/**
+ * Adaptive fill: at a recall budget of at least this many tokens (twice the
+ * default), records held back only by the admission floor may fill the room
+ * the admitted records leave. The default budget is unchanged.
+ */
+const ADAPTIVE_FILL_MIN_BUDGET = 1600;
+/** A fill record must score at least this fraction of the admission floor. */
+const ADAPTIVE_FILL_FLOOR_RATIO = .7;
+/** Fill only when an admitted record matches the prompt at least this well. */
+const ADAPTIVE_FILL_MIN_QUERY_MATCH = .35;
+/** Fill only when at least this much budget is left after admitted records. */
+const ADAPTIVE_FILL_MIN_ROOM = 200;
+/** Packet wrapper and guidance, charged before records. */
+const ADAPTIVE_FILL_OVERHEAD = 80;
 const estimate = (messages: HostMessage[]) => messages.reduce((total, message) => total + estimateMessageTokens(message), 0);
 const abort = (signal?: AbortSignal) => { if (signal?.aborted) throw signal.reason ?? new Error("aborted"); };
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -296,6 +311,38 @@ export class MnemoraContextEngine implements ContextEngine {
   }
 
   /** Thresholds for the configured model; explicit settings win (src/retrieval/semantic-thresholds.ts). */
+  /**
+   * Appends below-floor records to an open packet when the budget has room.
+   * The packet must already hold an admitted record, so a prompt that memory
+   * does not answer still gets nothing. Fill records pass the same automatic
+   * admission and anchor rules as admitted ones, come after them, and are the
+   * first dropped when final packing runs out of budget.
+   */
+  private adaptiveFill(selected: readonly RetrievalCandidate[], held: readonly RetrievalCandidate[], admission: RecallPolicyService, budget: number,
+    selection: { query: string; alternates?: readonly string[]; maxItems: number; diversityLambda: number; minQueryMatch: number; minSemanticSimilarity?: number }): RetrievalCandidate[] {
+    if (!selected.length || !held.length) return [...selected];
+    // Unrelated prompts open a packet on weak, generic word matches; a
+    // question memory answers has an admitted record that matches it well.
+    // Only the latter is filled (retrieval gate at 4000 tokens: off-topic
+    // fill records 452 -> 64, own-question fill records 431 -> 343).
+    const strong = selected.some(candidate => (candidate.queryMatch ?? 0) >= ADAPTIVE_FILL_MIN_QUERY_MATCH || selection.minSemanticSimilarity !== undefined && (candidate.semanticSimilarity ?? 0) >= selection.minSemanticSimilarity);
+    if (!strong) return [...selected];
+    const room = Math.min(20, selection.maxItems) - selected.length;
+    let left = budget - ADAPTIVE_FILL_OVERHEAD - selected.reduce((total, candidate) => total + (candidate.estimatedTokens ?? 0) + 1, 0);
+    if (room <= 0 || left < ADAPTIVE_FILL_MIN_ROOM) return [...selected];
+    const refs = new Set(selected.map(candidate => candidate.contextRef));
+    const admitted = admission.filterAutomaticCandidates(held.filter(candidate => !refs.has(candidate.contextRef)), this.scope()).candidates;
+    const anchored = selectInjectionCandidates({ ...selection, candidates: admitted, maxItems: room }).candidates;
+    const out = [...selected];
+    for (const candidate of anchored) {
+      const cost = (candidate.estimatedTokens ?? 0) + 1;
+      if (cost > left) continue;
+      out.push(candidate); left -= cost;
+      if (out.length >= Math.min(20, selection.maxItems)) break;
+    }
+    return out;
+  }
+
   private semanticThresholds() {
     const semantic = this.config.unifiedRetrieval?.semantic;
     return semanticThresholds(this.config.embeddings?.model, { minSimilarity: semantic?.minSimilarity, gateSimilarity: semantic?.gateSimilarity });
@@ -406,7 +453,10 @@ export class MnemoraContextEngine implements ContextEngine {
         const graphBudget = recallBudget >= 128 ? Math.max(64, Math.floor(recallBudget * .4)) : 0;
         const plan = planRecallQuery(params.prompt, this.config.recall?.queryRouting), retrievalQuery = plan.query;
         const semantic = await this.semanticRecallInput(graph, retrievalQuery, plan.intent);
-        const rawResult = retrieval.find({ semantic, timeAnchors: this.config.unifiedRetrieval?.timeAnchors !== false, scope: this.scope(), query: retrievalQuery, alternates: plan.alternates, tags: plan.tags, metadataFilters: plan.metadataFilters, mustContain: plan.mustContain, lexicalOnly: plan.lexicalOnly, scopeConstraint: plan.scopeConstraint, intent: plan.intent, intentCategory: plan.category, tokenBudget: recallBudget, limit: Math.min(20, this.config.unifiedRetrieval.maxItems! * 3), minConfidence: this.config.unifiedRetrieval.minConfidence, maxStalenessDays: this.config.unifiedRetrieval.maxStalenessDays });
+        // A budget well above the default may be filled from records held back
+        // only by the admission floor, once the packet is open (see below).
+        const fill = this.config.unifiedRetrieval.adaptiveFill !== false && recallBudget >= ADAPTIVE_FILL_MIN_BUDGET;
+        const rawResult = retrieval.find({ semantic, timeAnchors: this.config.unifiedRetrieval?.timeAnchors !== false, scope: this.scope(), query: retrievalQuery, alternates: plan.alternates, tags: plan.tags, metadataFilters: plan.metadataFilters, mustContain: plan.mustContain, lexicalOnly: plan.lexicalOnly, scopeConstraint: plan.scopeConstraint, intent: plan.intent, intentCategory: plan.category, tokenBudget: recallBudget, limit: Math.min(20, this.config.unifiedRetrieval.maxItems! * 3), minConfidence: this.config.unifiedRetrieval.minConfidence, maxStalenessDays: this.config.unifiedRetrieval.maxStalenessDays, ...(fill ? { supplementLimit: 40, supplementFloorRatio: ADAPTIVE_FILL_FLOOR_RATIO } : {}) });
         // Search is deliberately broader than automatic context. This single
         // admission boundary excludes terminal graph evidence and ensures
         // ReasoningMemory reaches a prompt only through governed delivery.
@@ -423,7 +473,11 @@ export class MnemoraContextEngine implements ContextEngine {
           ...(semantic ? { gateQueryMatch: .15 } : {}),
           ...(semantic ? { minSemanticSimilarity: this.semanticThresholds().minSimilarity } : {})
         });
-        const result = { ...rawResult, candidates: localSelection.candidates, empty: localSelection.candidates.length === 0 };
+        const filled = fill ? this.adaptiveFill(localSelection.candidates, rawResult.supplement ?? [], admission, recallBudget, {
+          query: retrievalQuery, alternates: plan.alternates, maxItems: this.config.unifiedRetrieval.maxItems!, diversityLambda: this.config.unifiedRetrieval.diversityLambda!,
+          minQueryMatch: this.config.unifiedRetrieval.minQueryMatch ?? 0, ...(semantic ? { minSemanticSimilarity: this.semanticThresholds().minSimilarity } : {})
+        }) : localSelection.candidates;
+        const result = { ...rawResult, candidates: filled, empty: filled.length === 0 };
         // P0 relevance is advisory, after deterministic authorization/selection,
         // before final packing. Read-only/stateless sessions never send this optional request.
         let relevance: Awaited<ReturnType<import("../tools.js").Mnemora["adviseRecallRelevance"]>>;

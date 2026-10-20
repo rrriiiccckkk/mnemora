@@ -241,6 +241,28 @@ default; set `false` to turn both off):
 
 Days are the local calendar days of the process running Mnemora.
 
+### Large recall budgets (adaptive fill)
+
+Records must clear an admission score (0.35; 0.25 for "how many / all"
+questions) before they are recalled, so a larger `tokenBudget` alone stops
+adding records at about 2,300 tokens. At a budget of 1600 or more
+(`unifiedRetrieval.adaptiveFill`, on by default; set `false` to turn it off),
+records held back only by that score fill the room left, if all of these hold:
+
+- the packet already holds an admitted record that matches the prompt well
+  (query match at least 0.35, or above the semantic floor), so prompts memory
+  does not answer still get nothing;
+- the record scores at least 0.7 of the admission score and passes the same
+  anchor and admission rules as admitted records;
+- it fits: fill records come after admitted ones and are the first dropped.
+
+The default budget of 800 is unchanged. LongMemEval_S, 500 questions, 4000
+tokens and up to 20 records, lexical: questions with all evidence in the
+packet 78.5% → 81.7% (bm25 at the same budget 81.1%), using 2,915 tokens on
+average against bm25's 3,687; multi-session 65.3% → 71.1%, temporal 72.4% →
+76.4%. The cost is more records on prompts the memory does not answer (gate
+at 4000: unrelated tasks 566 → 636, other items' questions 1,153 → 1,325).
+
 ### Automatic-recall precision
 
 Manual search may return broad candidates for exploration. Automatic context is

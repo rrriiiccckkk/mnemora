@@ -116,6 +116,23 @@ and the retrieval gate green; one release with a migration note. The earlier
 estimate of 15% assumed C and D were removable; the review does not support
 that.
 
+## After v1.38.0: additions
+
+Proposed 2026-10-20 after the slimming, in order.
+
+1. **Adaptive fill at large budgets (done on main).**
+   `unifiedRetrieval.adaptiveFill`: at `tokenBudget` 1600 or more, anchored
+   records just below the admission score fill the room once a well-matched
+   record opened the packet. LongMemEval_S at 4000 tokens: all evidence
+   78.5% → 81.7% (bm25 81.1%) with 2,915 tokens against 3,687. Default
+   budget unchanged; a second CI gate runs at 4000. See recall-quality.
+2. **Comparable QA run at 4000 tokens (pending, paid).** Mnemora against
+   bm25 with the same reader and judge.
+3. **Multi-session aggregation.** Still the weakest type (71.1%).
+4. **Preference recall at large budgets.** 66.7% against bm25 73.3%.
+5. **Fact supersession.** Validity windows beyond `newer_related`.
+6. **Performance baseline.** p50/p95 recall latency and memory at 100k records.
+
 ## Comparison with other memory systems
 
 Checked 2026-10-19 against public documentation; scores are self-reported

@@ -7,4 +7,10 @@ export interface RecallMetadataFilter { prefix: RecallMetadataPrefix; value: str
 export type RetrievalKind = "conversation-event" | "summary" | "episode" | "artifact" | "memory-document" | "claim" | "belief" | "decision" | "reasoning-memory" | "profile";
 export type RetrievalAuthority = "user_explicit" | "user_correction" | "source_linked" | "operator_confirmed" | "tool_observation" | "external_source" | "assistant_inference" | "derived_projection" | "unknown";
 export interface RetrievalCandidate { contextRef: string; kind: RetrievalKind; scope: string; title: string; excerpt: string; /** Conversation-event speaker ("user" | "assistant"), when known. */ speaker?: string; estimatedTokens: number; bytes: number; score: number; sourceIds: string[]; sourceRefs: string[]; authority: RetrievalAuthority; confidence: number; freshness: number; projectionEvidence?: ProjectionEvidence; validity?: { validFrom: number | null; validTo: number | null }; /** `reply_to_match`: the assistant reply that followed a matching user turn, attached for an assistant-recall prompt. */ selectionReason: "lexical_match" | "semantic_match" | "source_linked_projection" | "governed_memory" | "reply_to_match"; /** Rarity-weighted share of query terms matched (0..1); absent when the query has no content terms. */ queryMatch?: number; /** Cosine similarity to the query when semantic journal recall found this record. */ semanticSimilarity?: number; /** Embedded, but outside the prompt's semantic neighbourhood. */ semanticallyDistant?: boolean; }
-export interface UnifiedFindResult { version: "unified-find-v2"; intent: RetrievalIntent; scope: string; candidates: RetrievalCandidate[]; excluded: { duplicate: number; budget: number; lowConfidence: number; stale: number; }; empty: boolean; }
+export interface UnifiedFindResult { version: "unified-find-v2"; intent: RetrievalIntent; scope: string; candidates: RetrievalCandidate[];
+  /**
+   * Records held back only by the admission floor, best first, when the
+   * caller asked for them with `supplementLimit`. They never count against the
+   * packet budget here; automatic recall may use them to fill a large budget.
+   */
+  supplement?: RetrievalCandidate[]; excluded: { duplicate: number; budget: number; lowConfidence: number; stale: number; }; empty: boolean; }

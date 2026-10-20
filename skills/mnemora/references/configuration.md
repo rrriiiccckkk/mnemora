@@ -66,6 +66,12 @@ It does **not** turn automatic recall into a dry run: when
 `unifiedRetrieval.enabled` is true, eligible context can still be attached.
 For a true no-attachment setup, keep `unifiedRetrieval.enabled` false.
 
+At `tokenBudget` 1600 or more, `unifiedRetrieval.adaptiveFill` (default true)
+fills the room admitted records leave with anchored records just below the
+admission score, only when an admitted record matches the prompt well. Set it
+to `false` to keep the packet to admitted records. The default 800 is
+unaffected.
+
 ### Local semantic retrieval
 
 Enable only after a local Ollama endpoint and model are available:

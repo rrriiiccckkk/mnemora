@@ -16,6 +16,8 @@
 //   npm run build
 //   node --expose-gc scripts/retrieval-gate.mjs <longmemeval_s_cleaned.json>            # check
 //   node --expose-gc scripts/retrieval-gate.mjs <longmemeval_s_cleaned.json> --update   # rewrite baseline
+//   ... --baseline eval/retrieval-gate/baseline-4000.json   # another budget (adaptive fill)
+//   ... --no-adaptive-fill                                  # A/B: turn adaptive fill off
 //
 // The dataset (MIT, xiaowu0162/longmemeval-cleaned) is not in the repository;
 // the baseline pins its revision and sha256, and the script refuses others.
@@ -31,10 +33,11 @@ const { MnemoraContextEngine } = await import("../dist/context-engine/engine.js"
 const { normalizeConfig } = await import("../dist/config.js");
 const { Mnemora } = await import("../dist/tools.js");
 
-const BASELINE = new URL("../eval/retrieval-gate/baseline.json", import.meta.url);
 const [datasetPath, ...flags] = process.argv.slice(2);
-if (!datasetPath) throw new Error("usage: retrieval-gate.mjs <longmemeval_s_cleaned.json> [--update]");
-const update = flags.includes("--update");
+if (!datasetPath) throw new Error("usage: retrieval-gate.mjs <longmemeval_s_cleaned.json> [--update] [--baseline <file>] [--no-adaptive-fill]");
+const update = flags.includes("--update"), adaptiveFill = !flags.includes("--no-adaptive-fill");
+const baselineFlag = flags.indexOf("--baseline");
+const BASELINE = baselineFlag >= 0 && flags[baselineFlag + 1] ? new URL(flags[baselineFlag + 1], `file://${process.cwd()}/`) : new URL("../eval/retrieval-gate/baseline.json", import.meta.url);
 const baseline = JSON.parse(readFileSync(BASELINE, "utf8"));
 
 const digest = await new Promise((resolve, reject) => {
@@ -57,7 +60,7 @@ function datasetTime(value) {
 async function evaluate(question, index) {
   const leave = enterDeterministic(question.question_id, datasetTime(question.question_date));
   const directory = createTempDir("mnemora-gate-");
-  const config = normalizeConfig({ dbPath: join(directory, "m.db"), mode: "standalone", conversationJournal: { enabled: true }, contextEngine: { enabled: true }, episodicMemory: { enabled: true }, unifiedRetrieval: { enabled: true, shadowMode: false, tokenBudget: baseline.budgetTokens, maxItems: baseline.maxItems, diversityLambda: .75 } });
+  const config = normalizeConfig({ dbPath: join(directory, "m.db"), mode: "standalone", conversationJournal: { enabled: true }, contextEngine: { enabled: true }, episodicMemory: { enabled: true }, unifiedRetrieval: { enabled: true, shadowMode: false, tokenBudget: baseline.budgetTokens, maxItems: baseline.maxItems, diversityLambda: .75, adaptiveFill } });
   const graph = new Mnemora({ config });
   const shared = new Proxy(graph, { get: (target, property) => property === "close" ? () => undefined : Reflect.get(target, property, target) });
   try {
@@ -115,7 +118,7 @@ for (const qid of baseline.questions) for (const metric of Object.keys(METRICS))
 }
 console.log(JSON.stringify({ questions: baseline.questions.length, baseline: before, current: now, changed: changes, seconds }, null, 2));
 if (failures.length) {
-  console.error(`retrieval gate failed:\n  ${failures.join("\n  ")}\nIf the change is intended, rerun with --update and commit eval/retrieval-gate/baseline.json.`);
+  console.error(`retrieval gate failed:\n  ${failures.join("\n  ")}\nIf the change is intended, rerun with --update and commit the baseline file.`);
   process.exit(1);
 }
 console.log("retrieval gate ok");

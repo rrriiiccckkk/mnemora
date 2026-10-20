@@ -542,3 +542,38 @@ answerable questions, 72 hold all evidence in the packet and 90 some of it;
 other items and 286 to unrelated tasks (100 prompts each). Checked against
 older builds: 1.36.0 passes (71 with all evidence, 4 per-question changes);
 1.32.19, before query-dependent ranking, fails with 3 and 12.
+
+## Adaptive fill at large budgets (after 1.38)
+
+Raising `tokenBudget` alone stopped adding records at about 2,300 tokens: the
+admission score in `find()` (0.35, aggregate questions 0.25) excluded on
+average 26 candidates per question, and widening the candidate caps from 20
+to 60 changed nothing. `unifiedRetrieval.adaptiveFill` (budget 1600 or more)
+fills the room with records held back only by that score (at least 0.7 of
+it), through the same anchor and admission rules, after the admitted records,
+and only when an admitted record has query match 0.35 or more.
+
+LongMemEval_S, 500 questions (470 answerable), lexical, up to 20 records;
+questions with all evidence in the packet:
+
+| Budget | bm25 | Mnemora, fill off | Mnemora, fill on |
+|---|---|---|---|
+| 4000 | 81.1% (3,687 tokens) | 78.5% (2,201) | 81.7% (2,915) |
+| 8000 | 84.0% (5,947) | 78.5% (2,339) | 81.9% (3,246) |
+
+At 4000, by type: multi-session 65.3 → 71.1, temporal 72.4 → 76.4,
+knowledge update 90.3 → 93.1, preference 63.3 → 66.7 (bm25 73.3).
+
+Wrong attachment, retrieval gate at 4000 tokens (100 questions):
+
+| Variant | All evidence | Unanswerable | Other items | Unrelated tasks |
+|---|---|---|---|---|
+| Fill off | 80 | 52 | 1,153 | 566 |
+| Fill whenever the packet opens | 83 | 103 | 1,533 | 1,091 |
+| Shipped (strong admitted record required) | 83 | 81 | 1,325 | 636 |
+
+Filling any open packet nearly doubled records on unrelated tasks, which open
+the packet on generic words; their best admitted record has median query
+match 0.30 against 0.46 for real questions. The default budget gate is
+unchanged; `eval/retrieval-gate/baseline-4000.json` now also runs in CI.
+

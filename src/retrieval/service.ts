@@ -195,7 +195,7 @@ export class UnifiedRetrievalService {
   private aggregate = false;
   constructor(private readonly db: DatabaseSyncInstance, private readonly policy: JournalCapturePolicy, private readonly now: () => number = Date.now, private readonly memoryLifecycle?: MemoryDocumentLifecycleService) {}
 
-  find(input: { /** Resolve time phrases and relative dates; default true. */ timeAnchors?: boolean; scope: string; query: string; alternates?: string[]; tags?: string[]; metadataFilters?: RecallMetadataFilter[]; mustContain?: string[]; lexicalOnly?: boolean; scopeConstraint?: string; intent?: RetrievalIntent; intentCategory?: RetrievalIntentCategory; limit?: number; tokenBudget?: number; minConfidence?: number; hardMinScore?: number; maxStalenessDays?: number; recordedBefore?: number; signal?: AbortSignal; semantic?: SemanticRecallInput }): UnifiedFindResult {
+  find(input: { /** Resolve time phrases and relative dates; default true. */ timeAnchors?: boolean; scope: string; query: string; alternates?: string[]; tags?: string[]; metadataFilters?: RecallMetadataFilter[]; mustContain?: string[]; lexicalOnly?: boolean; scopeConstraint?: string; intent?: RetrievalIntent; intentCategory?: RetrievalIntentCategory; limit?: number; tokenBudget?: number; minConfidence?: number; hardMinScore?: number; /** Return up to this many records held back only by the admission floor (0–40, default 0). */ supplementLimit?: number; /** Held-back records must reach this fraction of the admission floor (0–1, default 0). */ supplementFloorRatio?: number; maxStalenessDays?: number; recordedBefore?: number; signal?: AbortSignal; semantic?: SemanticRecallInput }): UnifiedFindResult {
     if (input.signal?.aborted) throw input.signal.reason ?? new Error("aborted");
     if (input.recordedBefore !== undefined && (input.intent !== "exact_history" || !Number.isSafeInteger(input.recordedBefore) || input.recordedBefore < 0 || input.lexicalOnly || input.tags?.length || input.metadataFilters?.length || input.mustContain?.length)) throw new Error("invalid_history_cutoff");
     const scope = normalizeScope(input.scope), query = input.query.trim().slice(0, 512), tags = boundedValues(input.tags, 4, 64), metadataFilters = [...new Map((input.metadataFilters ?? []).filter(value => value && (value.prefix === "proj" || value.prefix === "env" || value.prefix === "team") && typeof value.value === "string").map(value => [`${value.prefix}:${value.value.trim().toLocaleLowerCase().slice(0, 64)}`, { prefix: value.prefix, value: value.value.trim().toLocaleLowerCase().slice(0, 64) }])).values()].slice(0, 4), mustContain = boundedValues(input.mustContain, 4, 64), intent = input.intent ?? "general", intentCategory = input.intentCategory, limit = bounded(input.limit, 8, 0, 20), budget = bounded(input.tokenBudget, 800, 64, 8000), floor = clamp01(input.minConfidence, 0), hardMinScore = clamp01(input.hardMinScore, defaultAdmissionFloor(input.query)), oldest = Math.max(1, bounded(input.maxStalenessDays, 36500, 1, 36500)) * 86_400_000, now = this.now();
@@ -243,6 +243,7 @@ export class UnifiedRetrievalService {
       }
     }
     const feedback = new RecallFeedbackRepository(this.db, this.now), seen = new Set<string>(), candidates: RetrievalCandidate[] = [];
+    const supplementLimit = bounded(input.supplementLimit, 0, 0, 40), supplement: RetrievalCandidate[] = [];
     // The packet wrapper (and, at ordinary budgets, the newer_related
     // guidance) is charged up front, so final packing does not drop the last
     // admitted record for it.
@@ -276,7 +277,14 @@ export class UnifiedRetrievalService {
       if (now - candidate.freshness > oldest) { stale++; continue; }
       // Freshness and length rank but do not gate: an old or long record
       // that still answers the query must not vanish for its age or size.
-      if (freshnessNeutral(admission, candidate, now) < hardMinScore) { lowConfidence++; continue; }
+      if (freshnessNeutral(admission, candidate, now) < hardMinScore) {
+        lowConfidence++;
+        if (supplement.length < supplementLimit && freshnessNeutral(admission, candidate, now) >= hardMinScore * clamp01(input.supplementFloorRatio, 0)) {
+          const held = adjustedScore === candidate.score ? candidate : { ...candidate, score: adjustedScore };
+          supplement.push({ ...held, estimatedTokens: estimateTextTokens(this.renderItem(held, 1)), bytes: Buffer.byteLength(held.excerpt) });
+        }
+        continue;
+      }
       let selected = adjustedScore === candidate.score ? candidate : { ...candidate, score: adjustedScore };
       // Candidate budgets include their eventual reference and provenance
       // envelope. The final packet is packed again below, where its shared
@@ -301,7 +309,7 @@ export class UnifiedRetrievalService {
       if (candidates.length >= limit || used + estimatedTokens > budget) { budgetExcluded++; continue; }
       candidates.push({ ...selected, estimatedTokens, bytes: Buffer.byteLength(selected.excerpt) }); used += estimatedTokens + 1;
     }
-    return { version: "unified-find-v2", intent, scope, candidates, excluded: { duplicate, budget: budgetExcluded, lowConfidence, stale }, empty: candidates.length === 0 };
+    return { version: "unified-find-v2", intent, scope, candidates, ...(supplementLimit ? { supplement } : {}), excluded: { duplicate, budget: budgetExcluded, lowConfidence, stale }, empty: candidates.length === 0 };
   }
 
   compilePrompt(result: UnifiedFindResult, maxItems = 8, graphSupplement?: string): string | undefined {
