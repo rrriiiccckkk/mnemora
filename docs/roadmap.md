@@ -82,22 +82,28 @@ Each item targets a measured weakness.
    4k–7k token budget, the range other systems report at, so results can be
    read side by side (about 1,000 model calls).
 
-## Next: slimming (after v1.37, not started)
+## Next: slimming (reviewed 2026-10-20, nothing deleted yet)
 
-Candidates for removal: code that never runs on the automatic recall path and
-has no measured benefit. Nothing is deleted until each reference is checked
-and the full suite passes; as in 1.33, schema tables and configuration keys
-stay accepted so existing installs keep loading.
+Candidates are code that never runs on the automatic recall path and has no
+measured benefit. Each was traced through imports, tools, CLI commands,
+scheduled jobs and tests (source sizes, 2.35 MB total). Removing any batch
+removes public tools, CLI commands and `export *` library symbols from
+`dist/index.js`, so each batch is a breaking change for users of the `full`
+or `research` tool surface or the library API. As in 1.33, schema tables and
+configuration keys stay accepted so existing installs keep loading.
 
-| Candidate | Size (source) | Reason |
-|---|---|---|
-| Graph governance: `related-edge-refinement`, `related-edge-semantics`, `semantic-vocabulary`, `schema-drift`, `graph-review`, `hygiene` | about 117 KB | Reachable only through tools; the 2026-09-06 decision gate produced no action; all benchmark gains came from the journal path |
-| `insights` (community detection) and research tools `kg_compare`, `kg_digest`, `kg_insights`, `kg_watch`, `kg_timeline`, `kg_query` | about 59 KB plus tool code | Not in the default `core` tool surface; no usage evidence |
-| Graph-recall canary: `trust/adaptive-canary`, `trust/adaptive-recall`, `kg_recall_canary`, `kg_recall_metrics` | to be measured | A rollout mechanism for graph recall that was never enabled |
-| ReasoningMemory leftovers in `cognition`: beliefs, decisions, graduation, semantic classifier, outcomes | to be measured | The pipeline itself was removed in 1.33. `recall-attachment` and `reflection` stay: automatic recall uses them |
+| Batch | What goes | Size | Reach today | Recommendation |
+|---|---|---|---|---|
+| A. Graph governance | `hygiene`, `graph-review`, `related-edge-refinement`, `related-edge-semantics`, `semantic-vocabulary`, `schema-drift`; tool `kg_review` (`full` only); CLI graph-review and schema-drift commands; scheduled `quality.hygiene` (off by default) | about 125 KB | Operator-only; schema-drift scans run only on request; no automatic path | Remove. Schema SQL moves to a small legacy-schema module; the migration v77 reconciliation keeps a minimal reader |
+| B. Research tools | `insights` (except `community.ts`, used by the Inspector), research half of `query` (planner, executor, saved queries, watch, timeline, compare, subject resolution); tools `kg_insights`, `kg_digest`, `kg_watch`, `kg_timeline`, `kg_compare`, `kg_query`, `kg_query_history`; `toolSurface: "research"` becomes an alias of `core` | about 110 KB | `research`/`full` surfaces only; no usage evidence | Remove. `query/exchange` (`kg_export`/`kg_import`) stays |
+| C. Graph-recall canary | `trust/adaptive-canary`, `trust/adaptive-recall`; tools `kg_recall_canary`, `kg_recall_metrics` | about 24 KB | The canary was never enabled, but the shadow half runs by default (`trustLayer.recall.shadowMode`) whenever recall takes the graph route through `kg_context`, recording telemetry nobody reads | Defer. v2.0's ReasoningMemory canary needs scoped canaries, calibration and rollback; decide reuse or removal then. Turning the shadow off by default is a one-line change |
+| D. Cognition "leftovers" | `beliefs`, `decisions`, `outcomes`, `semantic-classifier`, `graduation` | 53 KB | Not leftovers: `beliefs` runs in formation (`cognition.formationShadow`, on by default); `decisions` and `outcomes` back task resume and correction impact, which v2.0's evidence gate depends on; the semantic classifier is a documented optional admission path | Keep. Only `graduation` (4.6 KB, CLI only) is removable; fold it into batch A |
 
-Together about 7–8% of the 2.3 MB source for the first two rows, and around
-15% if the last two hold up after review.
+A (with `graduation`) and B together are about 240 KB (10% of the source) plus about 35 test files
+and their docs. Order: A, then B, each as its own commit with the full suite
+and the retrieval gate green; one release with a migration note. The earlier
+estimate of 15% assumed C and D were removable; the review does not support
+that.
 
 ## Comparison with other memory systems
 
