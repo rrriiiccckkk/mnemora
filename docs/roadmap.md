@@ -134,8 +134,9 @@ Proposed 2026-10-20 after the slimming, in order.
    singular, aggregate prompts recall the user's turns rather than the
    assistant's replies, and a fill budget searches twice the records.
    Multi-session all evidence 71.1% → 76.0% at 4000 tokens (bm25 68.6%),
-   52.9% → 57.9% at 800; the rest (two thirds of the misses) share no word
-   with the question and need semantic recall.
+   52.9% → 57.9% at 800; QA at 4000 61.2% → 68.6% (bm25 61.2%). The rest
+   (two thirds of the misses) share no word with the question and need
+   semantic recall.
 4. **Preference recall at large budgets.** 66.7% against bm25 73.3%.
 5. **Fact supersession.** Validity windows beyond `newer_related`.
 6. **Performance baseline.** p50/p95 recall latency and memory at 100k records.

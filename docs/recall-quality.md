@@ -631,3 +631,10 @@ No other type changed. Retrieval gates (100 questions), before → after:
 
 Both baselines were updated to these results.
 
+QA check at 4000 tokens (multi-session only, Mnemora arm rerun; reader and
+judge `mimo-v2.6-pro`; bm25 contexts unchanged, from the full run above):
+answerable 121 questions 61.2% → 68.6% (bm25 61.2%), with 1,494 context
+tokens on average; abstention 12 questions 83.3% → 100% (bm25 91.7%). Against
+the previous Mnemora answers, 14 newly right and 3 newly wrong (exact
+binomial p = 0.013).
+
