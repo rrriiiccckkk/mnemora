@@ -24,7 +24,10 @@ import { normalizeConfig } from "../dist/config.js";
 import { Mnemora } from "../dist/tools.js";
 import { recallText } from "../tests/helpers/recall.mjs";
 
-const BUDGET = 800, MAX_ITEMS = 8;
+// Recall budget for both bm25 and Mnemora: MNEMORA_QA_BUDGET (tokens, default 800, max 8000)
+// and MNEMORA_QA_MAX_ITEMS (default 8, max 20).
+const envInt = (name, fallback, min, max) => { const value = Number(process.env[name]); return Number.isInteger(value) ? Math.min(max, Math.max(min, value)) : fallback; };
+const BUDGET = envInt("MNEMORA_QA_BUDGET", 800, 100, 8000), MAX_ITEMS = envInt("MNEMORA_QA_MAX_ITEMS", 8, 1, 20);
 // Optional semantic recall: MNEMORA_QA_EMBED_MODEL=<ollama model> [MNEMORA_QA_EMBED_URL=http://127.0.0.1:11434]
 const EMBEDDINGS = process.env.MNEMORA_QA_EMBED_MODEL ? { embeddings: { enabled: true, provider: "ollama", baseURL: process.env.MNEMORA_QA_EMBED_URL ?? "http://127.0.0.1:11434", model: process.env.MNEMORA_QA_EMBED_MODEL, timeoutMs: 120000, batchSize: 32 } } : {};
 // Optional question-type filter for the contexts phase: MNEMORA_QA_TYPES=multi-session,temporal-reasoning
