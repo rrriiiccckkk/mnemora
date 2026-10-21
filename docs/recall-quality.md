@@ -673,3 +673,26 @@ query match is lower (admitted Chinese user turns around 0.2, English median
 for Chinese prompts. Full-dataset English gates by labelled turns: 800
 tokens 62, 4000 tokens 71.
 
+## Recall at scale
+
+`scripts/benchmark-recall-scale.mjs` writes N synthetic conversation turns
+into one scope (deterministic: a Zipf vocabulary with recurring topics,
+names and numbers), then times automatic recall for ten prompts, three
+rounds with the first discarded, at 800 tokens / 8 records and 4000 / 20.
+Sandbox, Node 24, lexical:
+
+| Turns | Ingest | Recall 800 p50 / p95 | Recall 4000 p50 / p95 | Database | Resident memory |
+|---|---|---|---|---|---|
+| 10k | 3,163 turns/s | 18 / 42 ms | 108 / 152 ms | 33 MB | 373 MB |
+| 50k | 2,609 turns/s | 34 / 107 ms | 102 / 163 ms | 140 MB | 380 MB |
+| 100k | 967 turns/s | 50 / 172 ms | 127 / 275 ms | 271 MB | 388 MB |
+
+Before statement caching the same run reached 1.07, 3.6 and 6.8 GB resident
+(JavaScript heap 59 MB throughout) with recall p95 at 100k of 465 / 573 ms
+and ingestion of 750 turns/s. `@photostructure/sqlite` (1.2.1, and 3.3.0
+alike) keeps about 4.6 KB of native memory for every prepared statement that
+binds text, through garbage collection and `close()`; Node's built-in
+`node:sqlite` does not. Ingesting 2,000 turns prepared 28,910 statements from
+92 distinct SQL strings, so each connection now keeps its statements by SQL
+text, least recently used evicted past 512.
+

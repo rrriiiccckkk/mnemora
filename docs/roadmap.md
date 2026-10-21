@@ -143,8 +143,19 @@ Proposed 2026-10-20 after the slimming, in order.
    trails English by 7–8 of 100; the fill threshold is set on English query
    match and rarely opens for Chinese. See recall-quality.
 5. **Preference recall at large budgets.** 66.7% against bm25 73.3%.
-6. **Fact supersession.** Validity windows beyond `newer_related`.
-7. **Performance baseline.** p50/p95 recall latency and memory at 100k records.
+6. **Fact supersession (tried 2026-10-21, not shipped).** On the 72
+   answerable knowledge-update questions Mnemora answers 93.1% at 800 tokens
+   and 91.7% at 4000. Linking only to the user's later statements, with or
+   without firmer guidance, moved nothing beyond noise (best +2/−1, worst
+   +0/−4). In four of the seven misses at 4000 both values were in the packet
+   and the reader still chose the older one, often repeated by the assistant;
+   in two the newer statement was not recalled. A real validity window needs
+   facts extracted with values at write time, a model call; not scheduled.
+7. **Performance baseline (done on main).** `scripts/benchmark-recall-scale.mjs`
+   (not in CI). It found resident memory growing about 65 MB per 1,000
+   ingested turns: the SQLite driver keeps each prepared statement's memory,
+   and Mnemora prepared on every call. Connections now cache statements by
+   SQL text (bounded, 512). See recall-quality.
 
 ## Comparison with other memory systems
 

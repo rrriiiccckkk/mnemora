@@ -6,6 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   SQLITE_BUSY_TIMEOUT_MS,
+  STATEMENT_CACHE_LIMIT,
   SQLITE_WAL_UNAVAILABLE,
   SqliteOperatingBoundaryError,
   ensureWritableWal,
@@ -96,3 +97,19 @@ function cleanup(directory) {
   try { rmSync(directory, { recursive: true, force: true, maxRetries: 8, retryDelay: 50 }); }
   catch (error) { if (process.platform !== "win32" || error?.code !== "EPERM") throw error; }
 }
+
+test("connections reuse prepared statements per SQL text within a bounded cache", () => {
+  const db = openMnemoraDatabase(":memory:");
+  try {
+    db.exec("CREATE TABLE t(a TEXT)");
+    const insert = db.prepare("INSERT INTO t(a) VALUES (?)");
+    assert.equal(db.prepare("INSERT INTO t(a) VALUES (?)"), insert);
+    insert.run("x"); db.prepare("INSERT INTO t(a) VALUES (?)").run("y");
+    assert.deepEqual(db.prepare("SELECT a FROM t ORDER BY a").all().map(row => row.a), ["x", "y"]);
+    for (let i = 0; i <= STATEMENT_CACHE_LIMIT; i++) db.prepare(`SELECT ${i} AS n`).get();
+    const fresh = db.prepare("INSERT INTO t(a) VALUES (?)");
+    assert.notEqual(fresh, insert, "least recently used statements are evicted past the limit");
+    fresh.run("z");
+    assert.equal(db.prepare("SELECT count(*) AS n FROM t").get().n, 3);
+  } finally { db.close(); }
+});
