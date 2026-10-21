@@ -1,6 +1,6 @@
 # Mnemora Roadmap
 
-Updated 2026-10-20. Latest release: **v1.38.0** (`25606fd`). Earlier plans and
+Updated 2026-10-21. Latest release: **v1.39.0**. Earlier plans and
 per-version records are in [the roadmap history](roadmap-history.md); what
 each release changed is in [the release notes](releases/).
 
@@ -116,7 +116,7 @@ and the retrieval gate green; one release with a migration note. The earlier
 estimate of 15% assumed C and D were removable; the review does not support
 that.
 
-## After v1.38.0: additions
+## v1.39.0: additions after v1.38.0
 
 Proposed 2026-10-20 after the slimming, in order.
 
