@@ -137,9 +137,14 @@ Proposed 2026-10-20 after the slimming, in order.
    52.9% → 57.9% at 800; QA at 4000 61.2% → 68.6% (bm25 61.2%). The rest
    (two thirds of the misses) share no word with the question and need
    semantic recall.
-4. **Preference recall at large budgets.** 66.7% against bm25 73.3%.
-5. **Fact supersession.** Validity windows beyond `newer_related`.
-6. **Performance baseline.** p50/p95 recall latency and memory at 100k records.
+4. **Chinese retrieval gate (done on main).** The gate's questions on a
+   reduced subset translated to Chinese, in the repository and in CI at 800
+   and 4000 tokens; all gates also count labelled evidence turns. Chinese
+   trails English by 7–8 of 100; the fill threshold is set on English query
+   match and rarely opens for Chinese. See recall-quality.
+5. **Preference recall at large budgets.** 66.7% against bm25 73.3%.
+6. **Fact supersession.** Validity windows beyond `newer_related`.
+7. **Performance baseline.** p50/p95 recall latency and memory at 100k records.
 
 ## Comparison with other memory systems
 

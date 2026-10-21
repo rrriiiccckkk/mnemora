@@ -18,6 +18,8 @@
 //   node --expose-gc scripts/retrieval-gate.mjs <longmemeval_s_cleaned.json> --update   # rewrite baseline
 //   ... --baseline eval/retrieval-gate/baseline-4000.json   # another budget (adaptive fill)
 //   ... --no-adaptive-fill                                  # A/B: turn adaptive fill off
+//   node --expose-gc scripts/retrieval-gate.mjs eval/retrieval-gate/longmemeval-s-zh.json.gz --baseline eval/retrieval-gate/baseline-zh.json
+//     # Chinese: a reduced, machine-translated subset (scripts/build-zh-gate-dataset.mjs), in the repository
 //
 // The dataset (MIT, xiaowu0162/longmemeval-cleaned) is not in the repository;
 // the baseline pins its revision and sha256, and the script refuses others.
@@ -25,6 +27,7 @@ process.env.TZ = "UTC"; // relative-date notes use local calendar days
 import { enterDeterministic } from "./lib/deterministic.mjs";
 import { createHash } from "node:crypto";
 import { createReadStream, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { gunzipSync } from "node:zlib";
 import { join } from "node:path";
 
 const { createTempDir } = await import("../tests/helpers/temp.mjs");
@@ -46,9 +49,10 @@ const digest = await new Promise((resolve, reject) => {
 });
 if (digest !== baseline.dataset.sha256) throw new Error(`dataset sha256 ${digest} does not match the pinned ${baseline.dataset.sha256} (${baseline.dataset.url})`);
 
-const all = JSON.parse(readFileSync(datasetPath, "utf8"));
+const raw = readFileSync(datasetPath);
+const all = JSON.parse((datasetPath.endsWith(".gz") ? gunzipSync(raw) : raw).toString("utf8"));
 const byId = new Map(all.map((question, index) => [question.question_id, { question, index }]));
-const OFF_TOPIC = ["Write a Python function that reverses a linked list.", "What's the capital of Australia?", "Fix the failing unit test in the payment service.", "hello", "Translate this paragraph into French for me.", "Explain how TCP congestion control works."];
+const OFF_TOPIC = baseline.language === "zh" ? ["写一个反转链表的 Python 函数。", "澳大利亚的首都是哪里？", "修一下支付服务里失败的单元测试。", "你好", "把这段话翻译成法语。", "讲讲 TCP 拥塞控制是怎么工作的。"] : ["Write a Python function that reverses a linked list.", "What's the capital of Australia?", "Fix the failing unit test in the payment service.", "hello", "Translate this paragraph into French for me.", "Explain how TCP congestion control works."];
 
 /** "2023/05/20 (Sat) 02:21" → epoch ms (UTC; the dataset has no zone). */
 function datasetTime(value) {
@@ -70,15 +74,29 @@ async function evaluate(question, index) {
       await engine.ingestBatch({ sessionId: question.haystack_session_ids[session], messages: question.haystack_sessions[session].map((message, turn) => ({ role: message.role, content: message.content, timestamp: at + turn * 1000 })) });
     }
     const sessionOf = new Map(graph.store.db.prepare("SELECT id, session_id FROM mnemora_conversation_events").all().map(row => [row.id, row.session_id]));
+    // Evidence turns: the labelled turns themselves, not just their sessions.
+    // A session also counts as found through any record of it, such as an
+    // assistant reply next to the fact; allEvidenceTurns does not.
+    const evidenceTurns = new Map();
+    for (let session = 0; session < question.haystack_sessions.length; session++) {
+      const id = question.haystack_session_ids[session], turns = question.haystack_sessions[session];
+      const events = graph.store.db.prepare("SELECT id FROM mnemora_conversation_events WHERE session_id = ? AND kind IN ('user_message','assistant_message') ORDER BY sequence").all(id);
+      // A session id listed twice in a haystack is ingested twice.
+      if (!turns.length || events.length % turns.length) throw new Error(`${question.question_id} ${id}: ${events.length} events for ${turns.length} turns`);
+      const labelled = events.filter((event, index) => turns[index % turns.length].has_answer).map(event => event.id);
+      if (labelled.length) evidenceTurns.set(id, labelled);
+    }
     const ask = async prompt => recallText(await engine.assemble({ sessionId: "query-session", prompt, messages: [{ role: "user", content: prompt }], tokenBudget: 16000 })) ?? "";
     const sessions = packet => [...new Set([...packet.matchAll(/(?:^\[\d+\] ref=|^provenance_refs=)([^\s;]+)/gmu)].flatMap(match => match[1].split(",")).map(value => sessionOf.get(value.replace(/[;,]+$/u, "").split("/").pop())).filter(Boolean))];
     const items = packet => [...packet.matchAll(/^\[\d+\] ref=/gmu)].length;
     const packet = await ask(question.question), found = sessions(packet);
     const gold = question.answer_session_ids;
+    const recalled = new Set([...packet.matchAll(/^\[\d+\] ref=([^\s;]+)/gmu)].map(match => match[1].split("/").pop()));
+    const turnFound = id => (evidenceTurns.get(id) ?? []).some(event => recalled.has(event));
     return {
       ...(question.question_id.endsWith("_abs")
         ? { abstentionItems: items(packet) }
-        : { allEvidence: gold.every(id => found.includes(id)), anyEvidence: gold.some(id => found.includes(id)) }),
+        : { allEvidence: gold.every(id => found.includes(id)), anyEvidence: gold.some(id => found.includes(id)), allEvidenceTurns: gold.every(turnFound) }),
       foreignItems: items(await ask(all[(index + 167) % all.length].question)),
       offTopicItems: items(await ask(OFF_TOPIC[index % OFF_TOPIC.length])),
     };
@@ -88,7 +106,7 @@ async function evaluate(question, index) {
   }
 }
 
-const METRICS = { allEvidence: "higher", anyEvidence: "higher", abstentionItems: "lower", foreignItems: "lower", offTopicItems: "lower" };
+const METRICS = { allEvidence: "higher", anyEvidence: "higher", allEvidenceTurns: "higher", abstentionItems: "lower", foreignItems: "lower", offTopicItems: "lower" };
 const totals = results => Object.fromEntries(Object.keys(METRICS).map(metric => [metric, Object.values(results).reduce((sum, result) => sum + Number(result[metric] ?? 0), 0)]));
 
 const started = Date.now();
@@ -110,7 +128,7 @@ if (update) {
 const failures = [], changes = [];
 for (const [metric, direction] of Object.entries(METRICS)) {
   const worse = direction === "higher" ? before[metric] - now[metric] : now[metric] - before[metric];
-  if (worse > baseline.tolerance[metric]) failures.push(`${metric}: ${before[metric]} -> ${now[metric]} (tolerance ${baseline.tolerance[metric]})`);
+  if (worse > (baseline.tolerance[metric] ?? baseline.tolerance.allEvidence)) failures.push(`${metric}: ${before[metric]} -> ${now[metric]} (tolerance ${baseline.tolerance[metric]})`);
 }
 for (const qid of baseline.questions) for (const metric of Object.keys(METRICS)) {
   const was = baseline.results?.[qid]?.[metric], is = results[qid][metric];

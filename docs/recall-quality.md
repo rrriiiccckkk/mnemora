@@ -638,3 +638,38 @@ tokens on average; abstention 12 questions 83.3% → 100% (bm25 91.7%). Against
 the previous Mnemora answers, 14 newly right and 3 newly wrong (exact
 binomial p = 0.013).
 
+## Chinese retrieval gate
+
+LongMemEval_S is English, so the gates said nothing about Chinese. A third
+gate runs the same 100 questions on a reduced, machine-translated subset kept
+in the repository (`eval/retrieval-gate/longmemeval-s-zh.json.gz`, 1.8 MB;
+built by `scripts/build-zh-gate-dataset.mjs`, MIT notice beside it): each
+question keeps its evidence sessions and 8 other haystack sessions, assistant
+turns that are not evidence are cut to 800 characters, and `mimo-v2.6-pro`
+translates at temperature 0 with names of people, brands and works kept in
+their original script. Each question and answer is then retranslated with
+its evidence turns as reference, so a thing is worded alike in both (the
+first pass had 修围栏 in the question and 修栅栏 in the evidence). Building it
+took 1,664 calls, 1.55M input and 1.17M output tokens.
+
+All gates now also count `allEvidenceTurns`: every evidence session must be
+found through its labelled turn, not through any record of the session. The
+looser `allEvidence` hid what the multi-session change did in Chinese at 4000
+tokens: it fell 79 → 75, but in five of the six sessions lost the old packet
+held only the assistant's reply, never the user's fact; by labelled turns
+both versions find 61.
+
+Same 100 questions and sessions, English and Chinese, lexical, before → after
+the multi-session change (`allEvidenceTurns` / `allEvidence`):
+
+| Gate | English (reduced) | Chinese, before | Chinese, after |
+|---|---|---|---|
+| 800 tokens, 8 records | 63 / 74 | 53 / 66 | 56 / 68 |
+| 4000 tokens, 20 records | 69 / 80 | 61 / 79 | 61 / 75 |
+
+Chinese trails English by 7–8 evidence turns. One visible cause: Chinese
+query match is lower (admitted Chinese user turns around 0.2, English median
+0.46), so the adaptive-fill threshold of 0.35, set on English, rarely opens
+for Chinese prompts. Full-dataset English gates by labelled turns: 800
+tokens 62, 4000 tokens 71.
+
